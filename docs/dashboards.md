@@ -15,6 +15,8 @@ These dashboard examples rely on a few popular custom frontend cards. You will n
 ## 1. The "Currently Playing" Card
 This card uses `auto-entities` to automatically show anyone who is currently online. It dynamically sets the border color and icon based on the active platform (Steam, Xbox, PlayStation) and uses `card-mod` to pull the game cover art, blur it, and use it as the background! It hides completely if no one is playing.
 
+![Currently Playing Card Screenshot](../images/playing.png)
+
 ~~~yaml
 type: grid
 cards:
@@ -121,6 +123,8 @@ visibility:
 This custom button-card uses Javascript to scan your network for active games and generates a beautiful, animated CSS slideshow of the cover art. 
 
 *Note: You must list your specific Master Gaming Sensors in the `triggers_update` section so the card knows when to refresh.*
+
+![Active Games Slideshow Screenshot](../images/active.png)
 
 ~~~yaml
 type: grid
@@ -245,6 +249,8 @@ column_span: 1
 ## 3. The Playtime Stats Chart
 This uses `apexcharts-card` to render a gradient bar chart showing daily play hours for the last 7 days, with rolling weekly totals displayed in the header.
 
+![Playtime Stats Card Screenshot](../images/graph.png)
+
 ~~~yaml
 type: grid
 cards:
@@ -350,6 +356,8 @@ column_span: 2
 
 ## 4. The "Recent / History" Card
 This card splits users into two buckets: those currently online (colorful) and those offline (grayscale). It sorts them by who was most recently active.
+
+![Recent Players Card Screenshot](../images/recent.png)
 
 ~~~yaml
 type: grid
@@ -461,6 +469,8 @@ If you want to view all Steam users or all Xbox users in one spot, you can targe
 
 *Below is the template for **Steam**. To adapt this for **Xbox** or **PlayStation**, simply replace `sensor.*_steam` with `sensor.*_xbox` and adjust the colors/icons!*
 
+![Platform-Specific Card Screenshot](../images/steam.png)
+
 ~~~yaml
 type: grid
 cards:
@@ -536,4 +546,291 @@ cards:
       columns: 12
       rows: auto
 column_span: 1
+~~~
+
+# 📱 Wallpanel Dashboards (Fully Kiosk)
+
+If you are using a dedicated wall-mounted tablet (like an Amazon Fire tablet running Fully Kiosk Browser), screen real estate is at a premium. 
+
+Below are two ultra-wide, cinematic dashboard cards designed specifically for wall panels. They dynamically scan for active games and create a beautiful CSS-animated slideshow of the cover art. 
+
+### ⚠️ Prerequisites
+Both of these cards require the [Custom Button-Card](https://github.com/custom-cards/button-card) to be installed via HACS.
+
+---
+
+## 1. Cinematic Gaming Slideshow (Standard)
+This card creates an ultra-wide (192:62 aspect ratio) banner. If no games are active, it displays a muted "No active games" placeholder. If one game is active, it stays static. If multiple games are active, it smoothly crossfades between the cover art.
+
+![Gaming Slideshow Screenshot](../images/banner.png)
+
+~~~yaml
+type: custom:button-card
+show_name: true
+show_icon: false
+show_state: false
+tap_action:
+  action: none
+# UPDATE THESE: List all of your master gaming sensors here so the card knows when to refresh!
+triggers_update:
+  - sensor.player_one_gaming_status
+  - sensor.player_two_gaming_status
+  - sensor.player_three_gaming_status
+styles:
+  card:
+    - background: none
+    - padding: 0px
+    - border: none
+    - box-shadow: none
+    - overflow: hidden
+  name:
+    - width: 100%
+    - padding: 0
+    - align-self: start
+    - justify-self: start
+name: |
+  [[[
+    // --- CONFIGURATION ---
+    var time_per_slide = 5; // Seconds to show each game
+    var transition_time = 1; // Seconds to crossfade
+
+    // --- DATA COLLECTION ---
+    var active_items = []; 
+    var seen_list = [];    
+
+    // 1. SCAN GAMING SENSORS
+    Object.keys(states).forEach(key => {
+      if (key.endsWith('_gaming_status')) {
+        var s = states[key];
+        
+        var is_excluded = ['Offline', 'unavailable', 'unknown', 'idle'].includes(s.state);
+        // Ignore "Last seen" history states
+        var is_history = s.state.toLowerCase().includes('last seen') || s.state.toLowerCase().includes('ago');
+
+        if (!is_excluded && !is_history) {
+          var game_name = s.attributes.current_game;
+          var game_art = s.attributes.game_cover_art;
+
+          // Prevent duplicate slides if multiple people play the exact same game
+          if (game_name && game_art && !seen_list.includes(game_name)) {
+            seen_list.push(game_name);
+            active_items.push({name: game_name, art: game_art});
+          }
+        }
+      }
+    });
+
+    var total_items = active_items.length;
+
+    // --- RENDER CONTENT ---
+    
+    // CASE A: Nothing Playing
+    if (total_items === 0) {
+       return `<div style="padding: 40px; text-align: center; background: rgba(100,100,100,0.5); color: white;">
+                <ha-icon icon="mdi:gamepad-variant-outline" style="width: 40px; height: 40px; opacity: 0.5;"></ha-icon><br>
+                No active games
+              </div>`;
+    }
+
+    // CASE B: Single Item (Static image)
+    if (total_items === 1) {
+      /* NOTE: aspect-ratio controls the width-to-height of the card. Adjust 192/62 to fit your specific tablet screen! */
+      return `<div style="width: 100%; aspect-ratio: 192/62; background-image: url('${active_items[0].art}'); background-size: cover; background-position: center;"></div>`;
+    }
+
+    // CASE C: Slideshow
+    var slideshow_html = `<div style="position: relative; width: 100%; aspect-ratio: 192/62; overflow: hidden;">`;
+    
+    var loop_duration = total_items * time_per_slide;
+    var pct_fade = (transition_time / loop_duration) * 100;
+    var pct_visible = ((time_per_slide - transition_time) / loop_duration) * 100;
+
+    var item_ids = active_items.map(g => g.name.replace(/[^a-zA-Z0-9]/g, '')).join('');
+    var anim_name = `anim_${item_ids}`;
+
+    var slide_style = `<style>
+      @keyframes ${anim_name} {
+        0% { opacity: 0; }
+        ${pct_fade}% { opacity: 1; }
+        ${pct_fade + pct_visible}% { opacity: 1; }
+        ${pct_fade + pct_visible + pct_fade}% { opacity: 0; }
+        100% { opacity: 0; }
+      }
+    </style>`;
+    
+    slideshow_html += slide_style;
+
+    active_items.forEach((g, index) => {
+      var delay = index * time_per_slide;
+      slideshow_html += `<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-image: url('${g.art}'); background-size: cover; background-position: center; opacity: 0; animation: ${anim_name} ${loop_duration}s infinite; animation-delay: ${delay}s;"></div>`;
+    });
+
+    slideshow_html += `</div>`;
+    return slideshow_html;
+  ]]]
+~~~
+
+---
+
+## 2. Cinematic Slideshow (With Player Avatars)
+This advanced version of the slideshow card completely hides itself when no one is gaming to save space. When games are active, it groups players who are playing the same game together and overlays their profile pictures (avatars) in the bottom right corner of the banner.
+
+![Large Slideshow Card Screenshot](../images/wide.png)
+
+~~~yaml
+type: custom:button-card
+show_name: true
+show_icon: false
+show_state: false
+tap_action:
+  action: none
+# UPDATE THESE: List all of your master gaming sensors here so the card knows when to refresh!
+triggers_update:
+  - sensor.player_one_gaming_status
+  - sensor.player_two_gaming_status
+  - sensor.player_three_gaming_status
+styles:
+  card:
+    - background: none
+    - padding: 0px
+    - border: none
+    - box-shadow: none
+    - overflow: hidden
+  name:
+    - width: 100%
+    - padding: 0
+    - align-self: start
+    - justify-self: start
+name: |
+  [[[
+    // --- CONFIGURATION ---
+    var time_per_slide = 5; // Seconds to show each game
+    var transition_time = 1; // Seconds to crossfade
+
+    // --- DATA COLLECTION ---
+    var active_items = []; 
+    
+    // Helper function to group players by the game they are playing
+    function addItem(name, art, player_badge) {
+      if (!name || !art) return;
+      
+      var existing = active_items.find(i => i.name === name);
+      
+      if (existing) {
+        // If the game is already in the list, just add the new player's avatar to it
+        if (player_badge && !existing.players.find(p => p.content === player_badge.content)) {
+          existing.players.push(player_badge);
+        }
+      } else {
+        // If it's a new game, create a new entry
+        active_items.push({
+          name: name, 
+          art: art, 
+          players: player_badge ? [player_badge] : []
+        });
+      }
+    }
+
+    // 1. SCAN GAMING SENSORS (Pull Game Art & Player Avatars)
+    Object.keys(states).forEach(key => {
+      if (key.endsWith('_gaming_status')) {
+        var s = states[key];
+        var is_excluded = ['Offline', 'unavailable', 'unknown', 'idle'].includes(s.state);
+        var is_history = s.state.toLowerCase().includes('last seen') || s.state.toLowerCase().includes('ago');
+
+        if (!is_excluded && !is_history) {
+          var pic = s.attributes.entity_picture;
+          var badge = pic ? { isImage: true, content: pic } : null;
+          addItem(s.attributes.current_game, s.attributes.game_cover_art, badge);
+        }
+      }
+    });
+
+    var total_items = active_items.length;
+
+    // --- HELPER: GENERATE AVATAR HTML ---
+    function getAvatarHtml(players) {
+      if (!players || players.length === 0) return '';
+      
+      var html = `<div style="position: absolute; bottom: 10px; right: 10px; display: flex; z-index: 2;">`;
+      
+      players.forEach(badge => {
+        if (badge && badge.isImage && badge.content) {
+          // Creates a rounded bubble with a white border for the gamerpic
+          html += `<div style="
+            width: 40px; 
+            height: 40px; 
+            border-radius: 50%; 
+            background-image: url('${badge.content}'); 
+            background-size: cover; 
+            border: 2px solid white; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            margin-left: 5px; 
+          "></div>`;
+        }
+      });
+      
+      html += `</div>`;
+      return html;
+    }
+
+    // --- RENDER CONTENT ---
+    
+    // CASE A: Nothing Playing (Card hides entirely)
+    if (total_items === 0) {
+       return `<div style="display: none;"></div>`;
+    }
+
+    // CASE B: SINGLE ITEM
+    if (total_items === 1) {
+      var item = active_items[0];
+      return `
+        <div style="width: 100%; aspect-ratio: 192/62; border-radius: 12px; position: relative; overflow: hidden; box-shadow: 0px 5px 15px rgba(0,0,0,0.5);">
+          <div style="width: 100%; height: 100%; background-image: url('${item.art}'); background-size: cover; background-position: center;"></div>
+          ${getAvatarHtml(item.players)}
+        </div>`;
+    }
+
+    // CASE C: SLIDESHOW
+    var slideshow_html = `<div style="position: relative; width: 100%; aspect-ratio: 192/62; overflow: hidden; border-radius: 12px; box-shadow: 0px 5px 15px rgba(0,0,0,0.5);">`;
+    
+    var loop_duration = total_items * time_per_slide;
+    var pct_fade = (transition_time / loop_duration) * 100;
+    var pct_visible = ((time_per_slide - transition_time) / loop_duration) * 100;
+
+    var item_ids = active_items.map(g => g.name.replace(/[^a-zA-Z0-9]/g, '')).join('');
+    var anim_name = `anim_${item_ids}`;
+
+    var slide_style = `<style>
+      @keyframes ${anim_name} {
+        0% { opacity: 0; }
+        ${pct_fade}% { opacity: 1; }
+        ${pct_fade + pct_visible}% { opacity: 1; }
+        ${pct_fade + pct_visible + pct_fade}% { opacity: 0; }
+        100% { opacity: 0; }
+      }
+    </style>`;
+    
+    slideshow_html += slide_style;
+
+    active_items.forEach((g, index) => {
+      var delay = index * time_per_slide;
+      slideshow_html += `
+        <div style="
+          position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+          opacity: 0; 
+          animation: ${anim_name} ${loop_duration}s infinite; 
+          animation-delay: ${delay}s;
+        ">
+           <div style="width: 100%; height: 100%; background-image: url('${g.art}'); background-size: cover; background-position: top;"></div>
+           ${getAvatarHtml(g.players)}
+        </div>`;
+    });
+
+    slideshow_html += `</div>`;
+    return slideshow_html;
+  ]]]
+grid_options:
+  columns: 24
+  rows: auto
 ~~~

@@ -4,6 +4,9 @@ If you use [Node-RED](https://nodered.org/) in Home Assistant, you can build inc
 
 Below is a complete, copy-pasteable Node-RED flow that handles two advanced features:
 1. **Real-time Discord Alerts:** Sends rich embedded messages to Discord when a player starts or finishes a game (including playtime duration and cover art).
+
+![Discord Screenshot](../images/discord.png)
+
 2. **Weekly Playtime Summary:** Every Monday at 9:00 AM, it calculates the total hours played by everyone over the last week, generates a clean Markdown leaderboard, sends a mobile push notification, and displays it dynamically on your dashboard!
 
 ---
