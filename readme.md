@@ -52,6 +52,8 @@ To display beautiful, high-resolution game covers on your dashboard, this integr
 5. Click **Generate API Key**.
 6. Copy the string of letters and numbers generated. You will paste this into your `profiles.py` file!
 
+### ⚙️ Editing the settings
+
 1. Navigate to your Home Assistant `config` folder.
 2. Go to `custom_components/gaming_status/`.
 3. Locate the file named `example.profiles.py` and rename it to **`profiles.py`**.
