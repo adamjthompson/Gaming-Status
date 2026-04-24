@@ -1,0 +1,6 @@
+{
+  "name": "Gaming Status",
+  "render_readme": true,
+  "filename": "gaming_status",
+  "iot_class": "Local Polling"
+}

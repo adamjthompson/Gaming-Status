@@ -1,0 +1,10 @@
+{
+  "domain": "gaming_status",
+  "name": "Gaming Status",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/adamjthompson/gaming_status",
+  "iot_class": "local_polling",
+  "version": "1.1.61",
+  "requirements": ["aiohttp"]
+}
