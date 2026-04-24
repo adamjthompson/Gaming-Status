@@ -29,13 +29,34 @@ This integration acts as a "wrapper" that intelligently processes data from your
 4. Click **Download**.
 5. **Restart Home Assistant.**
 
+### Manual Installation
+If you prefer not to use HACS, you can install the integration manually:
+
+1. Download the latest release from the [GitHub Releases page](https://github.com/YOUR_GITHUB_USERNAME/ha-gaming-status/releases). *(Note: Download the Source Code ZIP, not the main repository branch).*
+2. Extract the downloaded ZIP file.
+3. Locate the `custom_components/gaming_status/` folder inside the extracted files.
+4. Copy that entire `gaming_status` folder into your Home Assistant `config/custom_components/` directory. *(If the `custom_components` folder does not exist, create it).*
+5. **Restart Home Assistant.**
+6. Follow the Configuration steps below to set up your `profiles.py` file.
+
 ## ⚙️ Configuration (Crucial Step)
 Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer.
+
+### 🔑 Obtaining a SteamGridDB API Key
+To display beautiful, high-resolution game covers on your dashboard, this integration requires a free API key from SteamGridDB. If you skip this step, the integration will simply fall back to displaying the gamer's profile picture.
+
+1. Go to [SteamGridDB.com](https://www.steamgriddb.com/).
+2. Click **Login** in the top right corner and authenticate using your Steam account.
+3. Click your profile picture in the top right and select **Preferences**.
+4. Navigate to the **API** tab on the left menu.
+5. Click **Generate API Key**.
+6. Copy the string of letters and numbers generated. You will paste this into your `profiles.py` file!
 
 1. Navigate to your Home Assistant `config` folder.
 2. Go to `custom_components/gaming_status/`.
 3. Locate the file named `example.profiles.py` and rename it to **`profiles.py`**.
 4. Open `profiles.py` and input the entity IDs for your household members. You can exclude any platforms a user does not use.
+5. Paste your SteamGridDB API key where indicated.
 
 ### Activating the Integration
 Once your `profiles.py` file is configured and saved:

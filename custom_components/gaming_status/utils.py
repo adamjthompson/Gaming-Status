@@ -10,22 +10,20 @@ from dateutil import parser
 from homeassistant.util import dt as dt_util
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import STEAMGRIDDB_API_KEY
-
 # Initialize logger FIRST so error handling can use it
 _LOGGER = logging.getLogger(__name__)
 
-# [V154] Safely pull from profiles.py without crashing if missing
+# Safely pull from profiles.py without crashing if missing
 try:
     from . import profiles
-    STEAMGRIDDB_OVERRIDES = getattr(profiles, 'STEAMGRIDDB_OVERRIDES', {})
     GAME_TITLE_OVERRIDES = getattr(profiles, 'GAME_TITLE_OVERRIDES', {})
     TITLE_CLEANUPS = getattr(profiles, 'TITLE_CLEANUPS', [])
+    STEAMGRIDDB_API_KEY = getattr(profiles, 'STEAMGRIDDB_API_KEY', None)
 except ImportError:
     _LOGGER.error("Could not import profiles.py into utils.py")
-    STEAMGRIDDB_OVERRIDES = {}
     GAME_TITLE_OVERRIDES = {}
     TITLE_CLEANUPS = []
+    STEAMGRIDDB_API_KEY = None
 
 # Cache to prevent hitting the API on every sensor update
 COVER_URL_CACHE = {}
@@ -33,22 +31,18 @@ COVER_URL_CACHE = {}
 async def get_steamgriddb_game_cover(hass, game_name):
     """
     Fetch game cover art (Hero style) from SteamGridDB.
-    Priority: Overrides -> Cache -> Official Art -> Fan Art -> None.
+    Priority: Cache -> Official Art -> Fan Art -> None.
     """
     if not game_name:
         return None
 
-    # 1. Check Manual Overrides
-    if game_name in STEAMGRIDDB_OVERRIDES:
-        return STEAMGRIDDB_OVERRIDES[game_name]
-
-    # 2. Check In-Memory Cache
+    # 1. Check In-Memory Cache
     if game_name in COVER_URL_CACHE:
         return COVER_URL_CACHE[game_name]
 
     if not STEAMGRIDDB_API_KEY:
         if "missing_key_warned" not in COVER_URL_CACHE:
-            _LOGGER.warning("SteamGridDB API Key is missing in const.py")
+            _LOGGER.warning("SteamGridDB API Key is missing in profiles.py")
             COVER_URL_CACHE["missing_key_warned"] = True
         return None
 
@@ -56,7 +50,7 @@ async def get_steamgriddb_game_cover(hass, game_name):
     headers = {"Authorization": f"Bearer {STEAMGRIDDB_API_KEY}"}
 
     try:
-        # 3. Search for Game ID
+        # 2. Search for Game ID
         search_url = f"https://www.steamgriddb.com/api/v2/search/autocomplete/{game_name}"
         async with session.get(search_url, headers=headers) as resp:
             if resp.status != 200:
@@ -70,7 +64,7 @@ async def get_steamgriddb_game_cover(hass, game_name):
 
         game_id = search_data["data"][0]["id"]
 
-        # 4. Fetch Hero Images
+        # 3. Fetch Hero Images
         img_url = f"https://www.steamgriddb.com/api/v2/heroes/game/{game_id}?formats=png,webp,jpg"
         
         async with session.get(img_url, headers=headers) as resp:
@@ -82,7 +76,7 @@ async def get_steamgriddb_game_cover(hass, game_name):
             COVER_URL_CACHE[game_name] = None
             return None
 
-        # 5. Smart Filtering (Official > Any)
+        # 4. Smart Filtering (Official > Any)
         images = img_data["data"]
         final_image = None
         

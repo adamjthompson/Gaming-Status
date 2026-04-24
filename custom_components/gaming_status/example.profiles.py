@@ -1,10 +1,18 @@
 """
 Gaming Status Profiles Configuration
-Rename this file to profiles.py and fill in your entity IDs.
+Rename this file to profiles.py and fill in your details.
 """
 
 # ---------------------------------------------------------
-# 1. GAMER PROFILES
+# 1. STEAMGRIDDB API KEY
+# ---------------------------------------------------------
+# Required to fetch high-quality game cover art.
+# Get a free key at: https://www.steamgriddb.com/profile/api
+
+STEAMGRIDDB_API_KEY = "PUT_YOUR_API_KEY_HERE"
+
+# ---------------------------------------------------------
+# 2. GAMER PROFILES
 # ---------------------------------------------------------
 # Define the players you want to track and their gaming entity IDs.
 # You can simply exclude any platforms a user does not have.
@@ -26,7 +34,7 @@ GAMER_PROFILES = {
 }
 
 # ---------------------------------------------------------
-# 2. GAME TITLE OVERRIDES
+# 3. GAME TITLE OVERRIDES
 # ---------------------------------------------------------
 # Rename messy source titles into clean dashboard titles or replace titles
 # with alternatives for better consistency across various platforms.
@@ -44,7 +52,7 @@ GAME_TITLE_OVERRIDES = {
 }
 
 # ---------------------------------------------------------
-# 3. GLOBAL EXCLUSIONS
+# 4. GLOBAL EXCLUSIONS
 # ---------------------------------------------------------
 # A list of raw states or game names that should be completely 
 # ignored by the tracker (case-insensitive). These are applied to all users and platforms.
@@ -66,7 +74,7 @@ GLOBAL_EXCLUSIONS = [
 ]
 
 # ---------------------------------------------------------
-# 4. CUSTOM GAME MAP (Legacy/Optional)
+# 5. CUSTOM GAME MAP (Legacy/Optional)
 # ---------------------------------------------------------
 # If you are using simple binary sensors (on/off) for PC games, 
 # map the entity ID to the game name here. 
@@ -76,7 +84,7 @@ CUSTOM_GAME_MAP = {
 }
 
 # ---------------------------------------------------------
-# 5. TITLE CLEANUP
+# 6. TITLE CLEANUP
 # ---------------------------------------------------------
 # Phrases to completely remove from game titles (case-insensitive)
 
@@ -91,7 +99,7 @@ TITLE_CLEANUPS = [
 ]
 
 # ---------------------------------------------------------
-# 6. STEAMGRIDDB IMAGE OVERRIDES
+# 7. STEAMGRIDDB IMAGE OVERRIDES
 # ---------------------------------------------------------
 # Manually define image URLs for games that fail the API lookup or where a different image is preferred
 
