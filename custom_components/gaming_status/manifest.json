@@ -3,7 +3,7 @@
   "name": "Gaming Status",
   "codeowners": [],
   "config_flow": true,
-  "documentation": "https://github.com/adamjthompson/gaming_status",
+  "documentation": "https://github.com/adamjthompson/Gaming-Status",
   "iot_class": "local_polling",
   "version": "1.1.61",
   "requirements": ["aiohttp"]
