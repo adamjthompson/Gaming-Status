@@ -1,6 +1,5 @@
 name: Validate Code and HACS
 
-# This tells GitHub to run these tests every time you push code to the main branch
 on:
   push:
     branches:
@@ -43,5 +42,15 @@ jobs:
           
       - name: Lint with flake8
         run: |
-          # This stops the build and alerts you if there are major Python syntax errors
           flake8 custom_components/gaming_status --count --select=E9,F63,F7,F82 --show-source --statistics
+
+  # TEST 3: HASSFEST VALIDATION
+  hassfest:
+    name: Hassfest
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v4
+        
+      - name: Run Hassfest
+        uses: home-assistant/actions/hassfest@master
