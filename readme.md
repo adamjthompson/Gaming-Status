@@ -32,7 +32,7 @@ This integration acts as a "wrapper" that intelligently processes data from your
 ### Manual Installation
 If you prefer not to use HACS, you can install the integration manually:
 
-1. Download the latest release from the [GitHub Releases page](https://github.com/YOUR_GITHUB_USERNAME/ha-gaming-status/releases). *(Note: Download the Source Code ZIP, not the main repository branch).*
+1. Download the latest release from the [GitHub Releases page](https://github.com/adamjthompson/Gaming-Status/releases). *(Note: Download the Source Code ZIP, not the main repository branch).*
 2. Extract the downloaded ZIP file.
 3. Locate the `custom_components/gaming_status/` folder inside the extracted files.
 4. Copy that entire `gaming_status` folder into your Home Assistant `config/custom_components/` directory. *(If the `custom_components` folder does not exist, create it).*
