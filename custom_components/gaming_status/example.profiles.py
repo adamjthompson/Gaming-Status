@@ -74,17 +74,7 @@ GLOBAL_EXCLUSIONS = [
 ]
 
 # ---------------------------------------------------------
-# 5. CUSTOM GAME MAP (Legacy/Optional)
-# ---------------------------------------------------------
-# If you are using simple binary sensors (on/off) for PC games, 
-# map the entity ID to the game name here. 
-
-CUSTOM_GAME_MAP = {
-    "sensor.pc_genshin_impact": "Genshin Impact"
-}
-
-# ---------------------------------------------------------
-# 6. TITLE CLEANUP
+# 5. TITLE CLEANUP
 # ---------------------------------------------------------
 # Phrases to completely remove from game titles (case-insensitive)
 
@@ -99,7 +89,7 @@ TITLE_CLEANUPS = [
 ]
 
 # ---------------------------------------------------------
-# 7. STEAMGRIDDB IMAGE OVERRIDES
+# 6. STEAMGRIDDB IMAGE OVERRIDES
 # ---------------------------------------------------------
 # Manually define image URLs for games that fail the API lookup or where a different image is preferred
 
