@@ -1,0 +1,47 @@
+name: Validate Code and HACS
+
+# This tells GitHub to run these tests every time you push code to the main branch
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  # TEST 1: HACS COMPLIANCE
+  hacs:
+    name: HACS Validation
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v4
+        
+      - name: HACS Action
+        uses: hacs/action@main
+        with:
+          category: "integration"
+
+  # TEST 2: PYTHON SYNTAX CHECKER
+  python-lint:
+    name: Python Syntax Check
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8
+          
+      - name: Lint with flake8
+        run: |
+          # This stops the build and alerts you if there are major Python syntax errors
+          flake8 custom_components/gaming_status --count --select=E9,F63,F7,F82 --show-source --statistics
