@@ -19,11 +19,13 @@ try:
     GAME_TITLE_OVERRIDES = getattr(profiles, 'GAME_TITLE_OVERRIDES', {})
     TITLE_CLEANUPS = getattr(profiles, 'TITLE_CLEANUPS', [])
     STEAMGRIDDB_API_KEY = getattr(profiles, 'STEAMGRIDDB_API_KEY', None)
+    CUSTOM_COVER_MAP = getattr(profiles, 'CUSTOM_COVER_MAP', {})
 except ImportError:
     _LOGGER.error("Could not import profiles.py into utils.py")
     GAME_TITLE_OVERRIDES = {}
     TITLE_CLEANUPS = []
     STEAMGRIDDB_API_KEY = None
+    CUSTOM_COVER_MAP = {}
 
 # Cache to prevent hitting the API on every sensor update
 COVER_URL_CACHE = {}
@@ -31,12 +33,16 @@ COVER_URL_CACHE = {}
 async def get_steamgriddb_game_cover(hass, game_name):
     """
     Fetch game cover art (Hero style) from SteamGridDB.
-    Priority: Cache -> Official Art -> Fan Art -> None.
+    Priority: Custom Map -> Cache -> Official Art -> Fan Art -> None.
     """
     if not game_name:
         return None
 
-    # 1. Check In-Memory Cache
+    # 1. Check Custom Manual Overrides FIRST
+    if game_name in CUSTOM_COVER_MAP:
+        return CUSTOM_COVER_MAP[game_name]
+
+    # 2. Check In-Memory Cache
     if game_name in COVER_URL_CACHE:
         return COVER_URL_CACHE[game_name]
 

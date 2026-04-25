@@ -89,11 +89,12 @@ TITLE_CLEANUPS = [
 ]
 
 # ---------------------------------------------------------
-# 6. STEAMGRIDDB IMAGE OVERRIDES
+# 6. CUSTOM COVER MAP
 # ---------------------------------------------------------
-# Manually define image URLs for games that fail the API lookup or where a different image is preferred
+# Map a game title directly to an image URL. This bypasses SteamGridDB lookup
+# entirely for games that are missing or have poor artwork.
 
-STEAMGRIDDB_OVERRIDES = {
+CUSTOM_COVER_MAP = {
     "Marvel Rivals": "https://cdn2.steamgriddb.com/hero/a31d2779e08530d0b5fdbed368c735b4.png",
     "Sky: Children of the Light": "https://cdn2.steamgriddb.com/hero/a00448af12a60bcbff48b1a698280558.jpg",
     "Race The Sun": "https://cdn2.steamgriddb.com/hero/cfa0860e83a4c3a763a7e62d825349f7.png",
