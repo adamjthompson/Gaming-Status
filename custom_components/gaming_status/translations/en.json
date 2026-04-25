@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Activate Gaming Status",
+        "description": "Click Submit to activate the Gaming Status integration. \n\nNote: All actual configuration and gamer profiles are managed manually in your `profiles.py` file."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Gaming Status is already activated. You only need to set this up once!"
+    }
+  }
+}
