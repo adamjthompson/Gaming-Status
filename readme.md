@@ -52,13 +52,13 @@ To display beautiful, high-resolution game covers on your dashboard, this integr
 5. Click **Generate API Key**.
 6. Copy the string of letters and numbers generated. You will paste this into your `profiles.py` file!
 
-### ⚙️ Editing the settings
+### ⚙️ Editing the Settings
 
 1. Navigate to your Home Assistant `config` folder.
 2. Go to `custom_components/gaming_status/`.
 3. Locate the file named `example.profiles.py` and rename it to **`profiles.py`**.
 4. Open `profiles.py` and input the entity IDs for your household members. You can exclude any platforms a user does not use.
-5. Paste your SteamGridDB API key where indicated.
+5. Paste your **SteamGridDB API Key** where indicated.
 
 ### Activating the Integration
 Once your `profiles.py` file is configured and saved:
