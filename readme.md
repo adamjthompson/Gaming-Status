@@ -42,7 +42,7 @@ If you prefer not to use HACS, you can install the integration manually:
 ## ⚙️ Configuration (Crucial Step)
 Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer.
 
-### 🔑 Obtaining a SteamGridDB API Key
+### Obtaining a SteamGridDB API Key
 To display beautiful, high-resolution game covers on your dashboard, this integration requires a free API key from SteamGridDB. If you skip this step, the integration will simply fall back to displaying the gamer's profile picture.
 
 1. Go to [SteamGridDB.com](https://www.steamgriddb.com/).
@@ -52,7 +52,7 @@ To display beautiful, high-resolution game covers on your dashboard, this integr
 5. Click **Generate API Key**.
 6. Copy the string of letters and numbers generated. You will paste this into your `profiles.py` file!
 
-### ⚙️ Editing the Settings
+### Editing the Settings
 
 1. Navigate to your Home Assistant `config` folder.
 2. Go to `custom_components/gaming_status/`.
@@ -60,7 +60,7 @@ To display beautiful, high-resolution game covers on your dashboard, this integr
 4. Open `profiles.py` and input the entity IDs for your household members. You can exclude any platforms a user does not use.
 5. Paste your **SteamGridDB API Key** where indicated.
 
-### Activating the Integration
+###  Activating the Integration
 Once your `profiles.py` file is configured and saved:
 1. Go to **Settings** ➔ **Devices & Services** in Home Assistant.
 2. Click **+ Add Integration**.
