@@ -106,8 +106,7 @@ async def get_steamgriddb_game_cover(hass, game_name):
 
 def get_base_game_name(full_name):
     """
-    Strips subtitles and extra metadata (like Chapter info) 
-    to prevent sensor bouncing.
+    Strips subtitles and extra metadata (like Chapter info) to prevent sensor bouncing.
     Example: "Wolfenstein: The Old Blood - Playing CHAPTER 8" -> "Wolfenstein: The Old Blood"
     """
     if not full_name:
@@ -115,15 +114,15 @@ def get_base_game_name(full_name):
 
     full_name_str = str(full_name)
 
-    # 1. Handle the specific Xbox/PS5 pattern "Game Name - Playing..."
+    # Handle the specific patterns like "Game Name - Playing..."
     if " - Playing" in full_name_str:
         full_name_str = full_name_str.split(" - Playing")[0]
     elif " – Playing" in full_name_str: # Catch en-dashes
         full_name_str = full_name_str.split(" – Playing")[0]
     elif " Playing " in full_name_str: # Fallback for no dashes
         full_name_str = full_name_str.split(" Playing ")[0]
-
-    # 2. Add any other specific "bouncing" patterns you notice here
+    elif " - In The Menus" in full_name_str:
+        full_name_str = full_name_str.split(" - In The Menus")[0]
     
     return full_name_str.strip()
 
