@@ -104,6 +104,29 @@ async def get_steamgriddb_game_cover(hass, game_name):
 
 # --- HELPERS ---
 
+def get_base_game_name(full_name):
+    """
+    Strips subtitles and extra metadata (like Chapter info) 
+    to prevent sensor bouncing.
+    Example: "Wolfenstein: The Old Blood - Playing CHAPTER 8" -> "Wolfenstein: The Old Blood"
+    """
+    if not full_name:
+        return full_name
+
+    full_name_str = str(full_name)
+
+    # 1. Handle the specific Xbox/PS5 pattern "Game Name - Playing..."
+    if " - Playing" in full_name_str:
+        full_name_str = full_name_str.split(" - Playing")[0]
+    elif " – Playing" in full_name_str: # Catch en-dashes
+        full_name_str = full_name_str.split(" – Playing")[0]
+    elif " Playing " in full_name_str: # Fallback for no dashes
+        full_name_str = full_name_str.split(" Playing ")[0]
+
+    # 2. Add any other specific "bouncing" patterns you notice here
+    
+    return full_name_str.strip()
+
 def _get_gamertag_from_entity(source_entity_id, platform):
     try:
         object_id = source_entity_id.split('.')[1]

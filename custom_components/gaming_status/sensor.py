@@ -61,7 +61,8 @@ from .utils import (
     _safe_parse_datetime,
     _parse_relative_time_from_status,
     _calculate_time_ago_v2,
-    get_steamgriddb_game_cover
+    get_steamgriddb_game_cover,
+    get_base_game_name
 )
 
 # ------------------------------------------------------------------
@@ -303,6 +304,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 potential_game = state
                 if attrs.get("game_queue_games"): potential_game = attrs.get("game_queue_games")[0]
                 
+                potential_game = get_base_game_name(potential_game)
+                
                 if self._is_ghost_session(potential_game) or self._is_game_active_elsewhere(potential_game):
                     data["is_online"] = False 
                 else:
@@ -352,6 +355,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         data["is_online"] = False
 
         if data.get("is_online") and data.get("current_game"):
+            data["current_game"] = get_base_game_name(data["current_game"])
             cleaned_name = _format_game_name_for_display(data["current_game"])
             cg_lower = str(cleaned_name).lower().strip()
             
