@@ -39,10 +39,10 @@ If you prefer not to use HACS, you can install the integration manually:
 3. Locate the `custom_components/gaming_status/` folder inside the extracted files.
 4. Copy that entire `gaming_status` folder into your Home Assistant `config/custom_components/` directory. *(If the `custom_components` folder does not exist, create it).*
 5. **Restart Home Assistant.**
-6. Follow the Configuration steps below to set up your `profiles.py` file.
+6. Follow the Configuration steps below to set up your `gaming_profiles.json` file.
 
 ## ⚙️ Configuration (Crucial Step)
-Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer. All settings will be configured inside of `config/custom_components/gaming_status/profiles.json`. It is recommended to rename the provided `example.profiles.json` and to **`profiles.json`** for use as a starting point.
+Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer. All settings will be configured inside of `config/gaming_profiles.json`. It is recommended to rename the provided `example.profiles.json` and to **`gaming_profiles.json`** for use as a starting point.
 
 ### Obtaining a SteamGridDB API Key
 To display beautiful, high-resolution game covers on your dashboard, this integration requires a free API key from SteamGridDB. If you skip this step, the integration will simply fall back to displaying the gamer's profile picture.

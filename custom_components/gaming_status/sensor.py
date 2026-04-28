@@ -1100,7 +1100,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     
     # 1. Safely load profiles.json in a background executor thread
     def load_json_config():
-        config_path = hass.config.path("custom_components/gaming_status/profiles.json")
+        config_path = hass.config.path("gaming_profiles.json")
         if os.path.exists(config_path):
             with open(config_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
