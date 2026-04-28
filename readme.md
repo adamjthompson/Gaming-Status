@@ -42,7 +42,7 @@ If you prefer not to use HACS, you can install the integration manually:
 6. Follow the Configuration steps below to set up your `profiles.py` file.
 
 ## ⚙️ Configuration (Crucial Step)
-Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer. All settings will be configured inside of `config/custom_components/profiles.json`. It is recommended to rename the provided `example.profiles.json` and to **`profiles.json`** for use as a starting point.
+Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer. All settings will be configured inside of `config/custom_components/gaming_status/profiles.json`. It is recommended to rename the provided `example.profiles.json` and to **`profiles.json`** for use as a starting point.
 
 ### Obtaining a SteamGridDB API Key
 To display beautiful, high-resolution game covers on your dashboard, this integration requires a free API key from SteamGridDB. If you skip this step, the integration will simply fall back to displaying the gamer's profile picture.
