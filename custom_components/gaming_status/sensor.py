@@ -1,5 +1,5 @@
 """
-Gaming Status Sensor Platform (V1.6.4)
+Gaming Status Sensor Platform
 """
 import logging
 import asyncio
@@ -1109,28 +1109,61 @@ class HistoryChartSensor(RestoreEntity, SensorEntity):
 # 3. SETUP ENTRY (Defined LAST)
 # ------------------------------------------------------------------
 
+from .const import CONF_STEAMGRIDDB_API_KEY
+
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    _LOGGER.info("[Gaming Status] Starting Setup (V161)...")
+    _LOGGER.info("[Gaming Status] Starting Setup...")
     
-    # 1. Safely load profiles.json in a background executor thread
+    # 1. Safely load gaming_profiles.json with robust error handling
     def load_json_config():
         config_path = hass.config.path("gaming_profiles.json")
-        if os.path.exists(config_path):
+        
+        if not os.path.exists(config_path):
+            _LOGGER.error("[Gaming Status] CRITICAL: 'gaming_profiles.json' was not found in your /config folder. Please create it to track players.")
+            return {}
+            
+        try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        return {}
+        except json.JSONDecodeError as e:
+            _LOGGER.error(f"[Gaming Status] SYNTAX ERROR: Your gaming_profiles.json file has a typo at Line {e.lineno}, Column {e.colno}. ({e.msg})")
+            return {}
+        except Exception as e:
+            _LOGGER.error(f"[Gaming Status] FATAL: Could not read gaming_profiles.json. Error: {e}")
+            return {}
 
     profiles_data = await hass.async_add_executor_job(load_json_config)
 
-    # 2. Populate globals securely
+    # 2. GRACEFUL MIGRATION: Move API Key from JSON to UI Database
+    api_key = config_entry.data.get(CONF_STEAMGRIDDB_API_KEY)
+    
+    # If the UI database doesn't have a key, but the JSON file does:
+    if not api_key and profiles_data.get('STEAMGRIDDB_API_KEY'):
+        api_key = profiles_data.get('STEAMGRIDDB_API_KEY')
+        _LOGGER.warning("[Gaming Status] Migrating API Key from JSON to secure UI storage.")
+        
+        # Save it to the secure config entry
+        new_data = {**config_entry.data, CONF_STEAMGRIDDB_API_KEY: api_key}
+        hass.config_entries.async_update_entry(config_entry, data=new_data)
+        
+        # (Optional) You can leave the key in the JSON, it will just be ignored from now on.
+
+    # 3. Populate globals securely
     global GAMER_PROFILES, GLOBAL_EXCLUSIONS
     GAMER_PROFILES = profiles_data.get('GAMER_PROFILES', {})
     GLOBAL_EXCLUSIONS = profiles_data.get('GLOBAL_EXCLUSIONS', [])
     
     utils.GAME_TITLE_OVERRIDES = profiles_data.get('GAME_TITLE_OVERRIDES', {})
     utils.TITLE_CLEANUPS = profiles_data.get('TITLE_CLEANUPS', [])
-    utils.CUSTOM_COVER_MAP = profiles_data.get('CUSTOM_COVER_MAP', {})
-    utils.STEAMGRIDDB_API_KEY = profiles_data.get('STEAMGRIDDB_API_KEY', None)
+    # Secure Validation: Only allow HTTPS URLs or safe local HA paths
+    raw_cover_map = profiles_data.get('CUSTOM_COVER_MAP', {})
+    utils.CUSTOM_COVER_MAP = {
+        k: v for k, v in raw_cover_map.items()
+        if isinstance(v, str) and (v.startswith("https://") or v.startswith("/"))
+    }
+    
+    # Give utils the newly secured API key
+    utils.STEAMGRIDDB_API_KEY = api_key
 
     entities = []
     created_wrappers = set()

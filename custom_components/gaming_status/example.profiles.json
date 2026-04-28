@@ -1,5 +1,4 @@
 {
-  "STEAMGRIDDB_API_KEY": "YOUR_ACTUAL_API_KEY_HERE",
   "GAMER_PROFILES": {
     "Player One": {
         "steam": "sensor.steam_player_one",

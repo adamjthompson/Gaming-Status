@@ -21,6 +21,17 @@ This integration acts as a "wrapper" that intelligently processes data from your
 * Official PlayStation Network Integration
 * Official Steam Integration
 * Official Xbox Integration
+* SteamGridDB API Key (for cover art)
+
+### Obtaining a SteamGridDB API Key
+To display beautiful, high-resolution game covers on your dashboard, this integration requires a free API key from SteamGridDB.
+
+1. Go to [SteamGridDB.com](https://www.steamgriddb.com/).
+2. Click **Login** in the top right corner and authenticate using your Steam account.
+3. Click your profile picture in the top right and select **Preferences**.
+4. Navigate to the **API** tab on the left menu.
+5. Click **Generate API Key**.
+6. Copy the string of letters and numbers generated. 
 
 ## 📥 Installation
 
@@ -43,20 +54,6 @@ If you prefer not to use HACS, you can install the integration manually:
 
 ## ⚙️ Configuration (Crucial Step)
 Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer. All settings will be configured inside of `config/gaming_profiles.json`. It is recommended to rename the provided `example.profiles.json` and to **`gaming_profiles.json`** for use as a starting point.
-
-### Obtaining a SteamGridDB API Key
-To display beautiful, high-resolution game covers on your dashboard, this integration requires a free API key from SteamGridDB. If you skip this step, the integration will simply fall back to displaying the gamer's profile picture.
-
-1. Go to [SteamGridDB.com](https://www.steamgriddb.com/).
-2. Click **Login** in the top right corner and authenticate using your Steam account.
-3. Click your profile picture in the top right and select **Preferences**.
-4. Navigate to the **API** tab on the left menu.
-5. Click **Generate API Key**.
-6. Copy the string of letters and numbers generated. 
-
-### API Key (STEAMGRIDDB_API_KEY)
-
-Input your **SteamGridDB API Key** where indicated.
 
 ### User Profiles (GAMER_PROFILES)
 This section maps a friendly display name to the underlying Home Assistant sensors tracking that person. It also holds user-specific rules.
@@ -107,7 +104,7 @@ This allows you to bypass the SteamGridDB API entirely. If a game title matches 
 ```yaml
 "CUSTOM_COVER_MAP": {
     "Marvel Rivals": "https://cdn2.steamgriddb.com/hero/a31d2779e08530d0b5fdbed368c735b4.png",
-    "Super Smash Bros. Melee": "https://your-home-assistant-url.com/local/gaming_status/melee_cover.jpg"
+    "Super Smash Bros. Melee": "/local/gaming_status/melee_cover.jpg"
   }
 ```
 
@@ -148,8 +145,9 @@ Once your `gaming_profiles.json` file is configured and saved:
 1. Go to **Settings** ➔ **Devices & Services** in Home Assistant.
 2. Click **+ Add Integration**.
 3. Search for **Gaming Status** and select it.
-4. The integration will instantly read your `gaming_profiles.json` file and generate the master tracking sensors for your dashboard.
-5. Look for the new master sensors named `sensor.XXXXXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
+4. Input your **SteamGridDB API Key** when prompted.
+5. The integration will instantly read your `gaming_profiles.json` file and generate the master tracking sensors for your dashboard.
+6. Look for the new master sensors named `sensor.XXXXXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
 
 ## What to Try Next!?
 Once evrything is up and running, with sensors showing up from the integration, try loading up a game to make sure the online status is reflected in the master "_gaming_status" sensors. If they are working correctly, try some of the following!

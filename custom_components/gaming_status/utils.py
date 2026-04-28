@@ -90,8 +90,11 @@ async def get_steamgriddb_game_cover(hass, game_name):
         elif images:
             final_image = images[0]["url"]
 
-        if final_image:
+        # Secure Validation: Ensure API didn't return a malicious payload
+        if final_image and final_image.startswith("https://"):
             return _update_cache(game_name, final_image)
+        else:
+            return _update_cache(game_name, None)
 
     except Exception as e:
         _LOGGER.error(f"Error fetching SteamGridDB art for {game_name}: {e}")
