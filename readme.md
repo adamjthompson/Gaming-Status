@@ -64,7 +64,11 @@ To display beautiful, high-resolution game covers on your dashboard, this integr
 ### User Profiles (GAMER_PROFILES)
 This section maps a friendly display name to the underlying Home Assistant sensors tracking that person. It also holds user-specific rules.
 
-**Platform Keys:** Add the entity IDs for steam, xbox, playstation, or custom sensors. You can include as few or as many as a user owns.
+**Platform Keys:** Add the entity IDs for Steam, Xbox, PlayStation, or custom sensors. You can include as few or as many as a user owns. Note the following default sensor naming conventions:
+
+- **Steam:** sensor.steam_playername
+- **Xbox:** sensor.playername_status
+- **PlayStation:** sensor.playername_online_status
 
 **Ghosted_by:** A list of master sensor IDs. If the current user is playing the exact same game as someone in this list, the current user's sensor will remain offline. (Highly useful for shared consoles or PCs to prevent duplicate tracking).
 
