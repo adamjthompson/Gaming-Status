@@ -68,6 +68,8 @@ This section maps a friendly display name to the underlying Home Assistant senso
 
 **Exclude_games:** A user-specific list of games or apps that should be completely ignored (case-insensitive).
 
+*Editing Notes: Replace "Player One" etc. with whatever you want the players to be named and "_player_one" with whatever the actual gamertags should be. "Custom" is only needed if you will be creating your own status sensors, for example, using HASS Agent on a PC to provide an on/off status for a game. Remove any lines that you do not need, and make sure that you do not have any trailing commas after the last entries.*
+
 ```yaml
 "GAMER_PROFILES": {
     "Player One": {
