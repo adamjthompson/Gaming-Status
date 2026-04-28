@@ -950,6 +950,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 class MasterGamingSensor(RestoreEntity, SensorEntity):
     _attr_should_poll = False
     
+    _unrecorded_attributes = frozenset({
+        "secondary",
+        "game_cover_art",
+        "entity_picture"
+    })
+    
     def __init__(self, hass, name, profiles):
         self.hass = hass
         self._profiles = profiles
