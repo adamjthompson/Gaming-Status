@@ -72,18 +72,17 @@ This section maps a friendly display name to the underlying Home Assistant senso
 
 ```yaml
 "GAMER_PROFILES": {
-    "Adam": {
-      "xbox": "sensor.adam_xbox",
-      "steam": "sensor.adam_steam",
-      "playstation": "sensor.adam_playstation",
-      "ghosted_by": [],
-      "exclude_games": ["Netflix", "YouTube"]
+    "Player One": {
+        "steam": "sensor.steam_player_one",
+        "xbox": "sensor.player_one_status",
+        "playstation": "sensor.player_one_online_status",
+        "custom": "sensor.player_one_active_pc_game",
+        "ghosted_by": ["sensor.player_two_steam"],
+        "exclude_games": ["Genshin Impact", "Minecraft"]
     },
-    "Josh": {
-      "xbox": "sensor.josh_xbox",
-      "custom": "sensor.josh_active_pc_game",
-      "ghosted_by": ["sensor.adam_gaming_status"],
-      "exclude_games": ["Roblox"]
+    "Player Two": {
+        "xbox": "sensor.player_two_status",
+        "steam": "sensor.player_two_steam"
     }
   }
 ```

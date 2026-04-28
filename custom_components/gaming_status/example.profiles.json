@@ -6,11 +6,12 @@
         "xbox": "sensor.player_one_status",
         "playstation": "sensor.player_one_online_status",
         "custom": "sensor.player_one_active_pc_game",
-        "ghosted_by": [],
+        "ghosted_by": ["sensor.player_two_steam"],
         "exclude_games": ["Genshin Impact", "Minecraft"]
     },
     "Player Two": {
-        "xbox": "sensor.player_two_status"
+        "xbox": "sensor.player_two_status",
+        "steam": "sensor.player_two_steam"
     }
   },
   "GAME_TITLE_OVERRIDES": {
