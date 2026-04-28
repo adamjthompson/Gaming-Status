@@ -144,24 +144,24 @@ This is a universal "ignore list." While **exclude_games** inside a user profile
 ```
 
 ##  Activating the Integration
-Once your `profiles.json` file is configured and saved:
+Once your `gaming_profiles.json` file is configured and saved:
 1. Go to **Settings** ➔ **Devices & Services** in Home Assistant.
 2. Click **+ Add Integration**.
 3. Search for **Gaming Status** and select it.
-4. The integration will instantly read your `profiles.json` file and generate the master tracking sensors for your dashboard.
+4. The integration will instantly read your `gaming_profiles.json` file and generate the master tracking sensors for your dashboard.
 5. Look for the new master sensors named `sensor.XXXXXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
 
 ## 🛠️ Troubleshooting & FAQ
 **My Master Sensor always says "Offline" even when I'm playing!**
-99% of the time, this is a typo in your `profiles.py` file. 
+99% of the time, this is a typo in your `gaming_profiles.json` file. 
 1. Go to **Developer Tools ➔ States** and find your base platform sensor (e.g., `sensor.steam_765611...`).
-2. Make sure the entity ID in your `profiles.py` matches that exact string letter-for-letter. 
+2. Make sure the entity ID in your `gaming_profiles.json` matches that exact string letter-for-letter. 
 3. Ensure the base official integrations (Steam, Xbox, PlayStation) are actually signed in and working. If the official Xbox sensor is broken, this integration has no data to read!
-*(Note: Remember to restart Home Assistant after making any changes to `profiles.py`!)*
+*(Note: Remember to restart Home Assistant after making any changes to `gaming_profiles.json`!)*
 
 **The game cover art is missing or incorrect.**
 The integration searches SteamGridDB for high-quality cover art based on the name of the game. If a publisher names a game weirdly on Xbox (like *"Call of Duty®: HQ - Cross-Gen Bundle"*), the search will fail.
-* **The Fix:** Open your `profiles.py` and use the `GAME_TITLE_OVERRIDES` dictionary to map that messy title to a clean one (e.g., `"Call of Duty®: HQ - Cross-Gen Bundle": "Call of Duty"`). The integration will instantly find the right art!
+* **The Fix:** Open your `gaming_profiles.json` and use the `GAME_TITLE_OVERRIDES` dictionary to map that messy title to a clean one (e.g., `"Call of Duty®: HQ - Cross-Gen Bundle": "Call of Duty"`). The integration will instantly find the right art!
 
 **My Gamerpic / Avatar is blank or broken.**
 Sometimes, official APIs (especially PlayStation) fail to pass the avatar image URL to Home Assistant. 
