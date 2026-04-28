@@ -467,7 +467,7 @@ cards:
 ## 5. Platform-Specific Breakdowns
 If you want to view all Steam users or all Xbox users in one spot, you can target the child sensors (e.g., `sensor.*_steam`) instead of the master sensor.
 
-*Below is the template for **Steam**. To adapt this for **Xbox** or **PlayStation**, simply replace `sensor.*_steam` with `sensor.*_xbox` and adjust the colors/icons!*
+*Below is the template for **Steam**. To adapt this for **Xbox** or **PlayStation**, simply replace `sensor.*_steam` with `sensor.*_xbox` and adjust the icon and color! I use the following icons and RGB colors for mine: Steam - mdi:steam (2, 173, 239), Xbox - mdi:microsoft-xbox (11, 124, 16), and PlayStation - mdi:sony-playstation (0, 48, 135).*
 
 ![Platform-Specific Card Screenshot](../images/steam.png)
 
