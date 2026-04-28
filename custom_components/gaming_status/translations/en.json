@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Activate Gaming Status",
-        "description": "Click Submit to activate the Gaming Status integration. \n\nNote: All actual configuration and gamer profiles are managed manually in your `profiles.py` file."
+        "description": "Click Submit to activate the Gaming Status integration. \n\nNote: All actual configuration and gamer profiles are managed manually in your `gaming_profiles.json` file."
       }
     },
     "abort": {
