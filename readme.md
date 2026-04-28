@@ -152,6 +152,25 @@ Once your `gaming_profiles.json` file is configured and saved:
 5. Look for the new master sensors named `sensor.XXXXXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
 
 ## 🛠️ Troubleshooting & FAQ
+**The integration loads, but no sensors are created**
+One possibility is a simple JSON formatting error in your `gaming_profiles.json` file. JSON is extremely strict and doesn't allow 'trailing commas' after the last item in a list. See example below:
+
+**Bad JSON**
+```yaml
+"exclude_games": [
+    "Genshin Impact",
+    "Minecraft",  <-- THIS TRAILING COMMA BREAKS EVERYTHING
+  ]
+```
+
+**Good JSON**
+```yaml
+"exclude_games": [
+    "Genshin Impact",
+    "Minecraft"
+  ]
+```
+
 **My Master Sensor always says "Offline" even when I'm playing!**
 99% of the time, this is a typo in your `gaming_profiles.json` file. 
 1. Go to **Developer Tools ➔ States** and find your base platform sensor (e.g., `sensor.steam_765611...`).
@@ -161,16 +180,16 @@ Once your `gaming_profiles.json` file is configured and saved:
 
 **The game cover art is missing or incorrect.**
 The integration searches SteamGridDB for high-quality cover art based on the name of the game. If a publisher names a game weirdly on Xbox (like *"Call of Duty®: HQ - Cross-Gen Bundle"*), the search will fail.
-* **The Fix:** Open your `gaming_profiles.json` and use the `GAME_TITLE_OVERRIDES` dictionary to map that messy title to a clean one (e.g., `"Call of Duty®: HQ - Cross-Gen Bundle": "Call of Duty"`). The integration will instantly find the right art!
+- **The Fix:** Open your `gaming_profiles.json` and use the `GAME_TITLE_OVERRIDES` dictionary to map that messy title to a clean one (e.g., `"Call of Duty®: HQ - Cross-Gen Bundle": "Call of Duty"`). The integration will instantly find the right art!
 
 **My Gamerpic / Avatar is blank or broken.**
 Sometimes, official APIs (especially PlayStation) fail to pass the avatar image URL to Home Assistant. 
-* **The Fix (Local Override):** You can force your own profile picture! Create a folder inside your Home Assistant `www` directory called `gaming_status`. Drop a `.png` or `.jpg` image in there using the format: `[platform]_[profile_name]_avatar.jpg`. 
-* *Example:* If your profile name is "Player One" and you want an Xbox avatar, name the file `xbox_player_one_avatar.jpg` and the integration will automatically use it!
+- **The Fix (Local Override):** You can force your own profile picture! Create a folder inside your Home Assistant `www` directory called `gaming_status`. Drop a `.png` or `.jpg` image in there using the format: `[platform]_[profile_name]_avatar.jpg`. 
+- *Example:* If your profile name is "Player One" and you want an Xbox avatar, name the file `xbox_player_one_avatar.jpg` and the integration will automatically use it!
 
 **My Custom PC Game (or Epic Game) isn't triggering.**
 If you are using a PC companion app like HASS.Agent to track a running `.exe` file, it often reports the *number of running processes* rather than a simple "on/off" state. 
-* **The Fix:** Ensure your Template Funnel Sensor checks for a number greater than zero, rather than just checking if the state is exactly '1'. *(See the [Templates Documentation](docs/templates.md) for the exact code to fix this).*
+- **The Fix:** Ensure your Template Funnel Sensor checks for a number greater than zero, rather than just checking if the state is exactly '1'. *(See the [Templates Documentation](docs/templates.md) for the exact code to fix this).*
 
 **I changed a game's title, but the old name is still showing.**
 The Master Sensor caches history and states to prevent drop-outs. If things look stuck, simply restart Home Assistant to flush the cache and force it to rebuild from the current live data.
