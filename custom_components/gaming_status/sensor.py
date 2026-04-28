@@ -1,12 +1,5 @@
 """
-Gaming Status Sensor Platform (V161)
-- V161: SMART CUSTOM SENSORS.
-        - Custom platform can now read dynamic string states (like "Fortnite") directly from template sensors, bypassing the need for CUSTOM_GAME_MAP while remaining backward compatible.
-- V159: PlayStation Avatar Fix.
-- V158: Exclusion Order of Operations Fix.
-- V157: Leaky Name Fix.
-- V156: Steam Exclusion Fix (Universal check).
-- V155: Self-Ghosting Visual Fix.
+Gaming Status Sensor Platform (V1.6.4)
 """
 import logging
 import asyncio
