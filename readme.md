@@ -1,3 +1,5 @@
+![Gaming Status Logo](custom_components/gaming_status/brand/logo.png)
+
 # 🎮 Gaming Status for Home Assistant
 
 This is a powerful, unified custom integration for Home Assistant that tracks and consolidates gaming presence across Steam, Xbox Live, PlayStation Network, and custom PC clients into a single, clean dashboard sensor for each person in your household. I am NOT a programmer, but I AM a gamer, and I hope that other gamers can make good use of this project!
