@@ -151,6 +151,16 @@ Once your `gaming_profiles.json` file is configured and saved:
 4. The integration will instantly read your `gaming_profiles.json` file and generate the master tracking sensors for your dashboard.
 5. Look for the new master sensors named `sensor.XXXXXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
 
+## What to Try Next!?
+Once evrything is up and running, with sensors showing up from the integration, try loading up a game to make sure the online status is reflected in the master "_gaming_status" sensors. If they are working correctly, try some of the following!
+
+- Add some sweet displays to your [dashboard](docs/dashboards.md#1-the-currently-playing-card), showing who's online and what they're playing
+- Set up Discord or SMS [notifications](docs/notifications.md) for when users start and stop playing games
+- Add a [graph](docs/dashboards.md#3-the-playtime-stats-chart) to chart weekly game time
+- Add a [slideshow](docs/dashboards.md#2-cinematic-slideshow-with-player-avatars) to your wallpanel display to see what's being played
+- Add [custom sensors](docs/templates.md) to track PC games not logged by Steam or Xbox
+- Add a [sensor](docs/templates.md#3-the-is-anyone-gaming-binary-sensor-for-automations) to track whether or not anyone is gaming (useful for automations or contextual card display)
+
 ## 🛠️ Troubleshooting & FAQ
 **The integration loads, but no sensors are created**
 One possibility is a simple JSON formatting error in your `gaming_profiles.json` file. JSON is extremely strict and doesn't allow 'trailing commas' after the last item in a list. See example below:
@@ -158,17 +168,17 @@ One possibility is a simple JSON formatting error in your `gaming_profiles.json`
 **Bad JSON**
 ```yaml
 "exclude_games": [
-    "Genshin Impact",
-    "Minecraft",  <-- THIS TRAILING COMMA BREAKS EVERYTHING
-  ]
+  "Genshin Impact",
+  "Minecraft",  <-- THIS TRAILING COMMA BREAKS EVERYTHING
+]
 ```
 
 **Good JSON**
 ```yaml
 "exclude_games": [
-    "Genshin Impact",
-    "Minecraft"
-  ]
+  "Genshin Impact",
+  "Minecraft"
+]
 ```
 
 **My Master Sensor always says "Offline" even when I'm playing!**
