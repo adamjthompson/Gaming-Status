@@ -1,9 +1,11 @@
 """
 Utilities for Gaming Status
 """
+from email.utils import quote
 import logging
 import re
 import aiohttp
+from urllib.parse import quote
 from datetime import datetime, timezone, timedelta
 from dateutil import parser
 
@@ -57,7 +59,10 @@ async def get_steamgriddb_game_cover(hass, game_name):
 
     try:
         # 2. Search for Game ID
-        search_url = f"https://www.steamgriddb.com/api/v2/search/autocomplete/{game_name}"
+        from urllib.parse import quote
+
+        search_url = f"https://www.steamgriddb.com/api/v2/search/autocomplete/{quote(game_name, safe='')}"
+        
         async with session.get(search_url, headers=headers) as resp:
             if resp.status != 200:
                 _LOGGER.debug(f"SteamGridDB Search failed ({resp.status}) for {game_name}")
