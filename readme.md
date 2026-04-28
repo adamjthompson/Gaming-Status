@@ -42,7 +42,7 @@ If you prefer not to use HACS, you can install the integration manually:
 6. Follow the Configuration steps below to set up your `profiles.py` file.
 
 ## ⚙️ Configuration (Crucial Step)
-Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer.
+Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer. All settings will be configured inside of `config/custom_components/profiles.json`. It is recommended to rename the provided `example.profiles.json` and to **`profiles.json`** for use as a starting point.
 
 ### Obtaining a SteamGridDB API Key
 To display beautiful, high-resolution game covers on your dashboard, this integration requires a free API key from SteamGridDB. If you skip this step, the integration will simply fall back to displaying the gamer's profile picture.
@@ -52,14 +52,11 @@ To display beautiful, high-resolution game covers on your dashboard, this integr
 3. Click your profile picture in the top right and select **Preferences**.
 4. Navigate to the **API** tab on the left menu.
 5. Click **Generate API Key**.
-6. Copy the string of letters and numbers generated. You will paste this into your `secrets.yaml` file!
+6. Copy the string of letters and numbers generated. 
 
-### API Key
+### API Key (STEAMGRIDDB_API_KEY)
 
-1. Navigate to your Home Assistant `config` folder.
-2. Go to `custom_components/gaming_status/`.
-3. Locate the file named `example.profiles.json` and rename it to **`profiles.json`**.
-4. Open `profiles.json` and input your **SteamGridDB API Key** where indicated.
+Input your **SteamGridDB API Key** where indicated.
 
 ### User Profiles (GAMER_PROFILES)
 This section maps a friendly display name to the underlying Home Assistant sensors tracking that person. It also holds user-specific rules.
@@ -91,7 +88,7 @@ This section maps a friendly display name to the underlying Home Assistant senso
   }
 ```
 
-## Game Title Overrides (GAME_TITLE_OVERRIDES)
+### Game Title Overrides (GAME_TITLE_OVERRIDES)
 This acts as a strict dictionary. If the integration detects an exact match with the key (the name on the left), it will permanently replace it with the value (the name on the right) before doing any API lookups or dashboard updates. This is perfect for shortening obnoxiously long official titles.
 
 ```yaml
@@ -102,7 +99,7 @@ This acts as a strict dictionary. If the integration detects an exact match with
   }
 ```
 
-## Custom Covers (CUSTOM_COVER_MAP)
+### Custom Covers (CUSTOM_COVER_MAP)
 This allows you to bypass the SteamGridDB API entirely. If a game title matches a key in this list, the integration will immediately use the provided URL for the artwork. This is great for obscure games, custom emulators, or simply when you prefer a specific piece of fan art over the official cover.
 
 *Note: URLs must point directly to an image file (e.g., .png, .jpg).*
@@ -114,7 +111,7 @@ This allows you to bypass the SteamGridDB API entirely. If a game title matches 
   }
 ```
 
-## Title Cleanups (TITLE_CLEANUPS)
+### Title Cleanups (TITLE_CLEANUPS)
 This is a universal "scrubber." It takes a list of phrases and automatically deletes them from any game title it encounters. This is evaluated case-insensitively. It is the best way to handle dynamic "Rich Presence" statuses that console integrations append to games or remove unnecessary word from game titles.
 
 ```yaml
@@ -129,7 +126,7 @@ This is a universal "scrubber." It takes a list of phrases and automatically del
   ]
 ```
 
-## Global Exclusions (GLOBAL_EXCLUSIONS)
+### Global Exclusions (GLOBAL_EXCLUSIONS)
 This is a universal "ignore list." While exclude_games inside a user profile only applies to that specific person, GLOBAL_EXCLUSIONS applies to every single gamer on your Home Assistant instance. If any console or PC reports playing an app on this list, the integration will immediately force the sensor to report as "Offline." Use Case: This is incredibly useful for preventing streaming apps, music players, or dashboard menus from padding out your gaming hours.
 
 *Note: This list is completely case-insensitive.*
@@ -146,12 +143,12 @@ This is a universal "ignore list." While exclude_games inside a user profile onl
   ]
 ```
 
-###  Activating the Integration
-Once your `profiles.py` file is configured and saved:
+##  Activating the Integration
+Once your `profiles.json` file is configured and saved:
 1. Go to **Settings** ➔ **Devices & Services** in Home Assistant.
 2. Click **+ Add Integration**.
 3. Search for **Gaming Status** and select it.
-4. The integration will instantly read your `profiles.py` file and generate the master tracking sensors for your dashboard!
+4. The integration will instantly read your `profiles.json` file and generate the master tracking sensors for your dashboard!
 5. Look for the new master sensors named `sensor.XXXXXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
 
 ## 📉 Database Optimization (Highly Recommended)
