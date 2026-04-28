@@ -61,13 +61,13 @@ Input your **SteamGridDB API Key** where indicated.
 ### User Profiles (GAMER_PROFILES)
 This section maps a friendly display name to the underlying Home Assistant sensors tracking that person. It also holds user-specific rules.
 
-**Platform Keys:** Add the entity IDs for Steam, Xbox, PlayStation, or custom sensors. You can include as few or as many as a user owns. Note the following default sensor naming conventions:
+**Platform Keys:** Add the entity IDs for Steam, Xbox, PlayStation, or custom sensors. You can include as few or as many as a user owns. *Note the following default platform integration sensor naming conventions:*
 
 - **Steam:** sensor.steam_playername
 - **Xbox:** sensor.playername_status
 - **PlayStation:** sensor.playername_online_status
 
-**Ghosted_by:** A list of master sensor IDs. If the current user is playing the exact same game as someone in this list, the current user's sensor will remain offline. (Highly useful for shared consoles or PCs to prevent duplicate tracking).
+**Ghosted_by:** A list of master sensor IDs. If the current user is playing the exact same game as someone in this list, the current user's sensor will remain offline. This is useful for shared consoles or PCs to prevent duplicate tracking.
 
 **Exclude_games:** A user-specific list of games or apps that should be completely ignored (case-insensitive).
 
@@ -89,7 +89,7 @@ This section maps a friendly display name to the underlying Home Assistant senso
 ```
 
 ### Game Title Overrides (GAME_TITLE_OVERRIDES)
-This acts as a strict dictionary. If the integration detects an exact match with the key (the name on the left), it will permanently replace it with the value (the name on the right) before doing any API lookups or dashboard updates. This is perfect for shortening obnoxiously long official titles.
+This acts as a strict dictionary. If the integration detects an exact match with the key (the name on the left), it will permanently replace it with the value (the name on the right) before doing any API lookups or dashboard updates. This is perfect for shortening obnoxiously long official titles or for when cover art lookup fails due to a name mismatch.
 
 ```yaml
 "GAME_TITLE_OVERRIDES": {
@@ -112,7 +112,7 @@ This allows you to bypass the SteamGridDB API entirely. If a game title matches 
 ```
 
 ### Title Cleanups (TITLE_CLEANUPS)
-This is a universal "scrubber." It takes a list of phrases and automatically deletes them from any game title it encounters. This is evaluated case-insensitively. It is the best way to handle dynamic "Rich Presence" statuses that console integrations append to games or remove unnecessary word from game titles.
+This is a universal "scrubber." It takes a list of phrases and automatically deletes them from any game title it encounters. This is evaluated case-insensitively. It is the best way to handle dynamic "Rich Presence" statuses that console integrations append to games or to remove unnecessary word from game titles.
 
 ```yaml
 "TITLE_CLEANUPS": [
@@ -127,7 +127,7 @@ This is a universal "scrubber." It takes a list of phrases and automatically del
 ```
 
 ### Global Exclusions (GLOBAL_EXCLUSIONS)
-This is a universal "ignore list." While exclude_games inside a user profile only applies to that specific person, GLOBAL_EXCLUSIONS applies to every single gamer on your Home Assistant instance. If any console or PC reports playing an app on this list, the integration will immediately force the sensor to report as "Offline." Use Case: This is incredibly useful for preventing streaming apps, music players, or dashboard menus from padding out your gaming hours.
+This is a universal "ignore list." While **exclude_games** inside a user profile only applies to that specific person, GLOBAL_EXCLUSIONS applies to every single gamer on your Home Assistant instance. If any console or PC reports playing an app on this list, the integration will immediately force the sensor to report as "Offline." This is incredibly useful for preventing streaming apps, music players, or dashboard menus from padding out your gaming hours or sending false "Online" triggers.
 
 *Note: This list is completely case-insensitive.*
 
@@ -148,7 +148,7 @@ Once your `profiles.json` file is configured and saved:
 1. Go to **Settings** ➔ **Devices & Services** in Home Assistant.
 2. Click **+ Add Integration**.
 3. Search for **Gaming Status** and select it.
-4. The integration will instantly read your `profiles.json` file and generate the master tracking sensors for your dashboard!
+4. The integration will instantly read your `profiles.json` file and generate the master tracking sensors for your dashboard.
 5. Look for the new master sensors named `sensor.XXXXXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
 
 ## 📉 Database Optimization (Highly Recommended)
