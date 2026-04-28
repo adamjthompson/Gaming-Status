@@ -52,15 +52,96 @@ To display beautiful, high-resolution game covers on your dashboard, this integr
 3. Click your profile picture in the top right and select **Preferences**.
 4. Navigate to the **API** tab on the left menu.
 5. Click **Generate API Key**.
-6. Copy the string of letters and numbers generated. You will paste this into your `profiles.py` file!
+6. Copy the string of letters and numbers generated. You will paste this into your `secrets.yaml` file!
 
-### Editing the Settings
+### API Key
 
 1. Navigate to your Home Assistant `config` folder.
 2. Go to `custom_components/gaming_status/`.
-3. Locate the file named `example.profiles.py` and rename it to **`profiles.py`**.
-4. Open `profiles.py` and input the entity IDs for your household members. You can exclude any platforms a user does not use.
-5. Paste your **SteamGridDB API Key** where indicated.
+3. Locate the file named `example.profiles.json` and rename it to **`profiles.json`**.
+4. Open `profiles.json` and input your **SteamGridDB API Key** where indicated.
+
+### User Profiles (GAMER_PROFILES)
+This section maps a friendly display name to the underlying Home Assistant sensors tracking that person. It also holds user-specific rules.
+
+**Platform Keys:** Add the entity IDs for steam, xbox, playstation, or custom sensors. You can include as few or as many as a user owns.
+
+**Ghosted_by:** A list of master sensor IDs. If the current user is playing the exact same game as someone in this list, the current user's sensor will remain offline. (Highly useful for shared consoles or PCs to prevent duplicate tracking).
+
+**Exclude_games:** A user-specific list of games or apps that should be completely ignored (case-insensitive).
+
+```yaml
+"GAMER_PROFILES": {
+    "Adam": {
+      "xbox": "sensor.adam_xbox",
+      "steam": "sensor.adam_steam",
+      "playstation": "sensor.adam_playstation",
+      "ghosted_by": [],
+      "exclude_games": ["Netflix", "YouTube"]
+    },
+    "Josh": {
+      "xbox": "sensor.josh_xbox",
+      "custom": "sensor.josh_active_pc_game",
+      "ghosted_by": ["sensor.adam_gaming_status"],
+      "exclude_games": ["Roblox"]
+    }
+  }
+```
+
+## Game Title Overrides (GAME_TITLE_OVERRIDES)
+This acts as a strict dictionary. If the integration detects an exact match with the key (the name on the left), it will permanently replace it with the value (the name on the right) before doing any API lookups or dashboard updates. This is perfect for shortening obnoxiously long official titles.
+
+```yaml
+"GAME_TITLE_OVERRIDES": {
+    "Grand Theft Auto V": "GTA V",
+    "The Elder Scrolls V: Skyrim Special Edition": "Skyrim",
+    "Call of Duty®: Modern Warfare® II": "Modern Warfare II"
+  }
+```
+
+## Custom Covers (CUSTOM_COVER_MAP)
+This allows you to bypass the SteamGridDB API entirely. If a game title matches a key in this list, the integration will immediately use the provided URL for the artwork. This is great for obscure games, custom emulators, or simply when you prefer a specific piece of fan art over the official cover.
+
+*Note: URLs must point directly to an image file (e.g., .png, .jpg).*
+
+```yaml
+"CUSTOM_COVER_MAP": {
+    "Marvel Rivals": "https://cdn2.steamgriddb.com/hero/a31d2779e08530d0b5fdbed368c735b4.png",
+    "Super Smash Bros. Melee": "https://your-home-assistant-url.com/local/gaming_status/melee_cover.jpg"
+  }
+```
+
+## Title Cleanups (TITLE_CLEANUPS)
+This is a universal "scrubber." It takes a list of phrases and automatically deletes them from any game title it encounters. This is evaluated case-insensitively. It is the best way to handle dynamic "Rich Presence" statuses that console integrations append to games or remove unnecessary word from game titles.
+
+```yaml
+"TITLE_CLEANUPS": [
+    "Tom Clancy's",
+    "Sid Meier's",
+    "Marvel's",
+    "Director's Cut",
+    "Steam Edition",
+    "Java Edition",
+    "Open Network Test"
+  ]
+```
+
+## Global Exclusions (GLOBAL_EXCLUSIONS)
+This is a universal "ignore list." While exclude_games inside a user profile only applies to that specific person, GLOBAL_EXCLUSIONS applies to every single gamer on your Home Assistant instance. If any console or PC reports playing an app on this list, the integration will immediately force the sensor to report as "Offline." Use Case: This is incredibly useful for preventing streaming apps, music players, or dashboard menus from padding out your gaming hours.
+
+*Note: This list is completely case-insensitive.*
+
+```yaml
+"GLOBAL_EXCLUSIONS": [
+    "Home",
+    "Netflix",
+    "YouTube",
+    "Hulu",
+    "Amazon Prime Video",
+    "Spotify",
+    "Twitch"
+  ]
+```
 
 ###  Activating the Integration
 Once your `profiles.py` file is configured and saved:
@@ -69,6 +150,26 @@ Once your `profiles.py` file is configured and saved:
 3. Search for **Gaming Status** and select it.
 4. The integration will instantly read your `profiles.py` file and generate the master tracking sensors for your dashboard!
 5. Look for the new master sensors named `sensor.XXXXXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
+
+## 📉 Database Optimization (Highly Recommended)
+This integration generates highly detailed attributes to power custom UI cards. Because these attributes update frequently (such as the "Time Ago" counter and live game session timers), it is highly recommended to exclude them from your Home Assistant Recorder. This prevents massive, unnecessary database growth.
+
+Add the following to your `configuration.yaml` file:
+
+```yaml
+recorder:
+  exclude:
+    entity_attributes:
+      - play_history
+      - secondary
+      - daily_play_time_formatted
+      - weekly_play_time_formatted
+      - game_cover_art
+      - cached_game_cover
+      - entity_picture
+      - code_version
+      - source_entity
+```
 
 ## 🛠️ Troubleshooting & FAQ
 **My Master Sensor always says "Offline" even when I'm playing!**

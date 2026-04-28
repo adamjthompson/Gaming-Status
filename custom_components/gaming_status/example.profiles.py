@@ -4,15 +4,7 @@ Rename this file to profiles.py and fill in your details.
 """
 
 # ---------------------------------------------------------
-# 1. STEAMGRIDDB API KEY
-# ---------------------------------------------------------
-# Required to fetch high-quality game cover art.
-# Get a free key at: https://www.steamgriddb.com/profile/api
-
-STEAMGRIDDB_API_KEY = "PUT_YOUR_API_KEY_HERE"
-
-# ---------------------------------------------------------
-# 2. GAMER PROFILES
+# 1. GAMER PROFILES
 # ---------------------------------------------------------
 # Define the players you want to track and their gaming entity IDs.
 # You can simply exclude any platforms a user does not have.
@@ -34,7 +26,7 @@ GAMER_PROFILES = {
 }
 
 # ---------------------------------------------------------
-# 3. GAME TITLE OVERRIDES
+# 2. GAME TITLE OVERRIDES
 # ---------------------------------------------------------
 # Rename messy source titles into clean dashboard titles or replace titles
 # with alternatives for better consistency across various platforms.
@@ -52,7 +44,7 @@ GAME_TITLE_OVERRIDES = {
 }
 
 # ---------------------------------------------------------
-# 4. GLOBAL EXCLUSIONS
+# 3. GLOBAL EXCLUSIONS
 # ---------------------------------------------------------
 # A list of raw states or game names that should be completely 
 # ignored by the tracker (case-insensitive). These are applied to all users and platforms.
@@ -74,7 +66,7 @@ GLOBAL_EXCLUSIONS = [
 ]
 
 # ---------------------------------------------------------
-# 5. TITLE CLEANUP
+# 4. TITLE CLEANUP
 # ---------------------------------------------------------
 # Phrases to completely remove from game titles (case-insensitive)
 
@@ -89,7 +81,7 @@ TITLE_CLEANUPS = [
 ]
 
 # ---------------------------------------------------------
-# 6. CUSTOM COVER MAP
+# 5. CUSTOM COVER MAP
 # ---------------------------------------------------------
 # Map a game title directly to an image URL. This bypasses SteamGridDB lookup
 # entirely for games that are missing or have poor artwork.

@@ -1,5 +1,5 @@
 """
-Gaming Status Sensor Platform (Production V161)
+Gaming Status Sensor Platform (V161)
 - V161: SMART CUSTOM SENSORS.
         - Custom platform can now read dynamic string states (like "Fortnite") directly from template sensors, bypassing the need for CUSTOM_GAME_MAP while remaining backward compatible.
 - V159: PlayStation Avatar Fix.
@@ -11,6 +11,7 @@ Gaming Status Sensor Platform (Production V161)
 import logging
 import asyncio
 import os
+import json
 import time
 from datetime import datetime, timezone, timedelta
 from dateutil import parser
@@ -23,46 +24,23 @@ from homeassistant.helpers.event import async_track_state_change_event, async_tr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.restore_state import RestoreEntity
 
-# Initialize logger FIRST
 _LOGGER = logging.getLogger(__name__)
 
-# IMPORT CONSTANTS & UTILS
 from .const import (
-    DOMAIN,
-    RESET_HISTORY,
-    GRACE_PERIOD_SECONDS,
-    AWAY_GRACE_PERIOD_SECONDS,
-    GAME_TRANSITION_GRACE_SECONDS,
-    MIN_SESSION_DURATION,
-    ZOMBIE_ATTRIBUTES,
-    PLATFORM_CONFIG,
-    PLATFORM_PRIORITY
+    DOMAIN, RESET_HISTORY, GRACE_PERIOD_SECONDS, AWAY_GRACE_PERIOD_SECONDS,
+    GAME_TRANSITION_GRACE_SECONDS, MIN_SESSION_DURATION, ZOMBIE_ATTRIBUTES,
+    PLATFORM_CONFIG, PLATFORM_PRIORITY
 )
 
-# Safely pull from profiles.py without crashing if missing
-try:
-    from . import profiles
-    GAMER_PROFILES = getattr(profiles, 'GAMER_PROFILES', {})
-    CUSTOM_GAME_MAP = getattr(profiles, 'CUSTOM_GAME_MAP', {})
-    GLOBAL_EXCLUSIONS = getattr(profiles, 'GLOBAL_EXCLUSIONS', [])
-    GAME_TITLE_OVERRIDES = getattr(profiles, 'GAME_TITLE_OVERRIDES', {})
-except ImportError:
-    _LOGGER.error("Could not import profiles.py into sensor.py. Using defaults.")
-    GAMER_PROFILES = {}
-    CUSTOM_GAME_MAP = {}
-    GLOBAL_EXCLUSIONS = []
-    GAME_TITLE_OVERRIDES = {}
+# Initialize empty globals (Populated safely during async_setup_entry)
+GAMER_PROFILES = {}
+GLOBAL_EXCLUSIONS = []
 
+from . import utils
 from .utils import (
-    _get_gamertag_from_entity,
-    _format_time,
-    _format_game_name_for_display,
-    _normalize_game_name,
-    _safe_parse_datetime,
-    _parse_relative_time_from_status,
-    _calculate_time_ago_v2,
-    get_steamgriddb_game_cover,
-    get_base_game_name
+    _get_gamertag_from_entity, _format_time, _format_game_name_for_display,
+    _normalize_game_name, _safe_parse_datetime, _parse_relative_time_from_status,
+    _calculate_time_ago_v2, get_steamgriddb_game_cover, get_base_game_name
 )
 
 # ------------------------------------------------------------------
@@ -82,8 +60,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         
         self._attr_native_value = "Offline"
         self._attr_extra_state_attributes = {
-            "secondary": "Offline", "daily_play_time": 0, "weekly_play_time": 0, "weekly_play_time_last_week": 0,
-            "debug_raw_source_state": "unknown"
+            "secondary": "Offline", "daily_play_time": 0, "weekly_play_time": 0, "weekly_play_time_last_week": 0
         }
         self._attr_entity_picture = None
         self._previous_state = None
@@ -224,27 +201,28 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         if state_clean in ["none", ""]: return None
         normalized_state = state_clean.lower()
         
-        self._attr_extra_state_attributes["debug_raw_source_state"] = state_clean
+        # Log the raw state securely instead of exposing it to the UI
+        _LOGGER.debug(f"Raw source state for {self.entity_id}: {state_clean}")
         
         # --- CUSTOM SENSOR LOGIC [V161] ---
         if self._gaming_type == "custom":
             if normalized_state in ["0", "off", "offline", "false", "unavailable", "unknown", "0.0", "none", ""]:
                 data["is_online"] = False
                 data["avatar_url"] = attrs.get("entity_picture")
-            elif self._source_entity_id in CUSTOM_GAME_MAP:
+            elif self._source_entity_id in utils.CUSTOM_COVER_MAP:
                 # Legacy behavior: Mapped binary sensor
                 if normalized_state in ["1", "on", "playing", "true", "1.0"]:
                     data["is_online"] = True
-                    data["current_game"] = CUSTOM_GAME_MAP[self._source_entity_id]
+                    data["current_game"] = utils.CUSTOM_COVER_MAP.get(self._source_entity_id)
                     data["avatar_url"] = attrs.get("entity_picture")
             else:
-                # Dynamic behavior: The state IS the game name (e.g. from a Template Sensor)
+                # Dynamic behavior: The state IS the game name
                 data["is_online"] = True
                 data["avatar_url"] = attrs.get("entity_picture")
                 if normalized_state in ["1", "on", "playing", "true", "1.0"]:
                     data["current_game"] = "Unknown Custom Game"
                 else:
-                    data["current_game"] = state # Use the raw, proper-case state string
+                    data["current_game"] = state 
 
         is_globally_excluded = False
         global_lower = [x.lower() for x in GLOBAL_EXCLUSIONS]
@@ -466,7 +444,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 clean = parts[-1].strip()
                 if "(" in clean and clean.endswith(")"): clean = clean.rsplit(" (", 1)[0].strip()
         
-        clean = GAME_TITLE_OVERRIDES.get(clean, clean)
+        clean = utils.GAME_TITLE_OVERRIDES.get(clean, clean)
         return clean
 
     async def _async_fetch_missing_cover(self):
@@ -537,6 +515,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if zombie in self._attr_extra_state_attributes:
                 del self._attr_extra_state_attributes[zombie]
 
+        # Secure Cleanup: Purge legacy debug attributes from history database
+        for legacy_debug in ["debug_raw_source_state", "debug_time_ago", "debug_sync", "source_entity"]:
+            if legacy_debug in self._attr_extra_state_attributes:
+                del self._attr_extra_state_attributes[legacy_debug]
+
         source_state = self.hass.states.get(self._source_entity_id)
         if source_state:
             await self._try_force_sync(source_state)
@@ -566,7 +549,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
     async def _try_force_sync(self, source_state):
         if self._last_online_valid_timestamp:
-            self._attr_extra_state_attributes["debug_sync"] = "SKIPPED: Trusting Local History"
+            _LOGGER.debug(f"Sync SKIPPED for {self.entity_id}: Trusting Local History")
             return
 
         s_ts = None
@@ -588,7 +571,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 debug_msg = f"ERROR: {e}"
         
         if not self._attr_extra_state_attributes: self._attr_extra_state_attributes = {}
-        self._attr_extra_state_attributes["debug_sync"] = debug_msg
+        _LOGGER.debug(f"Sync result for {self.entity_id}: {debug_msg}")
 
     @callback
     def _async_state_changed(self, event): self.hass.async_create_task(self._trigger_source_update())
@@ -663,7 +646,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
                 if self._last_online_valid_timestamp:
                     time_ago, debug_info = _calculate_time_ago_v2(self._last_online_valid_timestamp)
-                    self._attr_extra_state_attributes["debug_time_ago"] = debug_info
+                    _LOGGER.debug(f"Time ago calculation for {self.entity_id}: {debug_info}")
                     if time_ago:
                         if self._last_played_game:
                             secondary = f"Last seen {time_ago}: {self._last_played_game}"
@@ -683,7 +666,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._attr_extra_state_attributes["last_reset_date"] = self._last_reset_date
             self._attr_extra_state_attributes["last_weekly_reset"] = self._last_weekly_reset
             self._attr_extra_state_attributes["code_version"] = "v161"
-            self._attr_extra_state_attributes["source_entity"] = self._source_entity_id 
+            
             if self._last_online_valid_timestamp:
                 if isinstance(self._last_online_valid_timestamp, datetime):
                     ts_str = self._last_online_valid_timestamp.isoformat()
@@ -784,7 +767,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             
             if platform_data.get("current_game"):
                 raw_game_name = platform_data["current_game"]
-                raw_game_name = GAME_TITLE_OVERRIDES.get(raw_game_name, raw_game_name)
+                raw_game_name = utils.GAME_TITLE_OVERRIDES.get(raw_game_name, raw_game_name)
                 game_name_display = _format_game_name_for_display(raw_game_name)
                 normalized_new = _normalize_game_name(game_name_display)
                 normalized_current = _normalize_game_name(self._current_game) if self._current_game else None
@@ -867,7 +850,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             self._last_played_game = new_xbox_game
 
                 time_ago, debug_info = _calculate_time_ago_v2(self._last_online_valid_timestamp)
-                self._attr_extra_state_attributes["debug_time_ago"] = debug_info
+                _LOGGER.debug(f"Time ago calculation for {self.entity_id}: {debug_info}")
                 
                 if time_ago:
                     if self._last_played_game:
@@ -914,7 +897,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._attr_extra_state_attributes["last_reset_date"] = self._last_reset_date
             self._attr_extra_state_attributes["last_weekly_reset"] = self._last_weekly_reset
             self._attr_extra_state_attributes["code_version"] = "v161"
-            self._attr_extra_state_attributes["source_entity"] = self._source_entity_id 
+            
             if self._last_online_valid_timestamp:
                 if isinstance(self._last_online_valid_timestamp, datetime):
                     ts_str = self._last_online_valid_timestamp.isoformat()
@@ -1114,10 +1097,31 @@ class HistoryChartSensor(RestoreEntity, SensorEntity):
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     _LOGGER.info("[Gaming Status] Starting Setup (V161)...")
+    
+    # 1. Safely load profiles.json in a background executor thread
+    def load_json_config():
+        config_path = hass.config.path("custom_components/gaming_status/profiles.json")
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return {}
+
+    profiles_data = await hass.async_add_executor_job(load_json_config)
+
+    # 2. Populate globals securely
+    global GAMER_PROFILES, GLOBAL_EXCLUSIONS
+    GAMER_PROFILES = profiles_data.get('GAMER_PROFILES', {})
+    GLOBAL_EXCLUSIONS = profiles_data.get('GLOBAL_EXCLUSIONS', [])
+    
+    utils.GAME_TITLE_OVERRIDES = profiles_data.get('GAME_TITLE_OVERRIDES', {})
+    utils.TITLE_CLEANUPS = profiles_data.get('TITLE_CLEANUPS', [])
+    utils.CUSTOM_COVER_MAP = profiles_data.get('CUSTOM_COVER_MAP', {})
+    utils.STEAMGRIDDB_API_KEY = profiles_data.get('STEAMGRIDDB_API_KEY', None)
+
     entities = []
     created_wrappers = set()
     for friendly_name, platform_data in GAMER_PROFILES.items():
-        _LOGGER.warning(f"[Gaming Status] Found profile: {friendly_name}")
+        _LOGGER.debug(f"[Gaming Status] Found profile: {friendly_name}")
         steam_source = platform_data.get("steam")
         xbox_source = platform_data.get("xbox")
         ps_source = platform_data.get("playstation")
@@ -1145,7 +1149,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     if entities:
         async_add_entities(entities)
-        _LOGGER.warning(f"[Gaming Status] Added {len(entities)} entities.")
+        _LOGGER.info(f"[Gaming Status] Added {len(entities)} entities.")
 
     entity_registry = er.async_get(hass)
     entries = er.async_entries_for_config_entry(entity_registry, config_entry.entry_id)

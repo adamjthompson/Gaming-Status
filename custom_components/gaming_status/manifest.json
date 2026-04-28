@@ -7,7 +7,8 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/adamjthompson/Gaming-Status/issues",
   "requirements": [
-    "aiohttp"
+    "aiohttp",
+    "python-dateutil>=2.8.2"
   ],
   "version": "1.61.1"
 }
