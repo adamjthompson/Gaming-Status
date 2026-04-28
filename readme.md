@@ -151,26 +151,6 @@ Once your `profiles.json` file is configured and saved:
 4. The integration will instantly read your `profiles.json` file and generate the master tracking sensors for your dashboard.
 5. Look for the new master sensors named `sensor.XXXXXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
 
-## 📉 Database Optimization (Highly Recommended)
-This integration generates highly detailed attributes to power custom UI cards. Because these attributes update frequently (such as the "Time Ago" counter and live game session timers), it is highly recommended to exclude them from your Home Assistant Recorder. This prevents massive, unnecessary database growth.
-
-Add the following to your `configuration.yaml` file:
-
-```yaml
-recorder:
-  exclude:
-    entity_attributes:
-      - play_history
-      - secondary
-      - daily_play_time_formatted
-      - weekly_play_time_formatted
-      - game_cover_art
-      - cached_game_cover
-      - entity_picture
-      - code_version
-      - source_entity
-```
-
 ## 🛠️ Troubleshooting & FAQ
 **My Master Sensor always says "Offline" even when I'm playing!**
 99% of the time, this is a typo in your `profiles.py` file. 

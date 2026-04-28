@@ -50,6 +50,21 @@ from .utils import (
 class PersistentStatusSensor(RestoreEntity, SensorEntity):
     _attr_should_poll = False
     
+    # Instructs the HA Recorder to ignore these specific attributes to prevent DB bloat
+    _unrecorded_attributes = frozenset({
+        "play_history",
+        "secondary",
+        "daily_play_time_formatted",
+        "weekly_play_time_formatted",
+        "game_cover_art",
+        "cached_game_cover",
+        "entity_picture",
+        "code_version",
+        "source_entity",
+        "temp_offline_start",
+        "debug_time_ago"
+    })
+
     def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None):
         self.hass = hass
         self._source_entity_id = source_entity_id
