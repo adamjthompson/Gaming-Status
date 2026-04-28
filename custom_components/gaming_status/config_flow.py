@@ -32,4 +32,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_STEAMGRIDDB_API_KEY): str,
             }),
             errors=errors,
+            description_placeholders={
+                "api_url": "https://www.steamgriddb.com/profile/api"
+            }
         )

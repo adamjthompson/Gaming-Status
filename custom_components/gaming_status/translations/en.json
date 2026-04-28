@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Gaming Status Setup",
-        "description": "Enter your SteamGridDB API key to enable game cover art. You can get a free key at https://www.steamgriddb.com/profile/api. Other configuration options are set in the gaming_profiles.json file.",
+        "description": "Enter your SteamGridDB API key to enable game cover art. You can get a free key at [SteamGridDB]({api_url}). Other configuration options are set in the gaming_profiles.json file.",
         "data": {
           "steamgriddb_api_key": "SteamGridDB API Key"
         }
