@@ -2,12 +2,18 @@
   "config": {
     "step": {
       "user": {
-        "title": "Activate Gaming Status",
-        "description": "Click Submit to activate the Gaming Status integration. \n\nNote: All actual configuration and gamer profiles are managed manually in your `gaming_profiles.json` file."
+        "title": "Gaming Status Setup",
+        "description": "Enter your SteamGridDB API key to enable game cover art. You can get a free key at https://www.steamgriddb.com/profile/api. Other configuration options are set in the gaming_profiles.json file.",
+        "data": {
+          "steamgriddb_api_key": "SteamGridDB API Key"
+        }
       }
     },
     "abort": {
-      "single_instance_allowed": "Gaming Status is already activated. You only need to set this up once!"
+      "single_instance_allowed": "Only one instance of Gaming Status can be configured."
+    },
+    "error": {
+      "api_key_required": "API key cannot be empty."
     }
   }
 }

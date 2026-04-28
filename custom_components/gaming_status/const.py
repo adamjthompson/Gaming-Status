@@ -3,6 +3,7 @@ Constants for Gaming Status
 """
 
 DOMAIN = "gaming_status"
+CONF_STEAMGRIDDB_API_KEY = "steamgriddb_api_key"
 
 # --- SETTINGS ---
 RESET_HISTORY = False
