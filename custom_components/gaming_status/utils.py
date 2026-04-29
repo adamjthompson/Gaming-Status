@@ -201,7 +201,7 @@ def _calculate_time_ago_v2(timestamp_val):
 
 def safe_url(url):
     """Securely validate URLs to prevent malicious URI injections."""
-    if isinstance(url, str) and (url.startswith("https://") or url.startswith("/")):
+    if isinstance(url, str) and (url.startswith("https://") or url.startswith("/local/")):
         return url
     return None
 

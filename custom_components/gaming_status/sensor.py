@@ -911,13 +911,18 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     if os.path.exists(local_path): 
                         entity_pic = f"/local/gaming_status/{local_filename}"
                         break
+                
+                # --- SECURE VALIDATION APPLIED HERE ---
                 if not entity_pic:
-                    if platform_data.get("avatar_url"): entity_pic = safe_url(platform_data.get("avatar_url"))
+                    if platform_data.get("avatar_url"): 
+                        entity_pic = safe_url(platform_data.get("avatar_url"))
                 
                 self._attr_extra_state_attributes["entity_picture"] = entity_pic
                 self._attr_entity_picture = entity_pic
             else:
-                if platform_data.get("avatar_url"): self._attr_entity_picture = safe_url(platform_data.get("avatar_url"))
+                # --- SECURE VALIDATION APPLIED HERE ---
+                if platform_data.get("avatar_url"): 
+                    self._attr_entity_picture = safe_url(platform_data.get("avatar_url"))
             
             self._attr_extra_state_attributes["current_game"] = self._current_game
             self._attr_extra_state_attributes["game_cover_art"] = game_cover
