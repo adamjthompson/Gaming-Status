@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gaming Status Configurator</title>
+    <style>
+        :root {
+            --bg-color: #ffffff;
+            --card-bg: #eeeeee;
+            --text-main: #e1e1e1;
+            --text-muted: #333333;
+            --primary: #2a3242;
+            --primary-hover: #485671;
+            --border: #2a3242;
+            --input-bg: #2a3242;
+        }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2, h3 { color: var(--primary); margin-top: 0; }
+        .card {
+            background: var(--card-bg);
+            border-radius: 0;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid var(--border);
+        }
+        h3 { color: var(--text-main); }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border-radius: 0;
+            border: 1px solid var(--border);
+            background: var(--input-bg);
+            color: var(--text-main);
+            box-sizing: border-box;
+        }
+        button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 0;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        button:hover { background: var(--primary-hover); }
+        .danger-btn { background: #d32f2f; margin-left: 10px; }
+        .danger-btn:hover { background: #b71c1c; }
+        .icon-btn { padding: 8px 12px; margin-left: 5px; margin-top: 0; }
+        .save-btn { background: #4CAF50; width: 100%; font-size: 1.2em; padding: 15px; margin-top: 0; }
+        .save-btn:hover { background: #388E3C; }
+        .refresh-btn { background: var(--primary); width: 100%; font-size: 1.2em; padding: 15px; margin-top: 0; }
+        .refresh-btn:hover { background: var(--primary-hover); }
+        .button-group { display: flex; gap: 15px; align-items: center; }
+        
+        .profile-entry {
+            border-left: 4px solid var(--primary);
+            padding-left: 15px;
+            margin-bottom: 20px;
+            background: #222;
+            padding: 15px;
+            border-radius: 0;
+        }
+        .kv-row { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
+        .kv-row input { flex: 1; margin-bottom: 0; }
+        textarea {
+            width: 100%;
+            height: 150px;
+            background: var(--input-bg);
+            color: var(--text-main);
+            padding: 15px;
+            border-radius: 0;
+            border: 1px solid var(--border);
+            box-sizing: border-box;
+            resize: vertical;
+        }
+        #json-output {
+            background: #000;
+            color: #4af626;
+            font-family: monospace;
+            height: 250px;
+        }
+        .help-text { font-size: 0.85em; color: var(--text-muted); margin-top: 4px; margin-bottom: 15px; display: block; }
+        .url-error { border-color: #d32f2f !important; }
+        .url-hint { font-size: 0.8em; color: #d32f2f; display: none; margin-top: 2px; }
+        .url-hint.visible { display: block; }
+        #status-bar { padding: 10px; background: #2e7d32; text-align: center; font-weight: bold; border-radius: 0; margin-bottom: 20px; display: none; }
+    </style>
+</head>
+<body>
+
+    <div id="status-bar">✓ Connected to Home Assistant</div>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; margin-top: 15px;">
+        <img src="/gaming_status/brand/logo.png" alt="Logo" style="height: 60px; border-radius: 8px;">
+        <h1 style="margin: 0;">Configurator</h1>
+    </div>
+
+    <div class="card" id="profiles-container">
+        <h2>1. User Profiles</h2>
+        <span class="help-text">Enter Gamer Tags exactly as they appear. They will be formatted for Home Assistant automatically. Blank entries are ignored.</span>
+        <div id="profiles-list"></div>
+        <button type="button" onclick="addProfile()">+ Add New Player</button>
+    </div>
+
+    <div class="card">
+        <h2>2. Global Exclusions</h2>
+        <span class="help-text">Apps, dashboards, or video players that should NEVER trigger a "playing" status for anyone. One per line.</span>
+        <textarea id="global-exclusions-input"></textarea>
+    </div>
+
+    <div class="card">
+        <h2>3. Title Cleanups</h2>
+        <span class="help-text">Phrases that will be automatically removed from any game title (e.g., removing "Director's Cut" to help find cover art). One per line.</span>
+        <textarea id="title-cleanups-input"></textarea>
+    </div>
+
+    <div class="card">
+        <h2>4. Game Title Overrides</h2>
+        <span class="help-text">Force the integration to rename a specific game. Excellent for mapping various launcher editions to a single clean name.</span>
+        <div id="overrides-list"></div>
+        <button type="button" onclick="addOverrideRow()">+ Add Title Override</button>
+    </div>
+
+    <div class="card">
+        <h2>5. Custom Cover Art</h2>
+        <span class="help-text">Provide direct image URLs for games not found on SteamGridDB, or use local files (e.g., /local/gaming_status/art.png). URLs must start with <code>https://</code> or <code>/local/</code>.</span>
+        <div id="covers-list"></div>
+        <button type="button" onclick="addCoverRow()">+ Add Custom Cover</button>
+    </div>
+
+    <div class="card">
+        <h2>Save Configuration</h2>
+        <div class="button-group">
+            <button type="button" class="save-btn" style="flex: 2;" onclick="saveToHomeAssistant()">💾 Save Configuration to Home Assistant</button>
+            <button type="button" class="refresh-btn" style="flex: 1;" onclick="refreshJSONPreview()">🔄 Refresh Preview</button>
+        </div>
+        <p class="help-text" style="text-align: center; margin-top: 15px;">Requires a Home Assistant reboot or integration reload to take effect.</p>
+        
+        <div style="margin-top: 25px; border-top: 1px solid var(--border); padding-top: 20px;">
+            <h3 style="color: var(--primary); margin-top: 0;">Raw JSON Preview (Advanced)</h3>
+            <span class="help-text">Verify your configuration output below before saving.</span>
+            <textarea id="json-output" readonly style="margin-top: 5px;"></textarea>
+        </div>
+    </div>
+
+    <script>
+        let profileCount = 0;
+        
+        // This dictionary silently caches advanced profile settings (ghosted_by, exclude_games) 
+        // that the user may have manually entered into the JSON file, ensuring we don't overwrite them.
+        let advancedProfileMemory = {};
+
+        let currentData = {
+            "GLOBAL_EXCLUSIONS": [
+                "Home", "Online", "Xbox App", "YouTube", "Netflix", "Hulu",
+                "Amazon Prime Video", "Spotify", "Microsoft Store", "Store",
+                "Xbox 360 Dashboard", "Setting up...", "Wallpaper Engine"
+            ],
+            "TITLE_CLEANUPS": [
+                "Tom Clancy's", "Sid Meier's", "Marvel's", "Director's Cut",
+                "Steam Edition", "Java Edition", "Open Network Test"
+            ],
+            "GAME_TITLE_OVERRIDES": {
+                "Minecraft Launcher": "Minecraft",
+                "Minecraft Preview for Windows": "Minecraft",
+                "Minecraft: Java Edition": "Minecraft",
+                "Minecraft for Windows": "Minecraft",
+                "RaceTheSun": "Race The Sun",
+                "Grand Theft Auto V": "GTA V",
+                "The Elder Scrolls V: Skyrim Special Edition": "Skyrim"
+            },
+            "CUSTOM_COVER_MAP": {
+                "Marvel Rivals": "https://cdn2.steamgriddb.com/hero/a31d2779e08530d0b5fdbed368c735b4.png",
+                "Sky: Children of the Light": "https://cdn2.steamgriddb.com/hero/a00448af12a60bcbff48b1a698280558.jpg"
+            }
+        };
+
+        function isValidCoverUrl(url) {
+            return typeof url === 'string' && (url.startsWith("https://") || url.startsWith("/local/") || url.startsWith("/"));
+        }
+
+        function formatEntityId(tag, platform) {
+            if (!tag) return null;
+            let safeTag = tag.toLowerCase().replace(/[^a-z0-9]/g, '_');
+            if (platform === 'xbox') return `sensor.${safeTag}_status`;
+            if (platform === 'playstation') return `sensor.${safeTag}_online_status`;
+            if (platform === 'steam') return `sensor.steam_${safeTag}`;
+            return null;
+        }
+
+        function reverseEntityId(entityId, platform) {
+            if (!entityId) return "";
+            if (platform === 'xbox') return entityId.replace('sensor.', '').replace('_status', '');
+            if (platform === 'playstation') return entityId.replace('sensor.', '').replace('_online_status', '');
+            if (platform === 'steam') return entityId.replace('sensor.steam_', '');
+            return "";
+        }
+
+        function createInput(className, placeholder, value = "") {
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = className;
+            input.placeholder = placeholder;
+            input.value = value;
+            return input;
+        }
+
+        function addProfile(nameVal = "", xboxVal = "", psnVal = "", steamVal = "", customVal = "") {
+            profileCount++;
+            const id = `profile-${profileCount}`;
+            const div = document.createElement('div');
+            div.className = 'profile-entry';
+            div.id = id;
+
+            const header = document.createElement('div');
+            header.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;';
+            const h3 = document.createElement('h3');
+            h3.style.margin = '0';
+            h3.style.color = '#e1e1e1';
+            h3.textContent = 'Player';
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'danger-btn icon-btn';
+            removeBtn.textContent = 'X Remove';
+            removeBtn.addEventListener('click', () => div.remove());
+            header.appendChild(h3);
+            header.appendChild(removeBtn);
+            div.appendChild(header);
+
+            const fields = [
+                { label: 'Display Name',          cls: 'p-name',  ph: 'e.g., Josh',          val: nameVal  },
+                { label: 'Xbox Gamertag',         cls: 'p-xbox',  ph: 'e.g., MajorNelson',   val: xboxVal  },
+                { label: 'PlayStation Network ID', cls: 'p-psn',   ph: 'e.g., ShuheiYoshida', val: psnVal   },
+                { label: 'Steam ID / Name',       cls: 'p-steam', ph: 'e.g., GabeNewell',    val: steamVal },
+                { label: 'Custom Sensor (HASS.Agent)', cls: 'p-custom', ph: 'e.g., sensor.josh_pc_active_window', val: customVal }
+            ];
+
+            fields.forEach(({ label, cls, ph, val }) => {
+                const group = document.createElement('div');
+                group.className = 'form-group';
+                const lbl = document.createElement('label');
+                lbl.textContent = label; 
+                group.appendChild(lbl);
+                group.appendChild(createInput(cls, ph, val));
+                div.appendChild(group);
+            });
+
+            document.getElementById('profiles-list').appendChild(div);
+        }
+
+        function addOverrideRow(originalTitle = "", newTitle = "") {
+            const div = document.createElement('div');
+            div.className = 'kv-row override-row';
+            div.appendChild(createInput('o-key', 'Original Game Title', originalTitle));
+            const arrow = document.createElement('span');
+            arrow.style.color = 'var(--primary)';
+            arrow.textContent = '➔';
+            div.appendChild(arrow);
+            div.appendChild(createInput('o-val', 'Cleaned Name', newTitle));
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'danger-btn icon-btn';
+            btn.textContent = 'X';
+            btn.addEventListener('click', () => div.remove());
+            div.appendChild(btn);
+            document.getElementById('overrides-list').appendChild(div);
+        }
+
+        function addCoverRow(gameTitle = "", url = "") {
+            const div = document.createElement('div');
+            div.className = 'kv-row cover-row';
+            div.style.flexWrap = 'wrap';
+            div.appendChild(createInput('c-key', 'Exact Game Title', gameTitle));
+            const arrow = document.createElement('span');
+            arrow.style.color = 'var(--primary)';
+            arrow.textContent = '➔';
+            div.appendChild(arrow);
+            
+            const urlInput = createInput('c-val', 'https://... or /local/...', url);
+            urlInput.addEventListener('input', () => validateCoverInput(urlInput, hint));
+            div.appendChild(urlInput);
+
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'danger-btn icon-btn';
+            btn.textContent = 'X';
+            btn.addEventListener('click', () => div.remove());
+            div.appendChild(btn);
+
+            const hint = document.createElement('div');
+            hint.className = 'url-hint';
+            hint.style.width = '100%';
+            hint.textContent = 'URL must start with https:// or /local/';
+            div.appendChild(hint);
+
+            if (url) validateCoverInput(urlInput, hint);
+            document.getElementById('covers-list').appendChild(div);
+        }
+
+        function validateCoverInput(input, hint) {
+            const v = input.value.trim();
+            if (v && !isValidCoverUrl(v)) {
+                input.classList.add('url-error');
+                hint.classList.add('visible');
+            } else {
+                input.classList.remove('url-error');
+                hint.classList.remove('visible');
+            }
+        }
+
+        function loadDataIntoUI() {
+            document.getElementById('global-exclusions-input').value = currentData.GLOBAL_EXCLUSIONS.join('\n');
+            document.getElementById('title-cleanups-input').value = currentData.TITLE_CLEANUPS.join('\n');
+
+            document.getElementById('overrides-list').innerHTML = '';
+            for (const [orig, cleaned] of Object.entries(currentData.GAME_TITLE_OVERRIDES || {})) {
+                addOverrideRow(orig, cleaned);
+            }
+
+            document.getElementById('covers-list').innerHTML = '';
+            for (const [title, url] of Object.entries(currentData.CUSTOM_COVER_MAP || {})) {
+                addCoverRow(title, url);
+            }
+        }
+
+        // NATIVE REST API INTEGRATION
+        async function loadFromHomeAssistant() {
+            try {
+                // CACHE BUSTER: ?t=... forces the browser to pull a fresh copy of the file
+                const cacheBusterUrl = '/api/gaming_status/profiles?t=' + new Date().getTime();
+                const response = await fetch(cacheBusterUrl);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('status-bar').style.display = 'block';
+
+                    if (Object.keys(data).length > 0) {
+                        if (data.GLOBAL_EXCLUSIONS) currentData.GLOBAL_EXCLUSIONS = data.GLOBAL_EXCLUSIONS;
+                        if (data.TITLE_CLEANUPS) currentData.TITLE_CLEANUPS = data.TITLE_CLEANUPS;
+                        if (data.GAME_TITLE_OVERRIDES) currentData.GAME_TITLE_OVERRIDES = data.GAME_TITLE_OVERRIDES;
+                        if (data.CUSTOM_COVER_MAP) currentData.CUSTOM_COVER_MAP = data.CUSTOM_COVER_MAP;
+
+                        document.getElementById('profiles-list').innerHTML = '';
+                        advancedProfileMemory = {}; // Reset the silent memory
+
+                        if (data.GAMER_PROFILES && Object.keys(data.GAMER_PROFILES).length > 0) {
+                            for (const [name, platforms] of Object.entries(data.GAMER_PROFILES)) {
+                                
+                                // Cache any advanced manual settings so we don't destroy them
+                                advancedProfileMemory[name] = {
+                                    ghosted_by: platforms.ghosted_by || [],
+                                    exclude_games: platforms.exclude_games || []
+                                };
+
+                                const xbox = reverseEntityId(platforms.xbox, 'xbox');
+                                const psn = reverseEntityId(platforms.playstation, 'playstation');
+                                const steam = reverseEntityId(platforms.steam, 'steam');
+                                const custom = platforms.custom || ""; 
+                                addProfile(name, xbox, psn, steam, custom);
+                            }
+                        } else {
+                            addProfile(); 
+                        }
+                    } else {
+                        addProfile();
+                    }
+                    loadDataIntoUI();
+                    refreshJSONPreview();
+                } else {
+                    // EXPLICIT ERROR ALERT: If the JSON is corrupted, warn the user instantly.
+                    const errData = await response.json().catch(() => ({}));
+                    const errMsg = errData._api_error || response.statusText;
+                    alert("⚠️ Error loading profiles from Home Assistant!\n\nYour gaming_profiles.json file likely has a syntax error (like a missing quote or extra comma).\n\nDetails: " + errMsg);
+                    console.error("Fetch failed:", errMsg);
+                    addProfile();
+                    loadDataIntoUI();
+                }
+            } catch (err) {
+                alert("⚠️ Network Error communicating with Home Assistant.");
+                console.error("Could not fetch from HA API", err);
+                addProfile();
+                loadDataIntoUI();
+            }
+        }
+
+        function refreshJSONPreview() {
+            const config = buildConfigObject(true); // 'true' means silent mode
+            if (config) {
+                document.getElementById('json-output').value = JSON.stringify(config, null, 2);
+            }
+        }
+
+        function buildConfigObject(silent = false) {
+            const config = {
+                "GAMER_PROFILES": {},
+                "GLOBAL_EXCLUSIONS": [],
+                "GAME_TITLE_OVERRIDES": {},
+                "TITLE_CLEANUPS": [],
+                "CUSTOM_COVER_MAP": {}
+            };
+
+            document.querySelectorAll('.profile-entry').forEach(node => {
+                const name = node.querySelector('.p-name').value.trim();
+                const xbox = node.querySelector('.p-xbox').value.trim();
+                const psn = node.querySelector('.p-psn').value.trim();
+                const steam = node.querySelector('.p-steam').value.trim();
+                const custom = node.querySelector('.p-custom').value.trim();
+
+                if (name) {
+                    config.GAMER_PROFILES[name] = {};
+                    if (xbox) config.GAMER_PROFILES[name].xbox = formatEntityId(xbox, 'xbox');
+                    if (psn) config.GAMER_PROFILES[name].playstation = formatEntityId(psn, 'playstation');
+                    if (steam) config.GAMER_PROFILES[name].steam = formatEntityId(steam, 'steam');
+                    if (custom) config.GAMER_PROFILES[name].custom = custom;
+                    
+                    // Safely retrieve advanced settings from memory, or default to empty array
+                    const memory = advancedProfileMemory[name] || {};
+                    config.GAMER_PROFILES[name].ghosted_by = memory.ghosted_by || [];
+                    config.GAMER_PROFILES[name].exclude_games = memory.exclude_games || [];
+                }
+            });
+
+            config.GLOBAL_EXCLUSIONS = document.getElementById('global-exclusions-input').value
+                .split('\n').map(s => s.trim()).filter(s => s.length > 0);
+
+            config.TITLE_CLEANUPS = document.getElementById('title-cleanups-input').value
+                .split('\n').map(s => s.trim()).filter(s => s.length > 0);
+
+            document.querySelectorAll('.override-row').forEach(row => {
+                const k = row.querySelector('.o-key').value.trim();
+                const v = row.querySelector('.o-val').value.trim();
+                if (k && v) config.GAME_TITLE_OVERRIDES[k] = v;
+            });
+
+            let urlError = false;
+            document.querySelectorAll('.cover-row').forEach(row => {
+                const k = row.querySelector('.c-key').value.trim();
+                const v = row.querySelector('.c-val').value.trim();
+                if (k && v) {
+                    if (!isValidCoverUrl(v)) {
+                        if (!silent) alert(`Invalid URL for "${k}":\n"${v}"\n\nMust start with https:// or /local/`);
+                        urlError = true;
+                        return;
+                    }
+                    config.CUSTOM_COVER_MAP[k] = v;
+                }
+            });
+
+            if (urlError) return null;
+            return config;
+        }
+
+        async function saveToHomeAssistant() {
+            const config = buildConfigObject();
+            if (!config) return;
+
+            // Populate the advanced view just for verification
+            document.getElementById('json-output').value = JSON.stringify(config, null, 2);
+
+            try {
+                const response = await fetch('/api/gaming_status/profiles', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+
+                if (response.ok) {
+                    alert("Settings successfully saved to Home Assistant!\n\nNote: Please restart Home Assistant to apply your changes.");
+                } else {
+                    alert("Failed to save settings. Please check Home Assistant logs.");
+                }
+            } catch (err) {
+                alert("Error communicating with Home Assistant.");
+                console.error(err);
+            }
+        }
+
+        window.onload = loadFromHomeAssistant;
+    </script>
+</body>
+</html>

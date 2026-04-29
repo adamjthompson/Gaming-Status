@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Gaming Status Setup",
-        "description": "Enter your SteamGridDB API key to enable game cover art. You can get a free key at [SteamGridDB]({api_url}). Other configuration options are set in the gaming_profiles.json file.",
+        "description": "Enter your SteamGridDB API key to enable game cover art. You can get a free key at [SteamGridDB]({api_url}).",
         "data": {
           "steamgriddb_api_key": "SteamGridDB API Key"
         }
@@ -14,6 +14,17 @@
     },
     "error": {
       "api_key_required": "API key cannot be empty."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Gaming Status Configuration",
+        "description": "You can update your SteamGridDB API key below.\n\n**To manage your players, games, and exclusions, please click the 'Gaming Status' icon in your Home Assistant sidebar!**",
+        "data": {
+          "steamgriddb_api_key": "SteamGridDB API Key"
+        }
+      }
     }
   }
 }
