@@ -10,5 +10,5 @@
     "aiohttp",
     "python-dateutil>=2.8.2"
   ],
-  "version": "1.6.6"
+  "version": "1.6.7"
 }
