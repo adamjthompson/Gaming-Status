@@ -53,94 +53,9 @@ If you prefer not to use HACS, you can install the integration manually:
 6. Follow the Configuration steps below to set up your `gaming_profiles.json` file.
 
 ## ⚙️ Configuration (Crucial Step)
-Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer. All settings will be configured inside of `config/gaming_profiles.json`. It is recommended to rename the provided `example.profiles.json` and to **`gaming_profiles.json`** for use as a starting point.
+Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer. All settings will be configured inside of `config/gaming_profiles.json`. It is recommended to use this online tool to generate your JSON file. Further editing of advanced options can be performed manually in VSCode or your editor of choice.
 
-### User Profiles (GAMER_PROFILES)
-This section maps a friendly display name to the underlying Home Assistant sensors tracking that person. It also holds user-specific rules.
-
-**Platform Keys:** Add the entity IDs for Steam, Xbox, PlayStation, or custom sensors. You can include as few or as many as a user owns. *Note the following default platform integration sensor naming conventions:*
-
-- **Steam:** sensor.steam_playername
-- **Xbox:** sensor.playername_status
-- **PlayStation:** sensor.playername_online_status
-
-**Ghosted_by:** A list of master sensor IDs. If the current user is playing the exact same game as someone in this list, the current user's sensor will remain offline. This is useful for shared consoles or PCs to prevent duplicate tracking.
-
-**Exclude_games:** A user-specific list of games or apps that should be completely ignored (case-insensitive).
-
-*Editing Notes: Replace "Player One" etc. with whatever you want the players to be named and "_player_one" with whatever the actual gamertags should be. "Custom" is only needed if you will be creating your own status sensors, for example, using HASS Agent on a PC to provide an on/off status for a game. Remove any lines that you do not need, and make sure that you do not have any trailing commas after the last entries.*
-
-```yaml
-"GAMER_PROFILES": {
-    "Player One": {
-        "steam": "sensor.steam_player_one",
-        "xbox": "sensor.player_one_status",
-        "playstation": "sensor.player_one_online_status",
-        "custom": "sensor.player_one_active_pc_game",
-        "ghosted_by": ["sensor.player_two_steam"],
-        "exclude_games": ["Genshin Impact", "Minecraft"]
-    },
-    "Player Two": {
-        "xbox": "sensor.player_two_status",
-        "steam": "sensor.player_two_steam"
-    }
-  }
-```
-
-### Game Title Overrides (GAME_TITLE_OVERRIDES)
-This acts as a strict dictionary. If the integration detects an exact match with the key (the name on the left), it will permanently replace it with the value (the name on the right) before doing any API lookups or dashboard updates. This is perfect for shortening obnoxiously long official titles or for when cover art lookup fails due to a name mismatch.
-
-```yaml
-"GAME_TITLE_OVERRIDES": {
-    "Grand Theft Auto V": "GTA V",
-    "The Elder Scrolls V: Skyrim Special Edition": "Skyrim",
-    "Call of Duty®: Modern Warfare® II": "Modern Warfare II"
-  }
-```
-
-### Custom Covers (CUSTOM_COVER_MAP)
-This allows you to bypass the SteamGridDB API entirely. If a game title matches a key in this list, the integration will immediately use the provided URL for the artwork. This is great for obscure games, custom emulators, or simply when you prefer a specific piece of fan art over the official cover.
-
-*Note: URLs must point directly to an image file (e.g., .png, .jpg).*
-
-```yaml
-"CUSTOM_COVER_MAP": {
-    "Marvel Rivals": "https://cdn2.steamgriddb.com/hero/a31d2779e08530d0b5fdbed368c735b4.png",
-    "Super Smash Bros. Melee": "/local/gaming_status/melee_cover.jpg"
-  }
-```
-
-### Title Cleanups (TITLE_CLEANUPS)
-This is a universal "scrubber." It takes a list of phrases and automatically deletes them from any game title it encounters. This is evaluated case-insensitively. It is the best way to handle dynamic "Rich Presence" statuses that console integrations append to games or to remove unnecessary word from game titles.
-
-```yaml
-"TITLE_CLEANUPS": [
-    "Tom Clancy's",
-    "Sid Meier's",
-    "Marvel's",
-    "Director's Cut",
-    "Steam Edition",
-    "Java Edition",
-    "Open Network Test"
-  ]
-```
-
-### Global Exclusions (GLOBAL_EXCLUSIONS)
-This is a universal "ignore list." While **exclude_games** inside a user profile only applies to that specific person, GLOBAL_EXCLUSIONS applies to every single gamer on your Home Assistant instance. If any console or PC reports playing an app on this list, the integration will immediately force the sensor to report as "Offline." This is incredibly useful for preventing streaming apps, music players, or dashboard menus from padding out your gaming hours or sending false "Online" triggers.
-
-*Note: This list is completely case-insensitive.*
-
-```yaml
-"GLOBAL_EXCLUSIONS": [
-    "Home",
-    "Netflix",
-    "YouTube",
-    "Hulu",
-    "Amazon Prime Video",
-    "Spotify",
-    "Twitch"
-  ]
-```
+Additionally, there is a provided [`example.profiles.json`](custom_components/gaming_status/example.profiles.json) file that can be used as a starting point if you prefer to edit the file manually yourself. See the [Advanced Setup](docs/advanced.md) documentation for more details.
 
 ##  Activating the Integration
 Once your `gaming_profiles.json` file is configured and saved:
@@ -152,14 +67,15 @@ Once your `gaming_profiles.json` file is configured and saved:
 6. Look for the new master sensors named `sensor.XXXXXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
 
 ## What to Try Next!?
-Once evrything is up and running, with sensors showing up from the integration, try loading up a game to make sure the online status is reflected in the master "_gaming_status" sensors. If they are working correctly, try some of the following!
+Once everything is up and running, with sensors showing up from the integration, try loading up a game to make sure the online status is reflected in the master "_gaming_status" sensors. If they are working correctly, try some of the following!
 
 - Add some sweet displays to your [dashboard](docs/dashboards.md#1-the-currently-playing-card), showing who's online and what they're playing
 - Set up Discord or SMS [notifications](docs/notifications.md) for when users start and stop playing games
 - Add a [graph](docs/dashboards.md#3-the-playtime-stats-chart) to chart weekly game time
 - Add a [slideshow](docs/dashboards.md#2-cinematic-slideshow-with-player-avatars) to your wallpanel display to see what's being played
 - Add [custom sensors](docs/templates.md) to track PC games not logged by Steam or Xbox
-- Add a [sensor](docs/templates.md#3-the-is-anyone-gaming-binary-sensor-for-automations) to track whether or not anyone is gaming (useful for automations or contextual card display)
+- Add a [sensor](docs/advanced.md#the-is-anyone-gaming-binary-sensor-for-automations) to track whether or not anyone is gaming (useful for automations or contextual card display)
+- Check out the [Advanced Setup](docs/advanced.md) documentation for even more customization options
 
 ## 🛠️ Troubleshooting & FAQ
 **The integration loads, but no sensors are created**
@@ -199,7 +115,7 @@ Sometimes, official APIs (especially PlayStation) fail to pass the avatar image 
 
 **My Custom PC Game (or Epic Game) isn't triggering.**
 If you are using a PC companion app like HASS.Agent to track a running `.exe` file, it often reports the *number of running processes* rather than a simple "on/off" state. 
-- **The Fix:** Ensure your Template Funnel Sensor checks for a number greater than zero, rather than just checking if the state is exactly '1'. *(See the [Templates Documentation](docs/templates.md) for the exact code to fix this).*
+- **The Fix:** Ensure your Template Funnel Sensor checks for a number greater than zero, rather than just checking if the state is exactly '1'. *(See the [Advanced Setup](docs/advanced.md) documentation for the exact code to fix this).*
 
 **I changed a game's title, but the old name is still showing.**
 The Master Sensor caches history and states to prevent drop-outs. If things look stuck, simply restart Home Assistant to flush the cache and force it to rebuild from the current live data.
