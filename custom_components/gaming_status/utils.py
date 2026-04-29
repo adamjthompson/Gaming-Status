@@ -51,7 +51,7 @@ async def get_steamgriddb_game_cover(hass, game_name):
 
     if not STEAMGRIDDB_API_KEY:
         if not _MISSING_KEY_WARNED:
-            _LOGGER.warning("STEAMGRIDDB_API_KEY is missing from profiles.json")
+            _LOGGER.warning("[Gaming Status] SteamGridDB API key is not configured. Set it via Settings → Integrations → Gaming Status → Configure.")
             _MISSING_KEY_WARNED = True
         return None
 

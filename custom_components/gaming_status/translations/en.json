@@ -20,7 +20,7 @@
     "step": {
       "init": {
         "title": "Gaming Status Configuration",
-        "description": "You can update your SteamGridDB API key below.\n\n**To manage your players, games, and exclusions, please click the 'Gaming Status' icon in your Home Assistant sidebar!**",
+        "description": "You can update your SteamGridDB API key below.\n\n**To manage your players, exclusions, and other settings,please click the 'Gaming Status' icon in your Home Assistant sidebar!**",
         "data": {
           "steamgriddb_api_key": "SteamGridDB API Key"
         }

@@ -102,7 +102,7 @@
     <div id="status-bar">✓ Connected to Home Assistant</div>
 
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; margin-top: 15px;">
-        <img src="/gaming_status/brand/logo.png" alt="Logo" style="height: 60px; border-radius: 8px;">
+        <img src="/gaming_status/brand/logo.png" alt="Logo" style="height: 60px;">
         <h1 style="margin: 0;">Configurator</h1>
     </div>
 
@@ -185,6 +185,20 @@
                 "Sky: Children of the Light": "https://cdn2.steamgriddb.com/hero/a00448af12a60bcbff48b1a698280558.jpg"
             }
         };
+
+        // Securely retrieve HA token from browser
+        function getHAToken() {
+            try {
+                const tokensStr = window.parent.localStorage.getItem('hassTokens') || localStorage.getItem('hassTokens');
+                if (tokensStr) {
+                    const tokens = JSON.parse(tokensStr);
+                    return tokens.access_token;
+                }
+            } catch (e) {
+                console.error("Could not retrieve HA token:", e);
+            }
+            return null;
+        }
 
         function isValidCoverUrl(url) {
             return typeof url === 'string' && (url.startsWith("https://") || url.startsWith("/local/") || url.startsWith("/"));
@@ -323,12 +337,12 @@
             document.getElementById('global-exclusions-input').value = currentData.GLOBAL_EXCLUSIONS.join('\n');
             document.getElementById('title-cleanups-input').value = currentData.TITLE_CLEANUPS.join('\n');
 
-            document.getElementById('overrides-list').innerHTML = '';
+            document.getElementById('overrides-list').replaceChildren();
             for (const [orig, cleaned] of Object.entries(currentData.GAME_TITLE_OVERRIDES || {})) {
                 addOverrideRow(orig, cleaned);
             }
 
-            document.getElementById('covers-list').innerHTML = '';
+            document.getElementById('covers-list').replaceChildren();
             for (const [title, url] of Object.entries(currentData.CUSTOM_COVER_MAP || {})) {
                 addCoverRow(title, url);
             }
@@ -339,7 +353,13 @@
             try {
                 // CACHE BUSTER: ?t=... forces the browser to pull a fresh copy of the file
                 const cacheBusterUrl = '/api/gaming_status/profiles?t=' + new Date().getTime();
-                const response = await fetch(cacheBusterUrl);
+                const token = getHAToken();
+                const fetchOptions = { headers: {} };
+                
+                // Add secure authorization header
+                if (token) fetchOptions.headers['Authorization'] = 'Bearer ' + token;
+
+                const response = await fetch(cacheBusterUrl, fetchOptions);
                 
                 if (response.ok) {
                     const data = await response.json();
@@ -351,7 +371,7 @@
                         if (data.GAME_TITLE_OVERRIDES) currentData.GAME_TITLE_OVERRIDES = data.GAME_TITLE_OVERRIDES;
                         if (data.CUSTOM_COVER_MAP) currentData.CUSTOM_COVER_MAP = data.CUSTOM_COVER_MAP;
 
-                        document.getElementById('profiles-list').innerHTML = '';
+                        document.getElementById('profiles-list').replaceChildren();
                         advancedProfileMemory = {}; // Reset the silent memory
 
                         if (data.GAMER_PROFILES && Object.keys(data.GAMER_PROFILES).length > 0) {
@@ -381,7 +401,7 @@
                     // EXPLICIT ERROR ALERT: If the JSON is corrupted, warn the user instantly.
                     const errData = await response.json().catch(() => ({}));
                     const errMsg = errData._api_error || response.statusText;
-                    alert("⚠️ Error loading profiles from Home Assistant!\n\nYour gaming_profiles.json file likely has a syntax error (like a missing quote or extra comma).\n\nDetails: " + errMsg);
+                    alert("⚠️ Error loading profiles from Home Assistant!\n\nCheck authorization status or syntax errors.\n\nDetails: " + errMsg);
                     console.error("Fetch failed:", errMsg);
                     addProfile();
                     loadDataIntoUI();
@@ -469,14 +489,25 @@
             document.getElementById('json-output').value = JSON.stringify(config, null, 2);
 
             try {
-                const response = await fetch('/api/gaming_status/profiles', {
+                const token = getHAToken();
+                const fetchOptions = {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(config)
-                });
+                };
+                
+                // Add secure authorization header
+                if (token) {
+                    fetchOptions.headers['Authorization'] = 'Bearer ' + token;
+                } else {
+                    alert("Authentication token not found. Please log into Home Assistant and try again.");
+                    return;
+                }
+
+                const response = await fetch('/api/gaming_status/profiles', fetchOptions);
 
                 if (response.ok) {
-                    alert("Settings successfully saved to Home Assistant!\n\nNote: Please restart Home Assistant to apply your changes.");
+                    alert("Settings successfully saved to Home Assistant!\n\nNote: Please restart Home Assistant or reload the integration to apply your changes.");
                 } else {
                     alert("Failed to save settings. Please check Home Assistant logs.");
                 }

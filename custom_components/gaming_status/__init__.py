@@ -11,10 +11,10 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
 
 class GamingProfilesAPI(HomeAssistantView):
-    """Secure API endpoint to read and write gaming_profiles.json natively"""
+    """Secure API endpoint to read and write gaming_profiles.json natively."""
     url = "/api/gaming_status/profiles"
     name = "api:gaming_status:profiles"
-    requires_auth = False  # Allows the local iframe to save without a bearer token
+    requires_auth = True  # SECURITY FIX: Requires a valid Bearer Token
 
     def __init__(self, hass: HomeAssistant):
         self.hass = hass
@@ -37,15 +37,30 @@ class GamingProfilesAPI(HomeAssistantView):
         
         data = await self.hass.async_add_executor_job(read_file)
         
-        # If we caught an error, return a 500 status so the frontend knows it failed
         if "_api_error" in data:
             return self.json(data, status_code=500)
             
         return self.json(data)
 
     async def post(self, request):
-        """Write to the profiles file."""
-        data = await request.json()
+        """Write to the profiles file securely."""
+        # 1. Size Limit Enforcement & JSON Parsing
+        try:
+            body = await request.read()
+            if len(body) > 1_000_000:  # 1MB hard limit on raw bytes
+                _LOGGER.warning("[Gaming Status] API Write Error - Payload exceeded 1MB limit")
+                return self.json({"error": "Payload too large"}, status_code=413)
+            
+            data = json.loads(body)
+        except Exception as e:
+            _LOGGER.error(f"[Gaming Status] API Write Error - Invalid JSON payload: {e}")
+            return self.json({"error": "Invalid JSON"}, status_code=400)
+
+        # 2. Basic Schema Validation (Ensure the payload is actually a dictionary)
+        if not isinstance(data, dict):
+            _LOGGER.error("[Gaming Status] API Write Error - Payload is not a dictionary object")
+            return self.json({"error": "Invalid payload format"}, status_code=400)
+
         def write_file():
             with open(self.file_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
@@ -55,13 +70,11 @@ class GamingProfilesAPI(HomeAssistantView):
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Gaming Status from a config entry"""
+    """Set up Gaming Status from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    # 1. Register our custom API endpoint
     hass.http.register_view(GamingProfilesAPI(hass))
 
-    # 2. Serve the HTML and brand folder using the modern async method
     configurator_path = os.path.join(os.path.dirname(__file__), "gaming_profiles.html")
     brand_path = os.path.join(os.path.dirname(__file__), "brand")
     
@@ -70,14 +83,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         StaticPathConfig("/gaming_status/brand", brand_path, cache_headers=True),
     ])
 
-    # 3. Register the sidebar panel pointing at the static file
     async_register_built_in_panel(
         hass,
         component_name="iframe",
         sidebar_title="Gaming Status",
         sidebar_icon="mdi:controller",
         frontend_url_path="gaming-status-config",
-        config={"url": "/gaming_status/configurator?v=169"},
+        config={"url": "/gaming_status/configurator?v=170"}, 
         require_admin=True,
     )
 
