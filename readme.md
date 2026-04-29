@@ -52,21 +52,21 @@ If you prefer not to use HACS, you can install the integration manually:
 5. **Restart Home Assistant.**
 6. Follow the Configuration steps below to set up your `gaming_profiles.json` file.
 
-## ⚙️ Configuration (Crucial Step)
-Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer. All settings will be configured inside of `config/gaming_profiles.json`. 
-
-Use the [Gaming Status Configurator](https://adamjthompson.com/gaming_profiles) to easily generate your JSON file. Further editing of advanced options can be performed manually in VSCode or your editor of choice. After adding your information, download the file and upload it to your Home Assistant installation in the `config` folder.
-
-*Additionally, there is a [`example.profiles.json`](custom_components/gaming_status/example.profiles.json) file provided that can be used as a starting point if you prefer to edit the file manually yourself. See the [Advanced Setup](docs/advanced.md) documentation for more details.*
-
 ##  Activating the Integration
 Once your `gaming_profiles.json` file is configured and saved:
 1. Go to **Settings** ➔ **Devices & Services** in Home Assistant.
 2. Click **+ Add Integration**.
 3. Search for **Gaming Status** and select it.
 4. Input your **SteamGridDB API Key** when prompted.
-5. The integration will instantly read your `gaming_profiles.json` file and generate the master tracking sensors for your dashboard.
-6. Look for the new master sensors named `sensor.XXXXXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
+
+## ⚙️ Configuration (Crucial Step)
+Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer. All settings will be configured inside of `config/gaming_profiles.json`. 
+
+Use the *Gaming Status Configurator* to easily generate the required JSON file. This should show up after installation as an entry on your sidebar labeled "Gaming Status". Further editing of advanced options can be performed manually in VSCode or your editor of choice. **After adding your information, save the JSON file and either reload the integration or restart Home Assistant.**
+
+*Additionally, there is a [`example.profiles.json`](custom_components/gaming_status/example.profiles.json) file provided that can be used as a starting point if you prefer to edit the file manually yourself. See the [Advanced Setup](docs/advanced.md) documentation for more details.*
+
+Upon reload (or restart), the integration will instantly read your `config/gaming_profiles.json` file and generate the master tracking sensors for your dashboard. Look for the new master sensors named `sensor.XXXXXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
 
 ## What to Try Next!?
 Once everything is up and running, with sensors showing up from the integration, try loading up a game to make sure the online status is reflected in the master "_gaming_status" sensors. If they are working correctly, try some of the following!
