@@ -53,9 +53,11 @@ If you prefer not to use HACS, you can install the integration manually:
 6. Follow the Configuration steps below to set up your `gaming_profiles.json` file.
 
 ## ⚙️ Configuration (Crucial Step)
-Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer. All settings will be configured inside of `config/gaming_profiles.json`. It is recommended to use this online tool to generate your JSON file. Further editing of advanced options can be performed manually in VSCode or your editor of choice.
+Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer. All settings will be configured inside of `config/gaming_profiles.json`. 
 
-Additionally, there is a provided [`example.profiles.json`](custom_components/gaming_status/example.profiles.json) file that can be used as a starting point if you prefer to edit the file manually yourself. See the [Advanced Setup](docs/advanced.md) documentation for more details.
+Use this [online tool](https://adamjthompson.com/gaming_profiles) to easily generate your JSON file. Further editing of advanced options can be performed manually in VSCode or your editor of choice. After adding your information, download the file and upload it to your Home Assistant installation in the `config` folder.
+
+*Additionally, there is a [`example.profiles.json`](custom_components/gaming_status/example.profiles.json) file provided that can be used as a starting point if you prefer to edit the file manually yourself. See the [Advanced Setup](docs/advanced.md) documentation for more details.*
 
 ##  Activating the Integration
 Once your `gaming_profiles.json` file is configured and saved:
@@ -75,7 +77,7 @@ Once everything is up and running, with sensors showing up from the integration,
 - Add a [slideshow](docs/dashboards.md#2-cinematic-slideshow-with-player-avatars) to your wallpanel display to see what's being played
 - Add [custom sensors](docs/advanced.md#tracking-standalone-pc-games-hassagent-setup) to track PC games not logged by Steam or Xbox
 - Add a [sensor](docs/advanced.md#the-is-anyone-gaming-binary-sensor-for-automations) to track whether or not anyone is gaming (useful for automations or contextual card display)
-- Check out other [Advanced Setup](docs/advanced.md) options for even more customization
+- Check out other [advanced setup options](docs/advanced.md) for features like preventing tracking of games by the wrong players and per-user game exclusions
 
 ## 🛠️ Troubleshooting & FAQ
 **The integration loads, but no sensors are created**
