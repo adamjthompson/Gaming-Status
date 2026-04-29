@@ -55,7 +55,7 @@ If you prefer not to use HACS, you can install the integration manually:
 ## ⚙️ Configuration (Crucial Step)
 Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer. All settings will be configured inside of `config/gaming_profiles.json`. 
 
-Use this [online tool](https://adamjthompson.com/gaming_profiles) to easily generate your JSON file. Further editing of advanced options can be performed manually in VSCode or your editor of choice. After adding your information, download the file and upload it to your Home Assistant installation in the `config` folder.
+Use the [Gaming Status Configurator](https://adamjthompson.com/gaming_profiles) to easily generate your JSON file. Further editing of advanced options can be performed manually in VSCode or your editor of choice. After adding your information, download the file and upload it to your Home Assistant installation in the `config` folder.
 
 *Additionally, there is a [`example.profiles.json`](custom_components/gaming_status/example.profiles.json) file provided that can be used as a starting point if you prefer to edit the file manually yourself. See the [Advanced Setup](docs/advanced.md) documentation for more details.*
 
