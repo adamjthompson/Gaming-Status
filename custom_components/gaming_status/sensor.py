@@ -16,6 +16,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.storage import Store  # <-- Added Store Helper
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,7 +46,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
     
     # Instructs the HA Recorder to ignore these specific attributes to prevent DB bloat
     _unrecorded_attributes = frozenset({
-        "play_history",
         "secondary",
         "daily_play_time_formatted",
         "weekly_play_time_formatted",
@@ -106,6 +106,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         config = PLATFORM_CONFIG[gaming_type]
         self._attr_icon = config["icon"]
         safe_owner = self._owner_name.lower().replace(" ", "_")
+        
+        # Initialize the hidden storage helper for this specific sensor instance
+        self._store = Store(hass, 1, f"gaming_status.{safe_owner}_{gaming_type}_history")
+        
         self._desired_entity_id = f"sensor.{safe_owner}_{gaming_type}"
         self._attr_unique_id = f"{source_entity_id}_tracker_v5"
         self._attr_name = f"{self._owner_name} {config['name_suffix']}"
@@ -125,9 +129,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         current_date_str = now.strftime("%Y-%m-%d")
         current_week_str = now.strftime("%Y-%U") 
         
+        history_changed = False
+        
         if self._last_reset_date != current_date_str:
             if self._last_reset_date:
                 self._play_history[self._last_reset_date] = self._daily_play_time
+                history_changed = True
             
             cutoff_date = (now - timedelta(days=8)).date()
             keys_to_remove = []
@@ -136,15 +143,22 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     d = parser.parse(date_str).date()
                     if d < cutoff_date: keys_to_remove.append(date_str)
                 except: pass
-            for k in keys_to_remove: del self._play_history[k]
+            for k in keys_to_remove: 
+                del self._play_history[k]
+                history_changed = True
 
             self._daily_play_time_yesterday = self._daily_play_time
             self._daily_play_time = 0
             self._last_reset_date = current_date_str
+            
         if self._last_weekly_reset != current_week_str:
             self._weekly_play_time_last_week = self._weekly_play_time
             self._weekly_play_time = 0
             self._last_weekly_reset = current_week_str
+
+        # If we modified the internal history dictionary during a reset, safely save it to disk
+        if history_changed:
+            self._store.async_delay_save(lambda: {"history": self._play_history}, 5.0)
 
     def _is_steam_echo(self, xbox_game):
         if self._gaming_type != "xbox" or not xbox_game: return False
@@ -466,6 +480,15 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
+        
+        # --- LOAD SECURE HISTORY ---
+        # Read the private dict from the hard drive, protecting users' exact timestamps
+        stored_data = await self._store.async_load()
+        if stored_data and "history" in stored_data:
+            self._play_history = stored_data["history"]
+        else:
+            self._play_history = {} 
+
         last_state = await self.async_get_last_state()
         
         if RESET_HISTORY:
@@ -493,7 +516,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 self._daily_play_time_yesterday = int(float(attrs.get("daily_play_time_yesterday") or 0))
                 self._weekly_play_time_last_week = int(float(attrs.get("weekly_play_time_last_week") or 0))
                 self._accumulated_play_time = int(float(attrs.get("accumulated_play_time") or 0))
-                self._play_history = attrs.get("play_history", {})
+                # Note: self._play_history is no longer loaded from public attrs to prevent memory override!
             except Exception:
                 self._daily_play_time = 0
                 self._weekly_play_time = 0
@@ -524,7 +547,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 del self._attr_extra_state_attributes[zombie]
 
         # Secure Cleanup: Purge legacy debug attributes from history database
-        for legacy_debug in ["debug_raw_source_state", "debug_time_ago", "debug_sync", "source_entity"]:
+        for legacy_debug in ["debug_raw_source_state", "debug_time_ago", "debug_sync", "source_entity", "play_history"]:
             if legacy_debug in self._attr_extra_state_attributes:
                 del self._attr_extra_state_attributes[legacy_debug]
 
@@ -683,7 +706,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 self._attr_extra_state_attributes["last_online_valid_timestamp"] = ts_str
             self._last_update_timestamp = now_dt.isoformat()
             
-            self._attr_extra_state_attributes["play_history"] = self._play_history 
+            # --- PRIVACY FIX ---
+            # self._attr_extra_state_attributes["play_history"] = self._play_history 
+            # -------------------
+            
             history_seconds = sum(self._play_history.values())
             total_rolling = history_seconds + self._daily_play_time
             self._attr_extra_state_attributes["rolling_weekly_hours"] = round(total_rolling / 3600, 2)
@@ -914,7 +940,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 self._attr_extra_state_attributes["last_online_valid_timestamp"] = ts_str
             self._last_update_timestamp = now_dt.isoformat()
             
-            self._attr_extra_state_attributes["play_history"] = self._play_history 
+            # --- PRIVACY FIX ---
+            # self._attr_extra_state_attributes["play_history"] = self._play_history 
+            # -------------------
+            
             history_seconds = sum(self._play_history.values())
             total_rolling = history_seconds + self._daily_play_time
             self._attr_extra_state_attributes["rolling_weekly_hours"] = round(total_rolling / 3600, 2)
