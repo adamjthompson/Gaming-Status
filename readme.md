@@ -73,9 +73,9 @@ Once everything is up and running, with sensors showing up from the integration,
 - Set up Discord or SMS [notifications](docs/notifications.md) for when users start and stop playing games
 - Add a [graph](docs/dashboards.md#3-the-playtime-stats-chart) to chart weekly game time
 - Add a [slideshow](docs/dashboards.md#2-cinematic-slideshow-with-player-avatars) to your wallpanel display to see what's being played
-- Add [custom sensors](docs/templates.md) to track PC games not logged by Steam or Xbox
+- Add [custom sensors](docs/advanced.md#tracking-standalone-pc-games-hassagent-setup) to track PC games not logged by Steam or Xbox
 - Add a [sensor](docs/advanced.md#the-is-anyone-gaming-binary-sensor-for-automations) to track whether or not anyone is gaming (useful for automations or contextual card display)
-- Check out the [Advanced Setup](docs/advanced.md) documentation for even more customization options
+- Check out other [Advanced Setup](docs/advanced.md) options for even more customization
 
 ## 🛠️ Troubleshooting & FAQ
 **The integration loads, but no sensors are created**
