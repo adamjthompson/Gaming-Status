@@ -34,7 +34,8 @@ from . import utils
 from .utils import (
     _get_gamertag_from_entity, _format_time, _format_game_name_for_display,
     _normalize_game_name, _safe_parse_datetime, _parse_relative_time_from_status,
-    _calculate_time_ago_v2, get_steamgriddb_game_cover, get_base_game_name
+    _calculate_time_ago_v2, get_steamgriddb_game_cover, get_base_game_name,
+    safe_url
 )
 
 # ------------------------------------------------------------------
@@ -911,12 +912,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         entity_pic = f"/local/gaming_status/{local_filename}"
                         break
                 if not entity_pic:
-                    if platform_data.get("avatar_url"): entity_pic = platform_data.get("avatar_url")
+                    if platform_data.get("avatar_url"): entity_pic = safe_url(platform_data.get("avatar_url"))
                 
                 self._attr_extra_state_attributes["entity_picture"] = entity_pic
                 self._attr_entity_picture = entity_pic
             else:
-                if platform_data.get("avatar_url"): self._attr_entity_picture = platform_data.get("avatar_url")
+                if platform_data.get("avatar_url"): self._attr_entity_picture = safe_url(platform_data.get("avatar_url"))
             
             self._attr_extra_state_attributes["current_game"] = self._current_game
             self._attr_extra_state_attributes["game_cover_art"] = game_cover
@@ -1187,8 +1188,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     # Secure Validation: Only allow HTTPS URLs or safe local HA paths
     raw_cover_map = profiles_data.get('CUSTOM_COVER_MAP', {})
     utils.CUSTOM_COVER_MAP = {
-        k: v for k, v in raw_cover_map.items()
-        if isinstance(v, str) and (v.startswith("https://") or v.startswith("/"))
+        k: safe_url(v) for k, v in raw_cover_map.items() if safe_url(v) is not None
     }
     
     # Give utils the newly secured API key

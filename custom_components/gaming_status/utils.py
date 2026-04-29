@@ -199,5 +199,11 @@ def _calculate_time_ago_v2(timestamp_val):
         else: return f"{seconds // 86400}d ago", debug
     except Exception as e: return None, f"Err: {e}"
 
+def safe_url(url):
+    """Securely validate URLs to prevent malicious URI injections."""
+    if isinstance(url, str) and (url.startswith("https://") or url.startswith("/")):
+        return url
+    return None
+
 async def check_steam_url_validity(hass, url): return True
 async def get_steam_game_cover(hass, game_name, game_id=None): return await get_steamgriddb_game_cover(hass, game_name)
