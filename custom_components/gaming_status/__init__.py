@@ -89,7 +89,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         sidebar_title="Gaming Status",
         sidebar_icon="mdi:controller",
         frontend_url_path="gaming-status-config",
-        config={"url": "/gaming_status/configurator?v=172"}, 
+        config={"url": "/gaming_status/configurator?v=173"}, 
         require_admin=True,
     )
 
