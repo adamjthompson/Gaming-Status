@@ -33,7 +33,7 @@ One possibility is a simple JSON formatting error in your `gaming_profiles.json`
 Another possibility is the privacy settings of your account. Your online status and game activity must be viewable by the public in order to be properly reported by the Gaming Status integration. Instructions for changing the necessary settings is included below:
 
 ### PlayStation Network (PSN)
-If your PSN sensor reports as "Offline" while you are gaming, your PSN privacy settings are likely restricting API access.
+*Please remember that only the <ins>official</ins> PlayStation Integration will work properly with Gaming Status; if you have the HACS version installed, uninstall or disable it and install the official integration.* If your PSN sensor reports as "Offline" while you are gaming, your PSN privacy settings are likely restricting API access.
 
 **On your PS5 Console:**
 - Go to Settings > Users and Accounts > Privacy.
