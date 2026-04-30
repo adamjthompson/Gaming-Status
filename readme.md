@@ -82,10 +82,10 @@ Use the *Gaming Status Configurator* to easily generate the required JSON file. 
 
 ### Entities
 
-Upon reload (or restart), the integration will instantly read your `config/gaming_profiles.json` file and generate the master tracking sensors for your dashboard. Look for the new master sensors named `sensor.XXXXXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
+Upon reload (or restart), the integration will instantly read your `config/gaming_profiles.json` file and generate the master tracking sensors for your dashboard. Look for the new master sensors named `sensor.XXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
 
 | Entity | Type | Description |
-| -------| ---- | ----------- |
+| ---| --- | --- |
 | sensor.XXXXX_steam | Sensor | Steam sensor for each added profile |
 | sensor.XXXXX_xbox | Sensor | Xbox sensor for each added profile |
 | sensor.XXXXX_playstation | Sensor | PlayStation sensor for each added profile |
@@ -94,21 +94,20 @@ Upon reload (or restart), the integration will instantly read your `config/gamin
 
 ### Attributes
 Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The `*_gaming_status` sensors provide the following attibutes
-| Attribute | Description | Example Value |
-| ----------| ----------- | ------------- |
-| secondary | A human-readable string summarizing the current state, or the time elapsed and session duration of the last played game. | Last seen 12h ago: Marvel Rivals (58m) |
-| active_platform | Specific console or launcher (e.g., Steam, Xbox, PlayStation) that is currently active or was most recently used. | Steam |
-| game_cover_art | URL of the cover or header image for the currently active or last played game. | https://cdn2.steamgriddb.com/hero/a31d2779e08530d0b5fdbed368c735b4.png |
-| last_played_game | Title of the most recent game detected across all tracked platforms. | Marvel Rivals |
-| last_online_valid_timestamp | The exact ISO 8601 timestamp of the last moment the integration successfully detected the player online. | 2026-04-29T22:40:26.404703-04:00 |
-| total_daily_hours | Total accumulated playtime in hours across all platforms for the current calendar day. | 1.0 |
-| total_weekly_hours | Total accumulated playtime in hours across all platforms for the current calendar week. | 8.54 |
-| rolling_weekly_hours | Total accumulated playtime in hours over a dynamic, trailing 7-day window. | 3.69 |
-| total_weekly_hours_last_week | Final accumulated playtime in hours recorded during the previous calendar week. | 16.94 |
-| entity_picture | URL of the player's profile avatar fetched from the currently active platform. | https://avatars.steamstatic.com/XXXXX_medium.jpg |
-| icon | Icon that automatically updates to match the active platform. | mdi:steam |
-| friendly_name | Display name generated for this player's entity.| Adam Gaming Status |
-
+| Attribute | Example | Description |
+| ---| --- | ---|
+| secondary | Last seen 12h ago: Marvel Rivals (58m) | Current state or the time elapsed and session duration of the last played game 
+| active_platform | Steam | Console or launcher that is currently active or most recently used
+| game_cover_art |  | URL of the hero image for the currently active or last played game |
+| last_played_game | Marvel Rivals | Title of the most recent game detected across all tracked platforms | 
+| last_online_valid_timestamp | 2026-04-29T22:40:26.404703-04:00 | ISO 8601 timestamp of the last time detected online
+| total_daily_hours | 1.0 | All playtime hours for the current calendar day |
+| total_weekly_hours | 8.54 | All playtime hours for the current calendar week | 
+| rolling_weekly_hours | 3.69 | Playtime hours over a dynamic, trailing 7-day window | 
+| total_weekly_hours_last_week | 16.94 | Playtime in hours recorded during the previous calendar week | 
+| entity_picture |   | URL of the player's avatar fetched from the active platform |
+| icon | mdi:steam | Icon that automatically updates to match the active platform |
+| friendly_name | Adam Gaming Status | Display name generated for this player's entity |
 
 ## What to Try Next!?
 Once everything is up and running, with sensors showing up from the integration, try loading up a game to make sure the online status is reflected in the master "_gaming_status" sensors. If they are working correctly, try some of the following! If not, see the [troubleshooting](docs/troubleshooting.md) documentation.
