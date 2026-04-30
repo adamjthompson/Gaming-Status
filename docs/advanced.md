@@ -1,9 +1,9 @@
 # 🛠️ Advanced Setup
 
-Below are additional setup options as well as descriptions of what each parameter in the gaming_profiles.json file does. See 'example.profiles.json' for and example of the proper formatting.
+Below are additional setup options as well as descriptions of what each parameter in the gaming_profiles.json file does. See 'example.profiles.json' for an example of the proper formatting. The easiest approach is to use the included configurator to build the initial JSON file and then add advanced parameters manually using your favorite code editor.
 
 ## User Profiles (GAMER_PROFILES)
-This section maps a friendly display name to the underlying Home Assistant sensors tracking that person. It also holds user-specific rules.
+This section maps a friendly display name to the underlying Home Assistant sensors tracking that person, but it can also hold user-specific rules.
 
 **Platform Keys:** Add the entity IDs for Steam, Xbox, PlayStation, or custom sensors. You can include as few or as many as a user owns. *Note the following default platform integration sensor naming conventions:*
 
