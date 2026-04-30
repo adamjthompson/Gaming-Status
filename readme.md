@@ -98,9 +98,9 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | --- | --- | --- |
 | secondary | Last seen 12h ago: Marvel Rivals (58m) | Current state or the time elapsed and session duration of the last played game |
 | active_platform | Steam | Platform that is currently active or most recently used
-| game_cover_art |  | Hero image URL for currently active game |
+| game_cover_art |   | Hero image URL for currently active game |
 | last_played_game | Marvel Rivals | Title of the most recent game detected across all tracked platforms | 
-| last_online_valid_timestamp | 2026-04-29T22:40:26.404703-04:00 | ISO 8601 timestamp of the last time detected online |
+| last_online_valid_timestamp |   | ISO 8601 timestamp of the last time detected online |
 | total_daily_hours | 1.0 | Hours for the current calendar day |
 | total_weekly_hours | 8.54 | Hours for the current calendar week | 
 | rolling_weekly_hours | 3.69 | Hours over a dynamic, trailing 7-day window | 
@@ -113,7 +113,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The `*_steam`, `*_xbox`, and `*_playstation` sensors provide the following attibutes
 | Attribute | Example | Description |
 | --- | --- | --- |
-| secondary | Last seen 12h ago: Marvel Rivals (58m) | Current state or the time elapsed and session duration of the last played game
+| secondary | Last seen 5h ago: Halo 3 (58m) | Current state or the time elapsed and session duration of the last played game
 | daily_play_time | 8345 | Playtime for the current calendar day (raw seconds) |
 | daily_play_time_formatted | 2h19m  | Current day's total playtime (human-readable string) |
 | daily_play_time_yesterday| 12673 | Playtime during the previous calendar day (raw seconds) |
@@ -122,22 +122,22 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | weekly_play_time_last_week | 21310 | Playtime during the previous calendar week (raw seconds) |
 | last_reset_date | 2026-04-30 | Calendar date string indicating the last time the daily playtime trackers were reset to zero |
 | last_weekly_reset | 2026-17 | Calendar week string (Year-Week) indicating the last time the weekly playtime trackers were reset to zero
-| last_played_game | Marvel Rivals | Title of the most recently closed game detected on this specific platform
+| last_played_game | Halo 3 | Title of the most recently closed game detected on this specific platform
 | current_game | Genshin Impact | Title of the game actively being played right now, or null if the user is offline
 | game_cover_art |   | URL of the hero image for the actively played game, used for UI display
 | cached_game_cover |   | Internal backup URL for the last known game cover art, used during grace periods or offline states
 | entity_picture |   | URL of the player's official profile avatar fetched from the platform's network |
-| icon | mdi:steam | Icon to match the current platform
-| friendly_name | Adam Steam | Display name for this player's entity
-| play_start_time | 2026-04-29T22:40:26.404703-04:00 | The exact timestamp when the current, active gaming session began |
+| icon | mdi:microsoft-xbox | Icon to match the current platform
+| friendly_name | Adam Xbox | Display name for this player's entity
+| play_start_time |   | The exact timestamp when the current, active gaming session began |
 | timer_status | Stopped (Offline) | Current state of the internal playtime stopwatch (Running, Paused, or Stopped) |
-| last_online_valid_timestamp |  2026-04-29T22:40:26.404703-04:00 | ISO 8601 timestamp of the last time detected online
+| last_online_valid_timestamp |    | ISO 8601 timestamp of the last time detected online
 | rolling_weekly_hours | 2.49 | Accumulated playtime in hours calculated over a dynamic, trailing 7-day window |
 | last_session_play_time | 3533 | The total duration in seconds of the most recently completed gaming session (raw seconds) |
-| temp_offline_start | 2026-04-29T22:40:26.404703-04:00 | The exact timestamp when a background grace period was triggered after temporarily losing the game state
+| temp_offline_start |   | The exact timestamp when a background grace period was triggered after temporarily losing the game state
 
-## What to Try Next!?
-Once everything is up and running, with sensors showing up from the integration, try loading up a game to make sure the online status is reflected in the master "_gaming_status" sensors. If they are working correctly, try some of the following! If not, see the [troubleshooting](docs/troubleshooting.md) documentation.
+## ❓ What Next?
+Once everything is up and running (with sensors showing up from the integration), try playing a game for at least 5 minutes to make sure the online status is reflected in the master "_gaming_status" sensors. *Note that sessions shorter than 5 minutes are discarded and do not count toward the total playtime hours.* If the sensors are working correctly, try some of the following! If not, see the [troubleshooting](docs/troubleshooting.md) documentation.
 
 - Add some sweet displays to your [dashboard](docs/dashboards.md#1-the-currently-playing-card), showing who's online and what they're playing
 - Set up Discord or SMS [notifications](docs/notifications.md) for when users start and stop playing games
