@@ -20,19 +20,19 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
         
         if user_input is not None:
+            # Grab the key and strip whitespace. If left blank, it simply saves as an empty string ("")
             api_key = user_input.get(CONF_STEAMGRIDDB_API_KEY, "").strip()
-            if not api_key:
-                errors[CONF_STEAMGRIDDB_API_KEY] = "api_key_required"
-            else:
-                return self.async_create_entry(
-                    title="Gaming Status",
-                    data={CONF_STEAMGRIDDB_API_KEY: api_key}
-                )
+            
+            return self.async_create_entry(
+                title="Gaming Status",
+                data={CONF_STEAMGRIDDB_API_KEY: api_key}
+            )
                 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
-                vol.Required(CONF_STEAMGRIDDB_API_KEY): str,
+                # Changed to Optional so the user is not forced to enter a key
+                vol.Optional(CONF_STEAMGRIDDB_API_KEY, default=""): str,
             }),
             errors=errors,
             description_placeholders={
