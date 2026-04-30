@@ -16,19 +16,22 @@ from homeassistant.util import dt as dt_util
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.helpers.storage import Store  # <-- Added Store Helper
+from homeassistant.helpers.storage import Store 
 
 _LOGGER = logging.getLogger(__name__)
 
+# Import the new DEFAULT timing variables
 from .const import (
-    DOMAIN, RESET_HISTORY, GRACE_PERIOD_SECONDS, AWAY_GRACE_PERIOD_SECONDS,
-    GAME_TRANSITION_GRACE_SECONDS, MIN_SESSION_DURATION, ZOMBIE_ATTRIBUTES,
-    PLATFORM_CONFIG, PLATFORM_PRIORITY
+    DOMAIN, ZOMBIE_ATTRIBUTES, PLATFORM_CONFIG, PLATFORM_PRIORITY,
+    DEFAULT_RESET_HISTORY, DEFAULT_GRACE_PERIOD_SECONDS,
+    DEFAULT_AWAY_GRACE_PERIOD_SECONDS, DEFAULT_GAME_TRANSITION_GRACE_SECONDS,
+    DEFAULT_MIN_SESSION_DURATION
 )
 
 # Initialize empty globals (Populated safely during async_setup_entry)
 GAMER_PROFILES = {}
 GLOBAL_EXCLUSIONS = []
+ACTIVE_SETTINGS = {}
 
 from . import utils
 from .utils import (
@@ -111,7 +114,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._attr_icon = config["icon"]
         safe_owner = self._owner_name.lower().replace(" ", "_")
         
-        # Initialize the hidden storage helper for this specific sensor instance
         self._store = Store(hass, 1, f"gaming_status.{safe_owner}_{gaming_type}_history")
         
         self._desired_entity_id = f"sensor.{safe_owner}_{gaming_type}"
@@ -160,7 +162,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._weekly_play_time = 0
             self._last_weekly_reset = current_week_str
 
-        # If we modified the internal history dictionary during a reset, safely save it to disk
         if history_changed:
             self._store.async_delay_save(lambda: {"history": self._play_history}, 5.0)
 
@@ -227,22 +228,18 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         if state_clean in ["none", ""]: return None
         normalized_state = state_clean.lower()
         
-        # Log the raw state securely instead of exposing it to the UI
         _LOGGER.debug(f"Raw source state for {self.entity_id}: {state_clean}")
         
-        # --- CUSTOM SENSOR LOGIC [V161] ---
         if self._gaming_type == "custom":
             if normalized_state in ["0", "off", "offline", "false", "unavailable", "unknown", "0.0", "none", ""]:
                 data["is_online"] = False
                 data["avatar_url"] = attrs.get("entity_picture")
             elif self._source_entity_id in utils.CUSTOM_COVER_MAP:
-                # Legacy behavior: Mapped binary sensor
                 if normalized_state in ["1", "on", "playing", "true", "1.0"]:
                     data["is_online"] = True
                     data["current_game"] = utils.CUSTOM_COVER_MAP.get(self._source_entity_id)
                     data["avatar_url"] = attrs.get("entity_picture")
             else:
-                # Dynamic behavior: The state IS the game name
                 data["is_online"] = True
                 data["avatar_url"] = attrs.get("entity_picture")
                 if normalized_state in ["1", "on", "playing", "true", "1.0"]:
@@ -379,7 +376,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 else: start_dt = start_dt.astimezone(actual_end_time.tzinfo)
                 session_seconds = (actual_end_time - start_dt).total_seconds()
                 
-                if session_seconds <= MIN_SESSION_DURATION:
+                # USE ACTIVE_SETTINGS
+                if session_seconds <= ACTIVE_SETTINGS["MIN_SESSION_DURATION"]:
                     _LOGGER.info(f"Ignoring short session ({session_seconds}s) for {self.entity_id}")
                     self._daily_play_time = max(0, int((self._daily_play_time or 0) - session_seconds))
                     self._weekly_play_time = max(0, int((self._weekly_play_time or 0) - session_seconds))
@@ -420,7 +418,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             can_resurrect = True
             
             if can_resurrect:
-                _LOGGER.info(f"[V123] Resurrecting zombie session for {new_game_name}. Gap was small.")
+                _LOGGER.info(f"Resurrecting zombie session for {new_game_name}. Gap was small.")
                 if self._last_session_play_time > 0:
                     resumed_start = now - timedelta(seconds=self._last_session_play_time)
                     self._play_start_time = resumed_start.isoformat()
@@ -484,8 +482,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
         
-        # --- LOAD SECURE HISTORY ---
-        # Read the private dict from the hard drive, protecting users' exact timestamps
         stored_data = await self._store.async_load()
         if stored_data and "history" in stored_data:
             self._play_history = stored_data["history"]
@@ -494,8 +490,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
         last_state = await self.async_get_last_state()
         
-        if RESET_HISTORY:
-            _LOGGER.warning(f"V70 NUCLEAR RESET: Discarding saved history for {self.entity_id} to fix corruption.")
+        # USE ACTIVE_SETTINGS
+        if ACTIVE_SETTINGS["RESET_HISTORY"]:
+            _LOGGER.warning(f"NUCLEAR RESET: Discarding saved history for {self.entity_id} to fix corruption.")
             self._attr_native_value = "Offline"
             self._attr_extra_state_attributes = {}
         
@@ -548,7 +545,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if zombie in self._attr_extra_state_attributes:
                 del self._attr_extra_state_attributes[zombie]
 
-        # Secure Cleanup: Purge legacy debug attributes from history database
         for legacy_debug in ["debug_raw_source_state", "debug_time_ago", "debug_sync", "source_entity", "play_history", "code_version", "last_update_timestamp"]:
             if legacy_debug in self._attr_extra_state_attributes:
                 del self._attr_extra_state_attributes[legacy_debug]
@@ -628,7 +624,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if not self._attr_extra_state_attributes: self._attr_extra_state_attributes = {}
             if self._temp_offline_start:
                 time_in_limbo = (now_dt - self._temp_offline_start).total_seconds()
-                if time_in_limbo > GRACE_PERIOD_SECONDS:
+                
+                # USE ACTIVE_SETTINGS
+                if time_in_limbo > ACTIVE_SETTINGS["GRACE_PERIOD_SECONDS"]:
                     self.hass.async_create_task(self._trigger_source_update())
 
             if self._attr_native_value.lower() != "offline" and not self._current_game:
@@ -668,7 +666,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 if play_time_text: self._attr_extra_state_attributes["secondary"] = f"({play_time_text})"
                 else: self._attr_extra_state_attributes["secondary"] = "Playing now"
                 
-                if self._get_total_session_seconds() > MIN_SESSION_DURATION and not is_blocked: 
+                # USE ACTIVE_SETTINGS
+                if self._get_total_session_seconds() > ACTIVE_SETTINGS["MIN_SESSION_DURATION"] and not is_blocked: 
                     self._last_played_game = self._current_game
             else:
                 timer_status = "Stopped (Offline)"
@@ -730,7 +729,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         except Exception as e:
             _LOGGER.error("Error in _unified_update for %s: %s", self.entity_id, e)
 
-
     async def _unified_update(self, current_state, attrs, force_update=False):
         try:
             platform_data = self._get_platform_data(current_state, attrs)
@@ -760,16 +758,18 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     self._away_start_timestamp = None
                     self._away_timeout_deducted = False
             except Exception as e:
-                _LOGGER.error(f"[V161 SAFETY] Error in Away Timeout Logic for {self.entity_id}: {e}")
+                _LOGGER.error(f"Error in Away Timeout Logic for {self.entity_id}: {e}")
 
             is_offline_now = not platform_data.get("is_online")
             
             if force_update: pass
             
             in_grace_period = False
-            current_grace_limit = GRACE_PERIOD_SECONDS
+            
+            # USE ACTIVE_SETTINGS
+            current_grace_limit = ACTIVE_SETTINGS["GRACE_PERIOD_SECONDS"]
             if platform_data.get("offline_reason") == "away":
-                current_grace_limit = AWAY_GRACE_PERIOD_SECONDS
+                current_grace_limit = ACTIVE_SETTINGS["AWAY_GRACE_PERIOD_SECONDS"]
 
             if self._current_game and is_offline_now:
                 if self._temp_offline_start is None: 
@@ -819,7 +819,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 if normalized_new != normalized_current:
                     if self._temp_game_lost_time and self._current_game:
                         time_since_lost = (now_dt - self._temp_game_lost_time).total_seconds()
-                        if _normalize_game_name(self._current_game) == normalized_new and time_since_lost <= GAME_TRANSITION_GRACE_SECONDS:
+                        
+                        # USE ACTIVE_SETTINGS
+                        if _normalize_game_name(self._current_game) == normalized_new and time_since_lost <= ACTIVE_SETTINGS["GAME_TRANSITION_GRACE_SECONDS"]:
                             self._current_game = game_name_display
                         else: self._handle_game_transition(game_name_display)
                     else: self._handle_game_transition(game_name_display)
@@ -838,7 +840,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 game_cover = platform_data.get("game_cover_url")
                 if game_cover: self._cached_game_cover = game_cover
                 
-                if self._get_total_session_seconds() > MIN_SESSION_DURATION:
+                # USE ACTIVE_SETTINGS
+                if self._get_total_session_seconds() > ACTIVE_SETTINGS["MIN_SESSION_DURATION"]:
                     if not self._is_game_active_elsewhere(game_name_display) and not self._is_ghost_session(game_name_display):
                         self._last_played_game = game_name_display
                 
@@ -857,15 +860,20 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 game_cover = None
                 if self._current_game:
                     if self._temp_offline_start:
-                        limit_to_check = GRACE_PERIOD_SECONDS
+                        
+                        # USE ACTIVE_SETTINGS
+                        limit_to_check = ACTIVE_SETTINGS["GRACE_PERIOD_SECONDS"]
                         if platform_data.get("offline_reason") == "away":
-                            limit_to_check = AWAY_GRACE_PERIOD_SECONDS
+                            limit_to_check = ACTIVE_SETTINGS["AWAY_GRACE_PERIOD_SECONDS"]
+                            
                         if (now_dt - self._temp_offline_start).total_seconds() > limit_to_check:
                             self._handle_game_transition(None, explicit_end_time=self._temp_offline_start)
                             self._temp_offline_start = None 
                             self._temp_game_lost_time = None
                     elif self._temp_game_lost_time:
-                        if (now_dt - self._temp_game_lost_time).total_seconds() > GAME_TRANSITION_GRACE_SECONDS:
+                        
+                        # USE ACTIVE_SETTINGS
+                        if (now_dt - self._temp_game_lost_time).total_seconds() > ACTIVE_SETTINGS["GAME_TRANSITION_GRACE_SECONDS"]:
                             self._handle_game_transition(None)
                             self._temp_game_lost_time = None
                     else: self._handle_game_transition(None)
@@ -910,7 +918,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         entity_pic = f"/local/gaming_status/{local_filename}"
                         break
                 
-                # --- SECURE VALIDATION APPLIED HERE ---
                 if not entity_pic:
                     if platform_data.get("avatar_url"): 
                         entity_pic = safe_url(platform_data.get("avatar_url"))
@@ -918,7 +925,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 self._attr_extra_state_attributes["entity_picture"] = entity_pic
                 self._attr_entity_picture = entity_pic
             else:
-                # --- SECURE VALIDATION APPLIED HERE ---
                 if platform_data.get("avatar_url"): 
                     self._attr_entity_picture = safe_url(platform_data.get("avatar_url"))
             
@@ -972,7 +978,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 class MasterGamingSensor(RestoreEntity, SensorEntity):
     _attr_should_poll = False
     
-    # Instructs the HA Recorder to ignore these specific attributes to prevent DB bloat
     _unrecorded_attributes = frozenset({
         "secondary",
         "game_cover_art",
@@ -1146,60 +1151,56 @@ from .const import CONF_STEAMGRIDDB_API_KEY
 async def async_setup_entry(hass, config_entry, async_add_entities):
     _LOGGER.info("[Gaming Status] Starting Setup...")
     
-    # 1. Safely load gaming_profiles.json with robust error handling
     def load_json_config():
         config_path = hass.config.path("gaming_profiles.json")
-        
         if not os.path.exists(config_path):
-            _LOGGER.error("[Gaming Status] CRITICAL: 'gaming_profiles.json' was not found in your /config folder. Please create it to track players.")
+            _LOGGER.error("[Gaming Status] CRITICAL: 'gaming_profiles.json' was not found.")
             return {}
-            
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except json.JSONDecodeError as e:
-            _LOGGER.error(f"[Gaming Status] SYNTAX ERROR: Your gaming_profiles.json file has a typo at Line {e.lineno}, Column {e.colno}. ({e.msg})")
+            _LOGGER.error(f"[Gaming Status] SYNTAX ERROR at Line {e.lineno}, Column {e.colno}. ({e.msg})")
             return {}
         except Exception as e:
-            _LOGGER.error(f"[Gaming Status] FATAL: Could not read gaming_profiles.json. Error: {e}")
+            _LOGGER.error(f"[Gaming Status] FATAL: Could not read json. Error: {e}")
             return {}
 
     profiles_data = await hass.async_add_executor_job(load_json_config)
 
-    # 2. GRACEFUL MIGRATION: Move API Key from JSON to UI Database
     api_key = config_entry.data.get(CONF_STEAMGRIDDB_API_KEY)
-    
-    # If the UI database doesn't have a key, but the JSON file does:
     if not api_key and profiles_data.get('STEAMGRIDDB_API_KEY'):
         api_key = profiles_data.get('STEAMGRIDDB_API_KEY')
-        _LOGGER.warning("[Gaming Status] Migrating API Key from JSON to secure UI storage.")
-        
-        # Save it to the secure config entry
         new_data = {**config_entry.data, CONF_STEAMGRIDDB_API_KEY: api_key}
         hass.config_entries.async_update_entry(config_entry, data=new_data)
-        
-        # (Optional) You can leave the key in the JSON, it will just be ignored from now on.
 
-    # 3. Populate globals securely
-    global GAMER_PROFILES, GLOBAL_EXCLUSIONS
+    # 3. Populate globals securely, including the new ACTIVE_SETTINGS
+    global GAMER_PROFILES, GLOBAL_EXCLUSIONS, ACTIVE_SETTINGS
     GAMER_PROFILES = profiles_data.get('GAMER_PROFILES', {})
     GLOBAL_EXCLUSIONS = profiles_data.get('GLOBAL_EXCLUSIONS', [])
     
+    # Grab the user settings, falling back to const.py defaults if missing
+    raw_settings = profiles_data.get('GLOBAL_SETTINGS', {})
+    ACTIVE_SETTINGS = {
+        "RESET_HISTORY": raw_settings.get("RESET_HISTORY", DEFAULT_RESET_HISTORY),
+        "GRACE_PERIOD_SECONDS": raw_settings.get("GRACE_PERIOD_SECONDS", DEFAULT_GRACE_PERIOD_SECONDS),
+        "AWAY_GRACE_PERIOD_SECONDS": raw_settings.get("AWAY_GRACE_PERIOD_SECONDS", DEFAULT_AWAY_GRACE_PERIOD_SECONDS),
+        "GAME_TRANSITION_GRACE_SECONDS": raw_settings.get("GAME_TRANSITION_GRACE_SECONDS", DEFAULT_GAME_TRANSITION_GRACE_SECONDS),
+        "MIN_SESSION_DURATION": raw_settings.get("MIN_SESSION_DURATION", DEFAULT_MIN_SESSION_DURATION)
+    }
+    
     utils.GAME_TITLE_OVERRIDES = profiles_data.get('GAME_TITLE_OVERRIDES', {})
     utils.TITLE_CLEANUPS = profiles_data.get('TITLE_CLEANUPS', [])
-    # Secure Validation: Only allow HTTPS URLs or safe local HA paths
+    
     raw_cover_map = profiles_data.get('CUSTOM_COVER_MAP', {})
     utils.CUSTOM_COVER_MAP = {
         k: safe_url(v) for k, v in raw_cover_map.items() if safe_url(v) is not None
     }
-    
-    # Give utils the newly secured API key
     utils.STEAMGRIDDB_API_KEY = api_key
 
     entities = []
     created_wrappers = set()
     for friendly_name, platform_data in GAMER_PROFILES.items():
-        _LOGGER.debug(f"[Gaming Status] Found profile: {friendly_name}")
         steam_source = platform_data.get("steam")
         xbox_source = platform_data.get("xbox")
         ps_source = platform_data.get("playstation")
@@ -1222,17 +1223,14 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             created_wrappers.add(custom_source)
         
         entities.append(MasterGamingSensor(hass, friendly_name, platform_data))
-        
         entities.append(HistoryChartSensor(hass, friendly_name))
 
     if entities:
         async_add_entities(entities)
-        _LOGGER.info(f"[Gaming Status] Added {len(entities)} entities.")
 
     entity_registry = er.async_get(hass)
     entries = er.async_entries_for_config_entry(entity_registry, config_entry.entry_id)
     current_unique_ids = {e.unique_id for e in entities}
     for entry in entries:
         if entry.unique_id not in current_unique_ids:
-            _LOGGER.info("Removing orphaned entity: %s", entry.entity_id)
             entity_registry.async_remove(entry.entity_id)
