@@ -1,6 +1,6 @@
 # 🛠️ Advanced Setup
 
-Below are additional setup options as well as descriptions of what each parameter in the gaming_profiles.json file does. See 'example.profiles.json' for an example of the proper formatting. The easiest approach is to use the included configurator to build the initial JSON file and then add advanced parameters manually using your favorite code editor.
+Below are additional setup options as well as descriptions of what each parameter in the gaming_profiles.json file does. See 'example.profiles.json' for an example of the proper formatting. The easiest approach is to use the included configurator sidebar to build the initial JSON file and then add advanced parameters manually using your favorite code editor.
 
 ---
 
@@ -17,7 +17,7 @@ This section maps a friendly display name to the underlying Home Assistant senso
 
 **Exclude_games:** A user-specific list of games or apps that should be completely ignored (case-insensitive).
 
-*Editing Notes: Replace "Player One" etc. with whatever you want the players to be named and "_player_one" with whatever the actual gamertags should be. "Custom" is only needed if you will be creating your own status sensors, for example, using HASS Agent on a PC to provide an on/off status for a game. Remove any lines that you do not need, and make sure that you do not have any trailing commas after the last entries.*
+*Editing Notes: Replace "Player One" etc. with whatever you want the players to be named and "_player_one" with whatever the actual gamertags should be. The "custom" entry is only needed if you will be creating your own status sensors, for example, using HASS.Agent on a PC to provide an on/off status for a game. Remove any lines that you do not need, and make sure that you do not have any trailing commas after the last entries.*
 
 ```yaml
 "GAMER_PROFILES": {
@@ -90,6 +90,30 @@ This allows you to bypass the SteamGridDB API entirely. If a game title matches 
     "Super Smash Bros. Melee": "/local/gaming_status/melee_cover.jpg"
   }
 ```
+
+## Global Settings (GLOBAL_SETTINGS)
+These settings allow you to override the default grace periods (measured in seconds) or reset all of the playtime data. *Most of these are adjustable through the "Global Settings" section in the configurator sidebar.*
+
+**RESET_HISTORY:** *Use this with EXTREME caution: It will nuke all of your collected playtime history. If used, be sure to return it to "false" after restarting or each restart of the integration will wipe your stats!*
+
+**GRACE_PERIOD_SECONDS:** Default: 300. This handles total connection loss. It triggers when the console or platform suddenly reports the player is completely "Offline" (or the network connection drops). Example: A player is in the middle of a game, and their PlayStation loses its WiFi connection, or the Steam API temporarily goes down. The integration pauses and says, "Did they actually turn off the console, or is this just a network hiccup?" It keeps the dashboard showing them as "Playing" and keeps counting their playtime for those 5 minutes (300 seconds). If they reconnect before the timer ends, it is as if nothing happened. If the timer runs out, it retroactively subtracts those 5 minutes from their daily total and marks them "Offline". *Note: This setting will also factor into how long it takes to notify you that a user has ended their session.*
+
+**AWAY_GRACE_PERIOD_SECONDS:** Default: 600. How long to wait before changing a Steam "Away" status to officially "Offline". This helps prevent artificially long game sessions when a user leaves a game open but is not actually playing.
+
+**GAME_TRANSITION_GRACE_SECONDS:** Default: 120. This handles game switching. It triggers when the platform says the player is still Online, but the specific game they were playing drops out or changes. Example: A player is actively online but decides to close Helldivers 2 and open Marvel Rivals. During that 30-second window, they are just sitting on the dashboard not playing anything. Or, Marvel Rivals crashes to the desktop, but they are still logged into Steam, and they immediately relaunch the game. Instead of instantly ending their gaming session and starting a brand new one a few seconds later, this timer bridges the gap. It stitches the timeline together so that quick game swaps or crash reboots don't fracture your dashboard's session history into tiny pieces.
+
+**MIN_SESSION_DURATION:** Default: 300. Game sessions shorter than this are discarded from history and do not count toward playtime totals and will not display on the dashboard.
+
+```yaml
+"GLOBAL_SETTINGS": {
+    "RESET_HISTORY": false,
+    "GRACE_PERIOD_SECONDS": 300,
+    "AWAY_GRACE_PERIOD_SECONDS": 600,
+    "GAME_TRANSITION_GRACE_SECONDS": 120,
+    "MIN_SESSION_DURATION": 300
+  }
+```
+
 ---
 
 ## Tracking Standalone PC Games (HASS.Agent Setup)
