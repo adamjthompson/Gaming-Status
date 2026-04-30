@@ -21,11 +21,11 @@ Some of the key features are listed below.
 * **Custom Avatars:** Automatically pulls live gamer pictures from platform APIs, with the option to easily override missing or incorrect images with your own local images.
 
 ## ⚠️ Prerequisites
-This integration acts as a "wrapper" that intelligently processes data from your existing integrations. Before installing, ensure you have any necessary base integrations installed and working in Home Assistant:
+This integration acts as a "wrapper" that intelligently processes data from your existing integrations. Before installing, ensure you have any necessary base integrations installed and working in Home Assistant. Not all are required, but you'll need at least ONE installed:
 * [Official PlayStation Network Integration](https://www.home-assistant.io/integrations/playstation_network)
 * [Official Steam Integration](https://www.home-assistant.io/integrations/steam_online)
 * [Official Xbox Integration](https://www.home-assistant.io/integrations/xbox)
-* [SteamGridDB API Key](https://www.steamgriddb.com/) (for cover art)
+* [SteamGridDB API Key](https://www.steamgriddb.com/) (for cover art) - *This is not 100% REQUIRED, but it is HIGHLY recommended!*
 
 ## Recommended
 While not required for functionality, I recommend installing the following HACS integrations for the most robust dashboard cards:
