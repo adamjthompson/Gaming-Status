@@ -51,12 +51,15 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         "daily_play_time_formatted",
         "weekly_play_time_formatted",
         "game_cover_art",
-        "cached_game_cover",
         "entity_picture",
-        "code_version",
-        "source_entity",
+        "debug_time_ago",
         "temp_offline_start",
-        "debug_time_ago"
+        "cached_game_cover",
+        "last_online_valid_timestamp",
+        "current_game",
+        "timer_status",
+        "last_reset_date",
+        "last_weekly_reset"
     })
 
     def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None):
@@ -335,17 +338,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     data["game_cover_url"] = attrs.get("title_image")
                     data["is_online"] = True
                 elif state.lower() == "playing": 
-                    # FIX: Match Steam/Xbox behavior. If privacy hides the game, 
-                    # or they are on the dashboard, drop to offline.
                     data["is_online"] = False
                 else:
                     found_sibling = False
                     if "_online_status" in self._source_entity_id:
                         sibling_id = self._source_entity_id.replace("_online_status", "_now_playing")
                         sibling_state = self.hass.states.get(sibling_id)
-                        
-                        # FIX: Added "unknown game" to the rejection list so 
-                        # sibling sensors don't accidentally trigger it either
                         if sibling_state and sibling_state.state.lower() not in ["unknown", "unavailable", "unknown game", "none", ""]:
                             sibling_val = sibling_state.state
                             is_excluded_sib = False
@@ -521,7 +519,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 self._daily_play_time_yesterday = int(float(attrs.get("daily_play_time_yesterday") or 0))
                 self._weekly_play_time_last_week = int(float(attrs.get("weekly_play_time_last_week") or 0))
                 self._accumulated_play_time = int(float(attrs.get("accumulated_play_time") or 0))
-                # Note: self._play_history is no longer loaded from public attrs to prevent memory override!
             except Exception:
                 self._daily_play_time = 0
                 self._weekly_play_time = 0
@@ -552,7 +549,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 del self._attr_extra_state_attributes[zombie]
 
         # Secure Cleanup: Purge legacy debug attributes from history database
-        for legacy_debug in ["debug_raw_source_state", "debug_time_ago", "debug_sync", "source_entity", "play_history"]:
+        for legacy_debug in ["debug_raw_source_state", "debug_time_ago", "debug_sync", "source_entity", "play_history", "code_version", "last_update_timestamp"]:
             if legacy_debug in self._attr_extra_state_attributes:
                 del self._attr_extra_state_attributes[legacy_debug]
 
@@ -701,7 +698,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._attr_extra_state_attributes["weekly_play_time_last_week"] = self._weekly_play_time_last_week
             self._attr_extra_state_attributes["last_reset_date"] = self._last_reset_date
             self._attr_extra_state_attributes["last_weekly_reset"] = self._last_weekly_reset
-            self._attr_extra_state_attributes["code_version"] = "v161"
             
             if self._last_online_valid_timestamp:
                 if isinstance(self._last_online_valid_timestamp, datetime):
@@ -710,10 +706,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     ts_str = str(self._last_online_valid_timestamp)
                 self._attr_extra_state_attributes["last_online_valid_timestamp"] = ts_str
             self._last_update_timestamp = now_dt.isoformat()
-            
-            # --- PRIVACY FIX ---
-            # self._attr_extra_state_attributes["play_history"] = self._play_history 
-            # -------------------
             
             history_seconds = sum(self._play_history.values())
             total_rolling = history_seconds + self._daily_play_time
@@ -727,6 +719,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 self._attr_extra_state_attributes["temp_offline_start"] = self._temp_offline_start.isoformat()
             else:
                 self._attr_extra_state_attributes["temp_offline_start"] = None
+                
+            self._attr_extra_state_attributes["cached_game_cover"] = self._cached_game_cover
             
             if 'secondary' in locals():
                 self._attr_extra_state_attributes["secondary"] = secondary
@@ -930,7 +924,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             
             self._attr_extra_state_attributes["current_game"] = self._current_game
             self._attr_extra_state_attributes["game_cover_art"] = game_cover
-            self._attr_extra_state_attributes["cached_game_cover"] = self._cached_game_cover
             self._attr_extra_state_attributes["secondary"] = secondary
             self._attr_extra_state_attributes["daily_play_time"] = self._daily_play_time
             self._attr_extra_state_attributes["daily_play_time_formatted"] = _format_time(self._daily_play_time)
@@ -940,7 +933,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._attr_extra_state_attributes["weekly_play_time_last_week"] = self._weekly_play_time_last_week
             self._attr_extra_state_attributes["last_reset_date"] = self._last_reset_date
             self._attr_extra_state_attributes["last_weekly_reset"] = self._last_weekly_reset
-            self._attr_extra_state_attributes["code_version"] = "v161"
             
             if self._last_online_valid_timestamp:
                 if isinstance(self._last_online_valid_timestamp, datetime):
@@ -949,10 +941,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     ts_str = str(self._last_online_valid_timestamp)
                 self._attr_extra_state_attributes["last_online_valid_timestamp"] = ts_str
             self._last_update_timestamp = now_dt.isoformat()
-            
-            # --- PRIVACY FIX ---
-            # self._attr_extra_state_attributes["play_history"] = self._play_history 
-            # -------------------
             
             history_seconds = sum(self._play_history.values())
             total_rolling = history_seconds + self._daily_play_time
@@ -966,6 +954,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 self._attr_extra_state_attributes["temp_offline_start"] = self._temp_offline_start.isoformat()
             else:
                 self._attr_extra_state_attributes["temp_offline_start"] = None
+                
+            self._attr_extra_state_attributes["cached_game_cover"] = self._cached_game_cover
             
             if 'secondary' in locals():
                 self._attr_extra_state_attributes["secondary"] = secondary
@@ -982,10 +972,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 class MasterGamingSensor(RestoreEntity, SensorEntity):
     _attr_should_poll = False
     
+    # Instructs the HA Recorder to ignore these specific attributes to prevent DB bloat
     _unrecorded_attributes = frozenset({
         "secondary",
         "game_cover_art",
-        "entity_picture"
+        "entity_picture",
+        "last_online_valid_timestamp",
+        "current_game"
     })
     
     def __init__(self, hass, name, profiles):
