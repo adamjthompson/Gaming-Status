@@ -137,7 +137,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | temp_offline_start |   | The exact timestamp when a background grace period was triggered after temporarily losing the game state
 
 ## ❓ What Next?
-Once everything is up and running (with sensors showing up from the integration), try playing a game for at least 5 minutes to make sure the online status is reflected in the master "_gaming_status" sensors. *Note that sessions shorter than 5 minutes are discarded and do not count toward the total playtime hours.* If the sensors are working correctly, try some of the following! If not, see the [troubleshooting](docs/troubleshooting.md) documentation.
+Once everything is up and running (with sensors showing up from the integration), try playing a game for at least 5 minutes to make sure the online status is reflected in the master "_gaming_status" sensors. *Note that, by default, sessions shorter than 300 seconds (5 minutes) are discarded and do not count toward the total playtime hours.* If the sensors are working correctly, try some of the following! If not, see the [troubleshooting](docs/troubleshooting.md) documentation.
 
 - Add some sweet displays to your [dashboard](docs/dashboards.md#1-the-currently-playing-card), showing who's online and what they're playing
 - Set up Discord or SMS [notifications](docs/notifications.md) for when users start and stop playing games
