@@ -2,7 +2,11 @@
 
 # 🎮 Gaming Status for Home Assistant
 
-This is a powerful, unified custom integration for Home Assistant that tracks and consolidates gaming presence across Steam, Xbox Live, PlayStation Network, and custom PC clients into a single, clean dashboard sensor for each person in your household. I am NOT a programmer, but I AM a gamer, and I hope that other gamers can make good use of this project!
+This is a powerful, unified custom integration for Home Assistant that tracks and consolidates gaming presence across Steam, Xbox Live, PlayStation Network, and custom PC clients into a single, clean dashboard sensor for each person in your household. It's super useful if you want to be able to track who is online, what they're playing, and for how long. 
+
+I started developing this as a way to have persistent sensors since I was annoyed that the Xbox and Steam sesnors would regularly flutter between online/offline status, making notifications and my gaming dashboard unreliable. This evolved into making master sensors instead of simply tracking each platform independently. Over time, this has grown into a much more complex integration that now tracks game time, last game played, provides cover art, allows for rich notifications through Discord and much, much more.
+
+Some of the key features are listed below.
 
 ## ✨ Features
 * **Unified Master Sensor:** Combines Xbox, PlayStation, Steam, and Custom PC clients into one clean "Master Status" sensor per person.
@@ -11,17 +15,26 @@ This is a powerful, unified custom integration for Home Assistant that tracks an
 * **Drop-Out Protection:** Built-in grace periods prevent a gamer from appearing "Offline" if their game crashes, they switch titles, or their internet briefly blips, keeping play sessions perfectly intact.
 * **Playtime Analytics:** Automatically calculates session time, daily hours, and a rolling 7-day total for easy dashboard charting.
 * **Clean Dashboards:** Automatically sanitizes messy game titles (e.g., changes "Minecraft Launcher" to "Minecraft") and pulls high-quality cover art from SteamGridDB.
-* **Advanced Exclusion Filtering:** Prevent media apps (Netflix, YouTube, Spotify) or background processes from triggering gaming statuses using the global exclusions list.
-* **Zero-Bloat Cover Art:** Automatically fetches gorgeous, clean game covers from SteamGridDB and passes them to your dashboard via URL, ensuring your local HA storage never gets bloated with downloaded images.
-* **"Last Seen" Memory:** When gamers go offline, the sensor retains their last played game and calculates exactly how long ago they were active (e.g., *Last seen 3h ago: Genshin Impact*).
+* **Advanced Exclusion Filtering:** Prevent media apps (Netflix, YouTube, Spotify) or background processes from triggering gaming statuses using a global exclusions list.
+* **Zero-Bloat Cover Art:** Automatically fetches gorgeous, clean game hero images from SteamGridDB and passes them to your dashboard via URL, ensuring your local HA storage never gets bloated with downloaded images.
+* **"Last Seen" Memory:** When gamers go offline, the sensor retains their last played game and calculates exactly how long ago they were active (e.g., *Last seen 3h ago: Genshin Impact (1h 37m)*).
 * **Custom Avatars:** Automatically pulls live gamer pictures from platform APIs, with the option to easily override missing or incorrect images with your own local images.
 
 ## ⚠️ Prerequisites
 This integration acts as a "wrapper" that intelligently processes data from your existing integrations. Before installing, ensure you have any necessary base integrations installed and working in Home Assistant:
-* Official PlayStation Network Integration
-* Official Steam Integration
-* Official Xbox Integration
-* SteamGridDB API Key (for cover art)
+* [Official PlayStation Network Integration](https://www.home-assistant.io/integrations/playstation_network)
+* [Official Steam Integration](https://www.home-assistant.io/integrations/steam_online)
+* [Official Xbox Integration](https://www.home-assistant.io/integrations/xbox)
+* [SteamGridDB API Key](https://www.steamgriddb.com/) (for cover art)
+
+## Recommended
+While not required for functionality, I recommend installing the following HACS integrations for the most robust dashboard cards:
+* [Mushroom Cards](https://github.com/piitaya/lovelace-mushroom) - For the beautiful base layouts
+* [Card-Mod](https://github.com/thomasloven/lovelace-card-mod) - For the blurred backgrounds and borders
+* [Auto-Entities](https://github.com/thomasloven/lovelace-auto-entities) - To automatically hide offline players
+* [ApexCharts Card](https://github.com/RomRider/apexcharts-card) - For the stats graph
+* [Custom Button-Card](https://github.com/custom-cards/button-card) - For the slideshow
+* [HASS.Agent](https://www.hass-agent.io/2.2/getting-started/installation/#installing-hassagent) - Install both the PC app and the integration for Custom PC sensors
 
 ### Obtaining a SteamGridDB API Key
 To display beautiful, high-resolution game covers on your dashboard, this integration requires a free API key from SteamGridDB.
@@ -41,6 +54,7 @@ To display beautiful, high-resolution game covers on your dashboard, this integr
 3. Add the URL to this repository and select **Integration** as the category.
 4. Click **Download**.
 5. **Restart Home Assistant.**
+6. Add the integration under Settings > Devices & Services and searching for **"Gaming Status"**
 
 ### Manual Installation
 If you prefer not to use HACS, you can install the integration manually:
@@ -50,7 +64,7 @@ If you prefer not to use HACS, you can install the integration manually:
 3. Locate the `custom_components/gaming_status/` folder inside the extracted files.
 4. Copy that entire `gaming_status` folder into your Home Assistant `config/custom_components/` directory. *(If the `custom_components` folder does not exist, create it).*
 5. **Restart Home Assistant.**
-6. Follow the Configuration steps below to set up your `gaming_profiles.json` file.
+6. Add the integration under Settings > Devices & Services and searching for **"Gaming Status"**
 
 ##  Activating the Integration
 Once your `gaming_profiles.json` file is configured and saved:
@@ -62,14 +76,14 @@ Once your `gaming_profiles.json` file is configured and saved:
 ## ⚙️ Configuration (Crucial Step)
 Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer. All settings will be configured inside of `config/gaming_profiles.json`. 
 
-Use the *Gaming Status Configurator* to easily generate the required JSON file. This should show up after installation as an entry on your sidebar labeled "Gaming Status". Further editing of advanced options can be performed manually in VSCode or your editor of choice. **After adding your information, save the JSON file and either reload the integration or restart Home Assistant.**
+Use the *Gaming Status Configurator* to easily generate the required JSON file. This will show up after installation as an entry on your sidebar labeled "Gaming Status". Further editing of [advanced options](docs/advanced.md) can be performed manually in VSCode or your editor of choice. **After adding your information, save the JSON file and either reload the integration or restart Home Assistant.**
 
 *Additionally, there is a [`example.profiles.json`](custom_components/gaming_status/example.profiles.json) file provided that can be used as a starting point if you prefer to edit the file manually yourself. See the [Advanced Setup](docs/advanced.md) documentation for more details.*
 
 Upon reload (or restart), the integration will instantly read your `config/gaming_profiles.json` file and generate the master tracking sensors for your dashboard. Look for the new master sensors named `sensor.XXXXXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
 
 ## What to Try Next!?
-Once everything is up and running, with sensors showing up from the integration, try loading up a game to make sure the online status is reflected in the master "_gaming_status" sensors. If they are working correctly, try some of the following!
+Once everything is up and running, with sensors showing up from the integration, try loading up a game to make sure the online status is reflected in the master "_gaming_status" sensors. If they are working correctly, try some of the following! If not, see the [troubleshooting](docs/troubleshooting.md) documentation.
 
 - Add some sweet displays to your [dashboard](docs/dashboards.md#1-the-currently-playing-card), showing who's online and what they're playing
 - Set up Discord or SMS [notifications](docs/notifications.md) for when users start and stop playing games

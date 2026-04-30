@@ -4,11 +4,11 @@ To get the most out of the Gaming Status integration, you can use these advanced
 
 ### ⚠️ Frontend Prerequisites
 These dashboard examples rely on a few popular custom frontend cards. You will need to install these via HACS (Frontend section) before the YAML below will work:
-* [Mushroom Cards](https://github.com/piitaya/lovelace-mushroom) (For the beautiful base layouts)
-* [Card-Mod](https://github.com/thomasloven/lovelace-card-mod) (For the blurred backgrounds and borders)
-* [Auto-Entities](https://github.com/thomasloven/lovelace-auto-entities) (To automatically hide offline players)
-* [ApexCharts Card](https://github.com/RomRider/apexcharts-card) (For the stats graph)
-* [Custom Button-Card](https://github.com/custom-cards/button-card) (For the slideshow)
+* [Mushroom Cards](https://github.com/piitaya/lovelace-mushroom) - For the beautiful base layouts
+* [Card-Mod](https://github.com/thomasloven/lovelace-card-mod) - For the blurred backgrounds and borders
+* [Auto-Entities](https://github.com/thomasloven/lovelace-auto-entities) - To automatically hide offline players
+* [ApexCharts Card](https://github.com/RomRider/apexcharts-card) - For the stats graph
+* [Custom Button-Card](https://github.com/custom-cards/button-card) - For the slideshow
 
 ---
 
