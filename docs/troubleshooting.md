@@ -1,6 +1,8 @@
 # 🛠️ Troubleshooting & FAQ
 Below are some of the possible issues you may encounter and their fixes.
 
+---
+
 ## The integration loads, but no sensors are created
 One possibility is a simple JSON formatting error in your `gaming_profiles.json` file. JSON is extremely strict and doesn't allow 'trailing commas' after the last item in a list. See example below:
 
