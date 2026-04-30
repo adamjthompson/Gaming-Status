@@ -54,11 +54,11 @@
             margin-top: 10px;
         }
         button:hover { background: var(--primary-hover); }
-        .danger-btn { background: #d32f2f; margin-left: 10px; }
-        .danger-btn:hover { background: #b71c1c; }
+        .danger-btn { background: #b71c1c; margin-left: 10px; }
+        .danger-btn:hover { background: #d32f2f; }
         .icon-btn { padding: 8px 12px; margin-left: 5px; margin-top: 0; }
-        .save-btn { background: #4CAF50; width: 100%; font-size: 1.2em; padding: 15px; margin-top: 0; }
-        .save-btn:hover { background: #388E3C; }
+        .save-btn { background: #388E3C; width: 100%; font-size: 1.2em; padding: 15px; margin-top: 0; }
+        .save-btn:hover { background: #4CAF50; }
         .refresh-btn { background: var(--primary); width: 100%; font-size: 1.2em; padding: 15px; margin-top: 0; }
         .refresh-btn:hover { background: var(--primary-hover); }
         .button-group { display: flex; gap: 15px; align-items: center; }
@@ -75,7 +75,7 @@
         .kv-row input { flex: 1; margin-bottom: 0; }
         textarea {
             width: 100%;
-            height: 150px;
+            height: 250px;
             background: var(--input-bg);
             color: var(--text-main);
             padding: 15px;
@@ -85,8 +85,8 @@
             resize: vertical;
         }
         #json-output {
-            background: #000;
-            color: #4af626;
+            background: var(--input-bg);
+            color: var(--text-main);
             font-family: monospace;
             height: 250px;
         }
@@ -96,26 +96,27 @@
         .url-hint.visible { display: block; }
         #status-bar { padding: 10px; background: #2e7d32; text-align: center; font-weight: bold; border-radius: 0; margin-bottom: 20px; display: none; }
         /* Global Settings Styles */
+        
         .global-settings {
-            background: #f8f9fa;
-            border: 1px solid #ddd;
+            background: var(--card-bg);
             border-radius: 0;
-            padding: 10px 15px;
+            padding: 20px;
             margin-bottom: 20px;
+            border: 1px solid var(--border);
         }
         .global-settings summary {
             font-weight: bold;
             cursor: pointer;
             outline: none;
-            color: #333;
+            color: #2a3242;
         }
         .global-settings summary:hover {
-            color: #0056b3;
+            color: #485671;
         }
         .settings-container {
             margin-top: 15px;
             padding-top: 15px;
-            border-top: 1px solid #eee;
+            border-top: 1px solid var(--border);
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 15px;
@@ -124,11 +125,11 @@
             grid-column: 1 / -1;
             margin-top: 0;
             font-size: 0.9em;
-            color: #666;
+            color: #2a3242;
         }
         .form-group small {
             display: block;
-            color: #888;
+            color: #2a3242;
             margin-top: 4px;
             font-size: 0.85em;
         }
@@ -177,30 +178,30 @@
     </div>
 
     <details class="global-settings">
-            <summary>⚙️ Global Settings (Optional)</summary>
+            <summary>Global Settings (Optional)</summary>
             <div class="settings-container">
-                <p class="settings-description">These variables control how the integration handles network drops, game crashes, and short sessions. All values are in seconds. Do not change these unless you understand how these will impact the functionality of the integration.</p>
+                <p class="settings-description">These variables control how the integration handles network drops, game crashes, and short sessions. All values are in seconds. <b>Do not change these unless you understand how these will impact the functionality of the integration!</b></p>
                 
                 <div class="form-group">
-                    <label for="grace_period">Standard Offline Grace Period:</label>
+                    <label for="grace_period" class="settings-description">Standard Offline Grace Period</label>
                     <input type="number" id="grace_period" value="300" min="0">
-                    <small>Default: 300. Bridges temporary total network drops.</small>
+                    <small>Default: 300. Bridges temporary sensor or network drops.</small>
                 </div>
 
                 <div class="form-group">
-                    <label for="away_grace_period">Steam 'Away' Grace Period:</label>
+                    <label for="away_grace_period" class="settings-description">Steam 'Away' Grace Period</label>
                     <input type="number" id="away_grace_period" value="600" min="0">
                     <small>Default: 600. Time before an Idle/Away status drops to Offline.</small>
                 </div>
 
                 <div class="form-group">
-                    <label for="game_transition_grace">Game Transition Grace Period:</label>
+                    <label for="game_transition_grace" class="settings-description">Game Transition Grace Period</label>
                     <input type="number" id="game_transition_grace" value="120" min="0">
-                    <small>Default: 120. Stitches sessions together during quick game swaps or crashes.</small>
+                    <small>Default: 120. Combines sessions during game swaps or crashes.</small>
                 </div>
 
                 <div class="form-group">
-                    <label for="min_session">Minimum Session Duration:</label>
+                    <label for="min_session" class="settings-description">Minimum Session Duration</label>
                     <input type="number" id="min_session" value="300" min="0">
                     <small>Default: 300. Sessions shorter than this will be discarded.</small>
                 </div>
@@ -332,7 +333,7 @@
                 { label: 'Xbox Gamertag',         cls: 'p-xbox',  ph: 'e.g., MajorNelson',   val: xboxVal  },
                 { label: 'PlayStation Network ID', cls: 'p-psn',   ph: 'e.g., ShuheiYoshida', val: psnVal   },
                 { label: 'Steam ID / Name',       cls: 'p-steam', ph: 'e.g., GabeNewell',    val: steamVal },
-                { label: 'Custom Sensor (HASS.Agent)', cls: 'p-custom', ph: 'e.g., sensor.josh_pc_active_window', val: customVal }
+                { label: 'Custom Sensor (HASS.Agent)', cls: 'p-custom', ph: 'e.g., sensor.josh_pc_active_game', val: customVal }
             ];
 
             fields.forEach(({ label, cls, ph, val }) => {
