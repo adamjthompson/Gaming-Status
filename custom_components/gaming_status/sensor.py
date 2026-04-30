@@ -335,14 +335,18 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     data["game_cover_url"] = attrs.get("title_image")
                     data["is_online"] = True
                 elif state.lower() == "playing": 
-                    data["current_game"] = "Unknown Game" 
-                    data["is_online"] = True
+                    # FIX: Match Steam/Xbox behavior. If privacy hides the game, 
+                    # or they are on the dashboard, drop to offline.
+                    data["is_online"] = False
                 else:
                     found_sibling = False
                     if "_online_status" in self._source_entity_id:
                         sibling_id = self._source_entity_id.replace("_online_status", "_now_playing")
                         sibling_state = self.hass.states.get(sibling_id)
-                        if sibling_state and sibling_state.state not in [STATE_UNKNOWN, STATE_UNAVAILABLE, "unknown", "unavailable"]:
+                        
+                        # FIX: Added "unknown game" to the rejection list so 
+                        # sibling sensors don't accidentally trigger it either
+                        if sibling_state and sibling_state.state.lower() not in ["unknown", "unavailable", "unknown game", "none", ""]:
                             sibling_val = sibling_state.state
                             is_excluded_sib = False
                             for ex in GLOBAL_EXCLUSIONS:
