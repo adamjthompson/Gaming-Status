@@ -95,6 +95,43 @@
         .url-hint { font-size: 0.8em; color: #d32f2f; display: none; margin-top: 2px; }
         .url-hint.visible { display: block; }
         #status-bar { padding: 10px; background: #2e7d32; text-align: center; font-weight: bold; border-radius: 0; margin-bottom: 20px; display: none; }
+        /* Global Settings Styles */
+        .global-settings {
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 0;
+            padding: 10px 15px;
+            margin-bottom: 20px;
+        }
+        .global-settings summary {
+            font-weight: bold;
+            cursor: pointer;
+            outline: none;
+            color: #333;
+        }
+        .global-settings summary:hover {
+            color: #0056b3;
+        }
+        .settings-container {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        .settings-description {
+            grid-column: 1 / -1;
+            margin-top: 0;
+            font-size: 0.9em;
+            color: #666;
+        }
+        .form-group small {
+            display: block;
+            color: #888;
+            margin-top: 4px;
+            font-size: 0.85em;
+        }
     </style>
 </head>
 <body>
@@ -139,6 +176,37 @@
         <button type="button" onclick="addCoverRow()">+ Add Custom Cover</button>
     </div>
 
+    <details class="global-settings">
+            <summary>⚙️ Global Settings (Optional)</summary>
+            <div class="settings-container">
+                <p class="settings-description">These variables control how the integration handles network drops, game crashes, and short sessions. All values are in seconds. Do not change these unless you understand how these will impact the functionality of the integration.</p>
+                
+                <div class="form-group">
+                    <label for="grace_period">Standard Offline Grace Period:</label>
+                    <input type="number" id="grace_period" value="300" min="0">
+                    <small>Default: 300. Bridges temporary total network drops.</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="away_grace_period">Steam 'Away' Grace Period:</label>
+                    <input type="number" id="away_grace_period" value="600" min="0">
+                    <small>Default: 600. Time before an Idle/Away status drops to Offline.</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="game_transition_grace">Game Transition Grace Period:</label>
+                    <input type="number" id="game_transition_grace" value="120" min="0">
+                    <small>Default: 120. Stitches sessions together during quick game swaps or crashes.</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="min_session">Minimum Session Duration:</label>
+                    <input type="number" id="min_session" value="300" min="0">
+                    <small>Default: 300. Sessions shorter than this will be discarded.</small>
+                </div>
+            </div>
+        </details>
+
     <div class="card">
         <h2>Save Configuration</h2>
         <div class="button-group">
@@ -162,6 +230,13 @@
         let advancedProfileMemory = {};
 
         let currentData = {
+            "GLOBAL_SETTINGS": {
+                "RESET_HISTORY": false,
+                "GRACE_PERIOD_SECONDS": 300,
+                "AWAY_GRACE_PERIOD_SECONDS": 600,
+                "GAME_TRANSITION_GRACE_SECONDS": 120,
+                "MIN_SESSION_DURATION": 300
+            },
             "GLOBAL_EXCLUSIONS": [
                 "Home", "Online", "Xbox App", "YouTube", "Netflix", "Hulu",
                 "Amazon Prime Video", "Spotify", "Microsoft Store", "Store",
@@ -253,7 +328,7 @@
             div.appendChild(header);
 
             const fields = [
-                { label: 'Display Name',          cls: 'p-name',  ph: 'e.g., Josh',          val: nameVal  },
+                { label: 'Display Name',         cls: 'p-name',  ph: 'e.g., Josh',         val: nameVal  },
                 { label: 'Xbox Gamertag',         cls: 'p-xbox',  ph: 'e.g., MajorNelson',   val: xboxVal  },
                 { label: 'PlayStation Network ID', cls: 'p-psn',   ph: 'e.g., ShuheiYoshida', val: psnVal   },
                 { label: 'Steam ID / Name',       cls: 'p-steam', ph: 'e.g., GabeNewell',    val: steamVal },
@@ -334,6 +409,14 @@
         }
 
         function loadDataIntoUI() {
+            // Load Advanced Global Settings into the inputs
+            if (currentData.GLOBAL_SETTINGS) {
+                document.getElementById('grace_period').value = currentData.GLOBAL_SETTINGS.GRACE_PERIOD_SECONDS !== undefined ? currentData.GLOBAL_SETTINGS.GRACE_PERIOD_SECONDS : 300;
+                document.getElementById('away_grace_period').value = currentData.GLOBAL_SETTINGS.AWAY_GRACE_PERIOD_SECONDS !== undefined ? currentData.GLOBAL_SETTINGS.AWAY_GRACE_PERIOD_SECONDS : 600;
+                document.getElementById('game_transition_grace').value = currentData.GLOBAL_SETTINGS.GAME_TRANSITION_GRACE_SECONDS !== undefined ? currentData.GLOBAL_SETTINGS.GAME_TRANSITION_GRACE_SECONDS : 120;
+                document.getElementById('min_session').value = currentData.GLOBAL_SETTINGS.MIN_SESSION_DURATION !== undefined ? currentData.GLOBAL_SETTINGS.MIN_SESSION_DURATION : 300;
+            }
+
             document.getElementById('global-exclusions-input').value = currentData.GLOBAL_EXCLUSIONS.join('\n');
             document.getElementById('title-cleanups-input').value = currentData.TITLE_CLEANUPS.join('\n');
 
@@ -366,6 +449,8 @@
                     document.getElementById('status-bar').style.display = 'block';
 
                     if (Object.keys(data).length > 0) {
+                        // Extract Global Settings if they exist in the saved file
+                        if (data.GLOBAL_SETTINGS) currentData.GLOBAL_SETTINGS = data.GLOBAL_SETTINGS;
                         if (data.GLOBAL_EXCLUSIONS) currentData.GLOBAL_EXCLUSIONS = data.GLOBAL_EXCLUSIONS;
                         if (data.TITLE_CLEANUPS) currentData.TITLE_CLEANUPS = data.TITLE_CLEANUPS;
                         if (data.GAME_TITLE_OVERRIDES) currentData.GAME_TITLE_OVERRIDES = data.GAME_TITLE_OVERRIDES;
@@ -423,6 +508,13 @@
 
         function buildConfigObject(silent = false) {
             const config = {
+                "GLOBAL_SETTINGS": {
+                    "RESET_HISTORY": false, // Hardcoded for safety
+                    "GRACE_PERIOD_SECONDS": parseInt(document.getElementById('grace_period').value) || 300,
+                    "AWAY_GRACE_PERIOD_SECONDS": parseInt(document.getElementById('away_grace_period').value) || 600,
+                    "GAME_TRANSITION_GRACE_SECONDS": parseInt(document.getElementById('game_transition_grace').value) || 120,
+                    "MIN_SESSION_DURATION": parseInt(document.getElementById('min_session').value) || 300
+                },
                 "GAMER_PROFILES": {},
                 "GLOBAL_EXCLUSIONS": [],
                 "GAME_TITLE_OVERRIDES": {},
