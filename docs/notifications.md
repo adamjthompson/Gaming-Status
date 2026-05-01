@@ -35,7 +35,7 @@ Copy the entire JSON block below. In Node-RED, click the hamburger menu (top rig
 After importing, you will need to update a few details to match your specific setup:
 
 1. **Update the External Image URLs:** Open the two large `function` nodes ("Process & Deduplicate" and "Calculate Duration"). Find the line that says `const baseUrl = "https://your-home-assistant-url.com";` and change it to your actual remote Home Assistant URL. *(Discord cannot load local `192.168.x.x` images).*
-2. **Configure the Routing Switch:** Open the two yellow "Route by Person" nodes. This uses simple Regex logic (`player_one|player_two`) to look at the entity ID and route the notification path. Change these names to match your household. For example, if you want your kids' notifications to go to a public Discord channel, and your own to go to a private DM, list the names accordingly.
+2. **Configure the Routing Switch:** Open the two yellow "Route by Person" nodes. This uses simple Regex logic (`player_one|player_two`) to look at the entity ID and route the notification path. Change these names to match your household. For example, if you want your kids' notifications to go to a private DM, and your own to go to a public Discord channel, list the names accordingly. *These "Route by Person" nodes are not required for functionality and can be removed if you want ALL notifications to be sent the same way.*
 3. **Set Discord Targets:** Open the green Discord notification nodes at the end of the flow. Update the `"target"` field to point to your specific Discord Channel ID or User ID.
 4. **Mobile App Device:** Open the green "Notify Mobile" node in the Weekly flow and select your specific phone entity from the dropdown.
 
