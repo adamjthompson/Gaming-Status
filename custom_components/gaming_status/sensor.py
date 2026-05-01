@@ -35,6 +35,9 @@ from .utils import (
     safe_url
 )
 
+# Module-level constant — avoids rebuilding this set on every Xbox offline state update
+XBOX_IDLE_STATES = frozenset(s.lower() for s in PLATFORM_CONFIG["xbox"]["idle_states"])
+
 # ------------------------------------------------------------------
 # 1. CLASS DEFINITIONS
 # ------------------------------------------------------------------
@@ -174,25 +177,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._cached_history_seconds = sum(self._play_history.values())
             self._store.async_delay_save(lambda: {"history": self._play_history}, 5.0)
 
-    def _is_steam_echo(self, xbox_game):
-        if self._gaming_type != "xbox" or not xbox_game: return False
-        steam_entity_id = self._desired_entity_id.replace("_xbox", "_steam")
-        steam_state = self.hass.states.get(steam_entity_id)
-        if not steam_state: return False
-        
-        clean_xbox = _format_game_name_for_display(xbox_game)
-        norm_xbox = _normalize_game_name(clean_xbox)
-        
-        if steam_state.state.lower() not in ["offline", "unknown", "unavailable"]:
-            steam_game = steam_state.attributes.get("game") or steam_state.state
-            if _normalize_game_name(steam_game) == norm_xbox: return True
-        last_played = steam_state.attributes.get("last_played_game")
-        if last_played and _normalize_game_name(last_played) == norm_xbox:
-            last_changed = steam_state.last_changed
-            now = dt_util.now()
-            if (now - last_changed).total_seconds() < 900: return True
-        return False
-
     def _is_ghost_session(self, game_name):
         if self._gaming_type != "xbox": return False
         if not game_name: return False
@@ -211,13 +195,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         return False
 
     def _is_game_active_elsewhere(self, current_game):
-        if not current_game: return False
+        if not current_game or self._gaming_type != "xbox": return False
         try:
             normalized = _normalize_game_name(current_game)
-            if self._gaming_type == "xbox":
-                steam_sensor_id = self._desired_entity_id.replace("_xbox", "_steam")
-                steam_state = self.hass.states.get(steam_sensor_id)
-                if steam_state and steam_state.state not in ["Offline", "offline", STATE_UNKNOWN, STATE_UNAVAILABLE]:
+            steam_sensor_id = self._desired_entity_id.replace("_xbox", "_steam")
+            steam_state = self.hass.states.get(steam_sensor_id)
+            if steam_state and steam_state.state not in ["Offline", "offline", STATE_UNKNOWN, STATE_UNAVAILABLE]:
+                steam_game = steam_state.attributes.get("current_game") or steam_state.state
+                if _normalize_game_name(steam_game) == normalized:
                     return True
         except Exception: pass
         return False
@@ -456,10 +441,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             
         return seconds, display
 
-    def _get_dynamic_game_cover_art(self):
-        if self._attr_extra_state_attributes: return self._attr_extra_state_attributes.get("game_cover_art")
-        return None
-
     def _clean_restored_game_name(self, game_name):
         if not game_name: return None
         clean = str(game_name).strip()
@@ -491,13 +472,15 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._play_history = {} 
         self._cached_history_seconds = sum(self._play_history.values())
 
-        # Cache local avatar path check to avoid blocking event loop
-        safe_name = self._owner_name.lower().replace(" ", "_")
-        for ext in ['png', 'jpg']:
-            local_path = self.hass.config.path(f"www/gaming_status/{self._gaming_type}_{safe_name}_avatar.{ext}")
-            if os.path.exists(local_path): 
-                self._local_avatar_path = f"/local/gaming_status/{self._gaming_type}_{safe_name}_avatar.{ext}"
-                break
+        # Cache local avatar path — wrapped in executor to avoid blocking the event loop
+        def _find_local_avatar():
+            _sn = self._owner_name.lower().replace(" ", "_")
+            for ext in ['png', 'jpg']:
+                _p = self.hass.config.path(f"www/gaming_status/{self._gaming_type}_{_sn}_avatar.{ext}")
+                if os.path.exists(_p):
+                    return f"/local/gaming_status/{self._gaming_type}_{_sn}_avatar.{ext}"
+            return None
+        self._local_avatar_path = await self.hass.async_add_executor_job(_find_local_avatar)
 
         last_state = await self.async_get_last_state()
         
@@ -890,7 +873,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         new_xbox_game = _format_game_name_for_display(
                             self._clean_restored_game_name(platform_data["xbox_last_seen_game"])
                         )
-                        idle_list = [s.lower() for s in PLATFORM_CONFIG["xbox"]["idle_states"]]
+                        idle_list = XBOX_IDLE_STATES
                         is_ghost = self._is_ghost_session(new_xbox_game)
                         if new_xbox_game.lower() not in idle_list and not is_ghost:
                             self._last_played_game = new_xbox_game
@@ -1054,7 +1037,7 @@ class MasterGamingSensor(RestoreEntity, SensorEntity):
                 "game_cover_art": active_state.attributes.get("game_cover_art"),
                 "current_game": active_state.attributes.get("current_game"),
                 "play_start_time": active_state.attributes.get("play_start_time"),
-                "last_online_valid_timestamp": datetime.now(timezone.utc).isoformat(),
+                "last_online_valid_timestamp": active_state.attributes.get("last_online_valid_timestamp"),
                 "total_daily_hours": total_daily_hours,
                 "total_weekly_hours": total_weekly_hours,
                 "rolling_weekly_hours": total_rolling_weekly_hours, 
