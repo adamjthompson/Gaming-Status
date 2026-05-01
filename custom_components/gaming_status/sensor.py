@@ -720,8 +720,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             if self._last_session_play_time and self._last_session_play_time >= 60:
                                 st_str = _format_time(self._last_session_play_time)
                                 secondary = f"{secondary} ({st_str})"
-                    else: secondary = f"Last seen {time_ago}"
-                else: secondary = "Offline"
+                        else: 
+                            secondary = f"Last seen {time_ago}"
+                    else: 
+                        secondary = "Offline"
+                else: 
+                    secondary = "Offline"
 
             self._attr_extra_state_attributes["timer_status"] = timer_status
             self._write_common_attributes(secondary)
