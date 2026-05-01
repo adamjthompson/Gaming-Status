@@ -277,7 +277,7 @@
         }
 
         function isValidCoverUrl(url) {
-            return typeof url === 'string' && (url.startsWith("https://") || url.startsWith("/local/") || url.startsWith("/"));
+            return typeof url === 'string' && (url.startsWith("https://") || url.startsWith("/local/"));
         }
 
         function formatEntityId(tag, platform) {
@@ -440,8 +440,20 @@
                 const token = getHAToken();
                 const fetchOptions = { headers: {} };
                 
-                // Add secure authorization header
-                if (token) fetchOptions.headers['Authorization'] = 'Bearer ' + token;
+                // Add secure authorization header OR hard-stop if missing
+                if (token) {
+                    fetchOptions.headers['Authorization'] = 'Bearer ' + token;
+                } else {
+                    alert("⚠️ Authentication token not found.\n\nPlease log into Home Assistant and access this Configurator through the sidebar menu to load your data.")
+                    document.getElementById('status-bar').style.background = '#d32f2f'; // Turn banner red
+                    document.getElementById('status-bar').textContent = '❌ Authentication Error: Token Missing';
+                    document.getElementById('status-bar').style.display = 'block';
+                    
+                    // Render default UI so the page isn't totally broken, but stop the fetch
+                    addProfile();
+                    loadDataIntoUI();
+                    return; 
+                }
 
                 const response = await fetch(cacheBusterUrl, fetchOptions);
                 
