@@ -783,14 +783,21 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 
                 display_state = game_name_display
                 
+                # Only process new cover art if we haven't already locked one in for this session
                 if normalized_new and not self._cover_fetch_attempted:
                     fetched = await get_steamgriddb_game_cover(self.hass, game_name_display)
                     self._cover_fetch_attempted = True
+                    
                     if fetched:
-                        platform_data["game_cover_url"] = fetched
+                        self._cached_game_cover = fetched
+                    else:
+                        self._cached_game_cover = platform_data.get("game_cover_url")
                 
-                game_cover = platform_data.get("game_cover_url")
-                if game_cover: self._cached_game_cover = game_cover
+                # If we somehow don't have a cover yet, fall back to the platform data
+                elif not self._cached_game_cover and platform_data.get("game_cover_url"):
+                    self._cached_game_cover = platform_data.get("game_cover_url")
+                
+                game_cover = self._cached_game_cover
                 
                 session_seconds, play_time_text = self._get_session_info()
                 if session_seconds > self._active_settings["MIN_SESSION_DURATION"]:
