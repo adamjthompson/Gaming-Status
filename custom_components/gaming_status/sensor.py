@@ -1,5 +1,5 @@
 """
-Gaming Status Sensor Platform - The Ultimate Cut
+Gaming Status Sensor Platform
 """
 import logging
 import asyncio
