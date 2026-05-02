@@ -1068,20 +1068,37 @@ class HistoryChartSensor(RestoreEntity, SensorEntity):
             except ValueError: 
                 self._attr_native_value = 0.0
 
+        # 1. Listen for future changes
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, [self._master_sensor_id], self._async_master_changed
             )
         )
 
+        # 2. IMMEDIATE STARTUP SYNC: Grab the current value right now so we don't have to wait
+        master_state = self.hass.states.get(self._master_sensor_id)
+        if master_state:
+            daily_hours = master_state.attributes.get("total_daily_hours", 0.0)
+            try:
+                daily_hours_float = float(daily_hours)
+                if self._attr_native_value != daily_hours_float:
+                    self._attr_native_value = daily_hours_float
+                    self.async_write_ha_state()
+            except (ValueError, TypeError):
+                pass
+
     @callback
     def _async_master_changed(self, event):
         new_state = event.data.get("new_state")
         if new_state:
             daily_hours = new_state.attributes.get("total_daily_hours", 0.0)
-            if self._attr_native_value != daily_hours:
-                self._attr_native_value = float(daily_hours)
-                self.async_write_ha_state()
+            try:
+                daily_hours_float = float(daily_hours)
+                if self._attr_native_value != daily_hours_float:
+                    self._attr_native_value = daily_hours_float
+                    self.async_write_ha_state()
+            except (ValueError, TypeError):
+                pass
 
 from .const import CONF_STEAMGRIDDB_API_KEY
 async def async_setup_entry(hass, config_entry, async_add_entities):
