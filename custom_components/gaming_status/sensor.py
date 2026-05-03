@@ -284,6 +284,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     data["is_online"] = True
                     data["current_game"] = potential_game
             data["gamertag"] = _get_gamertag_from_entity(self._source_entity_id, "xbox")
+            
+            # FIX: Native Xbox Gamerpic Entity lookup
+            if data["gamertag"]:
+                safe_tag = data["gamertag"].lower().replace(" ", "_")
+                xbox_img = self.hass.states.get(f"image.{safe_tag}_gamerpic")
+                if xbox_img and xbox_img.attributes.get("entity_picture"):
+                    data["avatar_url"] = xbox_img.attributes.get("entity_picture")
 
         elif self._gaming_type == "playstation":
             try:
@@ -518,10 +525,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             
             self._attr_extra_state_attributes = dict(attrs)
             
-            # FIX: Ensure restored avatar uses the unified pipeline safely
+            # FIX: Ensure restored avatar uses the native image pipeline safely
             self._attr_entity_picture = safe_url(attrs.get("entity_picture"))
-            if self._gaming_type == "xbox" and not self._attr_entity_picture:
-                self._attr_entity_picture = "/local/gaming_status/default.png"
             
             if self._last_played_game and str(self._last_played_game).lower() == "offline": self._last_played_game = None
             if self._current_game and str(self._current_game).lower() == "offline":
@@ -866,13 +871,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 self._current_game = None
                 self._play_start_time = None
 
-            # FIX: Unified Avatar Pipeline
+            # FIX: Native Image Entity Pipeline
             entity_pic = self._local_avatar_path
             if not entity_pic and platform_data.get("avatar_url"):
                 entity_pic = safe_url(platform_data.get("avatar_url"))
-            
-            if self._gaming_type == "xbox" and not entity_pic:
-                entity_pic = "/local/gaming_status/default.png"
                 
             self._attr_entity_picture = entity_pic
 
