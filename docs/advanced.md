@@ -147,6 +147,7 @@ To track these, the easiest method is using **HASS.Agent** (a free Windows compa
 1. Paste this into your template configuration.
 2. Edit the `pc_games` list with your specific PC sensors and desired display names.
 3. Open your `gaming_profiles.json` file and point that user's `"custom"` slot directly to this new sensor (`sensor.username_active_pc_game`).
+4. For an avatar picture, you will need to add your own image to `www/gaming_status` and name it `custom_username_avatar.png` (.jpg is also fine).
 
 ```yaml
 - sensor:
@@ -173,6 +174,13 @@ To track these, the easiest method is using **HASS.Agent** (a free Windows compa
 
         {{ active.game }}
 ```
+---
+
+## Custom User Avatars
+
+If you want to replace the gamer avatar with one of your own or if you want to provide an avatar for a custom sensor you only need to add an image to the `www/gaming_status` folder. The folder will need to be added manually. For your images, use JPEG or PNG images named as `platform_username_avatar.ext`. So, for a user named John on Xbox, it should be be 'xbox_john_avatar.png'.
+
+Any images added manually in this way will take priority over whatever is provided by the platform integration.
 
 ---
 
