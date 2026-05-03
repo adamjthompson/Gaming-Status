@@ -37,6 +37,13 @@ from .utils import (
 # Optimization: Module-level frozenset for Xbox idle states
 XBOX_IDLE_STATES = frozenset(s.lower() for s in PLATFORM_CONFIG["xbox"]["idle_states"])
 
+# Helper to bypass safe_url stripping for internal HA proxy links
+def _get_safe_image(url):
+    if not url: return None
+    url_str = str(url).strip()
+    if url_str.startswith("/"): return url_str
+    return safe_url(url_str)
+
 # ------------------------------------------------------------------
 # 1. PLATFORM SENSOR CLASS
 # ------------------------------------------------------------------
@@ -285,7 +292,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     data["current_game"] = potential_game
             data["gamertag"] = _get_gamertag_from_entity(self._source_entity_id, "xbox")
             
-            # FIX: Native Xbox Gamerpic Entity lookup
+            # Native Xbox Gamerpic Entity lookup
             if data["gamertag"]:
                 safe_tag = data["gamertag"].lower().replace(" ", "_")
                 xbox_img = self.hass.states.get(f"image.{safe_tag}_gamerpic")
@@ -442,7 +449,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._attr_extra_state_attributes["last_reset_date"] = self._last_reset_date
         self._attr_extra_state_attributes["last_weekly_reset"] = self._last_weekly_reset
         
-        # FIX: Ensure entity_picture is safely locked into the attributes on every update cycle
         self._attr_extra_state_attributes["entity_picture"] = self._attr_entity_picture
         
         if self._last_online_valid_timestamp:
@@ -525,8 +531,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             
             self._attr_extra_state_attributes = dict(attrs)
             
-            # FIX: Ensure restored avatar uses the native image pipeline safely
-            self._attr_entity_picture = safe_url(attrs.get("entity_picture"))
+            # FIX: Ensure restored avatar is protected by _get_safe_image
+            self._attr_entity_picture = _get_safe_image(attrs.get("entity_picture"))
             
             if self._last_played_game and str(self._last_played_game).lower() == "offline": self._last_played_game = None
             if self._current_game and str(self._current_game).lower() == "offline":
@@ -871,10 +877,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 self._current_game = None
                 self._play_start_time = None
 
-            # FIX: Native Image Entity Pipeline
+            # FIX: Native Image Entity Pipeline + _get_safe_image integration
             entity_pic = self._local_avatar_path
             if not entity_pic and platform_data.get("avatar_url"):
-                entity_pic = safe_url(platform_data.get("avatar_url"))
+                entity_pic = _get_safe_image(platform_data.get("avatar_url"))
                 
             self._attr_entity_picture = entity_pic
 
@@ -927,7 +933,8 @@ class MasterGamingSensor(RestoreEntity, SensorEntity):
             self._attr_native_value = last_state.state
             self._attr_extra_state_attributes = dict(last_state.attributes)
             
-            self._attr_entity_picture = safe_url(last_state.attributes.get("entity_picture"))
+            # Use _get_safe_image for restoring the Master sensor
+            self._attr_entity_picture = _get_safe_image(last_state.attributes.get("entity_picture"))
             
             lp = self._attr_extra_state_attributes.get("last_played_game")
             if lp and str(lp).lower() == "offline": self._attr_extra_state_attributes["last_played_game"] = None
@@ -994,7 +1001,7 @@ class MasterGamingSensor(RestoreEntity, SensorEntity):
 
         if active_state:
             self._attr_native_value = active_state.state
-            self._attr_entity_picture = safe_url(active_state.attributes.get("entity_picture"))
+            self._attr_entity_picture = _get_safe_image(active_state.attributes.get("entity_picture"))
             
             platform_key = self._platform_sensors.get(active_sensor_id, "gaming")
             pretty_platform_name = PLATFORM_CONFIG.get(platform_key, {}).get("name_suffix", platform_key.title())
@@ -1019,7 +1026,7 @@ class MasterGamingSensor(RestoreEntity, SensorEntity):
             
             if most_recent_sensor:
                 pretty_name = PLATFORM_CONFIG.get(most_recent_key, {}).get("name_suffix", "Gaming")
-                self._attr_entity_picture = safe_url(most_recent_sensor.attributes.get("entity_picture"))
+                self._attr_entity_picture = _get_safe_image(most_recent_sensor.attributes.get("entity_picture"))
                 
                 self._attr_extra_state_attributes = {
                     "secondary": most_recent_sensor.attributes.get("secondary", "Offline"),
@@ -1122,7 +1129,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         for k, v in d.get('GAME_TITLE_OVERRIDES', {}).items()
     }
     
-    utils.CUSTOM_COVER_MAP, utils.STEAMGRIDDB_API_KEY = {k: safe_url(v) for k, v in d.get('CUSTOM_COVER_MAP', {}).items() if safe_url(v)}, config_entry.data.get(CONF_STEAMGRIDDB_API_KEY)
+    utils.CUSTOM_COVER_MAP, utils.STEAMGRIDDB_API_KEY = {k: _get_safe_image(v) for k, v in d.get('CUSTOM_COVER_MAP', {}).items() if _get_safe_image(v)}, config_entry.data.get(CONF_STEAMGRIDDB_API_KEY)
     
     ents = []
     for n, p_d in d.get('GAMER_PROFILES', {}).items():
