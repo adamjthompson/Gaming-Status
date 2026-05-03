@@ -452,7 +452,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     safe_tag = gamertag.lower().replace(" ", "_")
                     xbox_img = self.hass.states.get(f"image.{safe_tag}_gamerpic")
                     if xbox_img and xbox_img.attributes.get("entity_picture"):
-                        live_avatar = safe_url(xbox_img.attributes.get("entity_picture"))
+                        live_avatar = xbox_img.attributes.get("entity_picture")  # Removed safe_url
             elif self._gaming_type == "playstation":
                 try:
                     object_id = self._source_entity_id.split('.')[1]
@@ -460,7 +460,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         gamertag = object_id[:-14]
                         ps_img = self.hass.states.get(f"image.{gamertag}_avatar")
                         if ps_img and ps_img.attributes.get("entity_picture"):
-                            live_avatar = safe_url(ps_img.attributes.get("entity_picture"))
+                            live_avatar = ps_img.attributes.get("entity_picture")  # Removed safe_url
                 except Exception: pass
                 
         if live_avatar:
@@ -550,7 +550,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._attr_extra_state_attributes = dict(attrs)
             
             # FIX: Ensure restored avatar uses the native image pipeline safely
-            self._attr_entity_picture = safe_url(attrs.get("entity_picture"))
+            self._attr_entity_picture = attrs.get("entity_picture")  # Removed safe_url
             
             if self._last_played_game and str(self._last_played_game).lower() == "offline": self._last_played_game = None
             if self._current_game and str(self._current_game).lower() == "offline":
@@ -906,7 +906,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             # FIX: Native Image Entity Pipeline
             entity_pic = self._local_avatar_path
             if not entity_pic and platform_data.get("avatar_url"):
-                entity_pic = safe_url(platform_data.get("avatar_url"))
+                entity_pic = platform_data.get("avatar_url")  # Removed safe_url
                 
             self._attr_entity_picture = entity_pic
 
@@ -959,7 +959,7 @@ class MasterGamingSensor(RestoreEntity, SensorEntity):
             self._attr_native_value = last_state.state
             self._attr_extra_state_attributes = dict(last_state.attributes)
             
-            self._attr_entity_picture = safe_url(last_state.attributes.get("entity_picture"))
+            self._attr_entity_picture = last_state.attributes.get("entity_picture")  # Removed safe_url
             
             lp = self._attr_extra_state_attributes.get("last_played_game")
             if lp and str(lp).lower() == "offline": self._attr_extra_state_attributes["last_played_game"] = None
@@ -1026,7 +1026,7 @@ class MasterGamingSensor(RestoreEntity, SensorEntity):
 
         if active_state:
             self._attr_native_value = active_state.state
-            self._attr_entity_picture = safe_url(active_state.attributes.get("entity_picture"))
+            self._attr_entity_picture = active_state.attributes.get("entity_picture")  # Removed safe_url
             
             platform_key = self._platform_sensors.get(active_sensor_id, "gaming")
             pretty_platform_name = PLATFORM_CONFIG.get(platform_key, {}).get("name_suffix", platform_key.title())
@@ -1051,7 +1051,7 @@ class MasterGamingSensor(RestoreEntity, SensorEntity):
             
             if most_recent_sensor:
                 pretty_name = PLATFORM_CONFIG.get(most_recent_key, {}).get("name_suffix", "Gaming")
-                self._attr_entity_picture = safe_url(most_recent_sensor.attributes.get("entity_picture"))
+                self._attr_entity_picture = most_recent_sensor.attributes.get("entity_picture")  # Removed safe_url
                 
                 self._attr_extra_state_attributes = {
                     "secondary": most_recent_sensor.attributes.get("secondary", "Offline"),
