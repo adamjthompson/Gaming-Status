@@ -91,6 +91,7 @@ Upon reload (or restart), the integration will instantly read your `config/gamin
 | sensor.XXXXX_playstation | Sensor | PlayStation sensor for each added profile |
 | sensor.XXXXX_gaming_status | Sensor | Master sensor for each added profile that combines all added platforms into one "Online/Offline" status |
 | sensor.XXXXX_daily_gaming_hours_chart | Sensor | Daily game time, tracked in 0.0 h format |
+| binary_sensor.anyone_gaming | Binary Sensor | Useful for showing or hiding cards |
 
 ### Attributes for Master Sensors
 Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The `*_gaming_status` sensors provide the following attibutes

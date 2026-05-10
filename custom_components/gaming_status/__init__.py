@@ -8,7 +8,7 @@ from homeassistant.components.frontend import async_register_built_in_panel, asy
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = ["sensor"]
+PLATFORMS = ["sensor", "binary_sensor"]
 
 class GamingProfilesAPI(HomeAssistantView):
     """Secure API endpoint to read and write gaming_profiles.json natively."""
@@ -89,7 +89,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         sidebar_title="Gaming Status",
         sidebar_icon="mdi:controller",
         frontend_url_path="gaming-status-config",
-        config={"url": "/gaming_status/configurator?v=182"}, 
+        config={"url": "/gaming_status/configurator?v=183"}, 
         require_admin=True,
     )
 

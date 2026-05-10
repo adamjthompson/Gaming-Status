@@ -189,20 +189,3 @@ Any images added manually in this way will take priority over whatever is provid
 **The Problem:** You want to trigger a Home Assistant automation (like changing the living room lights to a specific color, or silencing TTS announcements) whenever *anyone* in the house starts gaming, but you don't want to write a messy automation trigger that manually lists every single person's Xbox, Steam, and PlayStation sensor.
 
 **The Solution:** This dynamic binary sensor automatically searches your entire Home Assistant system for any Master Gaming Sensors (`_gaming_status`) created by this integration. If *any* of them are currently playing a game, this switch turns `on`. When the last person stops playing, it turns `off`.
-
-**How to use it:** Paste this into your template configuration. You can now use `binary_sensor.anyone_gaming` as a single, simple trigger or condition in your Node-RED flows or Home Assistant Automations!
-
-```yaml
-- binary_sensor:
-    - name: "Anyone Gaming"
-      unique_id: anyone_gaming
-      icon: >
-        {{ 'mdi:controller' if this.state == 'on' else 'mdi:controller-off' }}
-      state: >
-        {{ states.sensor 
-          | selectattr('entity_id', 'match', '^sensor\..*_gaming_status$') 
-          | rejectattr('state', 'eq', 'Offline') 
-          | rejectattr('state', 'in', ['unavailable', 'unknown']) 
-          | list 
-          | count > 0 }}
-```
