@@ -6,6 +6,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.components.http import HomeAssistantView, StaticPathConfig
 from homeassistant.components.frontend import async_register_built_in_panel, async_remove_panel
 from .const import DOMAIN
+from .notifier import GamingNotifier
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor", "binary_sensor"]
@@ -68,10 +69,14 @@ class GamingProfilesAPI(HomeAssistantView):
         await self.hass.async_add_executor_job(write_file)
         return self.json({"success": True})
 
-
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Gaming Status from a config entry."""
     hass.data.setdefault(DOMAIN, {})
+
+    # START NOTIFIER ENGINE
+    notifier = GamingNotifier(hass)
+    await notifier.async_start()
+    hass.data[DOMAIN]["notifier"] = notifier
 
     hass.http.register_view(GamingProfilesAPI(hass))
 
@@ -89,15 +94,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         sidebar_title="Gaming Status",
         sidebar_icon="mdi:controller",
         frontend_url_path="gaming-status-config",
-        config={"url": "/gaming_status/configurator?v=184"}, 
+        config={"url": "/gaming_status/configurator?v=185c"}, 
         require_admin=True,
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
-
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
+    # STOP NOTIFIER ENGINE
+    if "notifier" in hass.data.get(DOMAIN, {}):
+        await hass.data[DOMAIN]["notifier"].async_stop()
+        
     async_remove_panel(hass, "gaming-status-config")
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

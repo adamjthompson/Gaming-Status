@@ -1,6 +1,6 @@
 # 🛠️ Advanced Setup
 
-Below are additional setup options as well as descriptions of what each parameter in the gaming_profiles.json file does. See 'example.profiles.json' for an example of the proper formatting. The easiest approach is to use the included configurator sidebar to build the initial JSON file and then add advanced parameters manually using your favorite code editor.
+Below are additional setup options as well as descriptions of what each parameter in the `gaming_profiles.json` file does. See `example.profiles.json` for an example of the proper formatting. The easiest approach is to use the included configurator sidebar to build the initial JSON file and then add advanced parameters manually using your favorite code editor.
 
 ---
 
