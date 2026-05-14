@@ -10,6 +10,7 @@ Some of the key features are listed below.
 
 ## ✨ Features
 * **Unified Master Sensor:** Combines Xbox, PlayStation, Steam, and Custom PC clients into one clean "Master Status" sensor per person.
+* **Online/Offline Notifications** Receive Discord, SMS, and/or Mobile notifications when users start or finish playing a game.
 * **Custom PC Game Support:** Track non-platform games (like Epic Games, Minecraft, or Genshin Impact) using template funnels or binary sensors.
 * **Smart Ghosting Protection:** Automatically prevents echo sessions (e.g., when the Windows Xbox app incorrectly broadcasts a Steam game).
 * **Drop-Out Protection:** Built-in grace periods prevent a gamer from appearing "Offline" if their game crashes, they switch titles, or their internet briefly blips, keeping play sessions perfectly intact.
@@ -64,7 +65,6 @@ If you prefer not to use HACS, you can install the integration manually:
 6. Add the integration under Settings > Devices & Services and searching for **"Gaming Status"**
 
 ##  Activating the Integration
-Once your `gaming_profiles.json` file is configured and saved:
 1. Go to **Settings** ➔ **Devices & Services** in Home Assistant.
 2. Click **+ Add Integration**.
 3. Search for **Gaming Status** and select it.
@@ -73,13 +73,13 @@ Once your `gaming_profiles.json` file is configured and saved:
 ## ⚙️ Configuration (Crucial Step)
 Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer. All settings will be configured inside of `config/gaming_profiles.json`. 
 
-Use the *Gaming Status Configurator* to easily generate the required JSON file. This will show up after installation as an entry on your sidebar labeled "Gaming Status". Further editing of [advanced options](docs/advanced.md) can be performed manually in VSCode or your editor of choice. **After adding your information, save the JSON file and either reload the integration or restart Home Assistant.**
+Use the *Gaming Status Configurator* to easily generate the required JSON file. This will show up after installation as an entry on your sidebar labeled "Gaming Status". Further editing of [advanced options](docs/advanced.md) can be performed manually in VSCode or your editor of choice. **After adding your information, you must save the JSON file and restart Home Assistant.**
 
 *Additionally, there is a [`example.profiles.json`](custom_components/gaming_status/example.profiles.json) file provided that can be used as a starting point if you prefer to edit the file manually yourself. See the [Advanced Setup](docs/advanced.md) documentation for more details.*
 
 ### Entities
 
-Upon reload (or restart), the integration will instantly read your `config/gaming_profiles.json` file and generate the master tracking sensors for your dashboard. Look for the new master sensors named `sensor.XXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
+Upon restart, the integration will instantly read your `config/gaming_profiles.json` file and generate the master tracking sensors for your dashboard. Look for the new master sensors named `sensor.XXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
 
 | Entity | Type | Description |
 | ---| --- | --- |
@@ -138,7 +138,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 Once everything is up and running (with sensors showing up from the integration), try playing a game for at least 5 minutes to make sure the online status is reflected in the master "_gaming_status" sensors. *Note that, by default, sessions shorter than 300 seconds (5 minutes) are discarded and do not count toward the total playtime hours.* If the sensors are working correctly, try some of the following! If not, see the [troubleshooting](docs/troubleshooting.md) documentation.
 
 - Add some sweet displays to your [dashboard](https://github.com/adamjthompson/Gaming-Status-Cards#1-gaming-status---list), showing who's online and what they're playing
-- Set up Discord or SMS [notifications](docs/notifications.md) for when users start and stop playing games
+- Set up Discord, SMS, and/or Mobile [notifications](docs/notifications.md) for when users start and stop playing games
 - Add a [slideshow](https://github.com/adamjthompson/Gaming-Status-Cards#2-gaming-status---slideshow) to your dashboard or wallpanel display to see what's being played
 - Add a [graph](https://github.com/adamjthompson/Gaming-Status-Cards#3-gaming-status---chart) to chart weekly game time
 - Add [custom sensors](docs/advanced.md#tracking-standalone-pc-games-hassagent-setup) to track PC games not logged by Steam or Xbox
