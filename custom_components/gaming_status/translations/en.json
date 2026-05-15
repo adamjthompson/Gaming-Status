@@ -20,9 +20,10 @@
     "step": {
       "init": {
         "title": "Gaming Status Configuration",
-        "description": "You can update your SteamGridDB API key below.\n\n**To manage your players, exclusions, and other settings, please click the 'Gaming Status' icon in your sidebar!**",
+        "description": "Update your SteamGridDB API key or toggle the sidebar icon below.\n\n🎮 [**Click Here to Open the Web Configurator**](/gaming-status-config)\n\n*Use the configurator to manage players, notification endpoints, and weekly reports.*",
         "data": {
-          "steamgriddb_api_key": "SteamGridDB API Key"
+          "steamgriddb_api_key": "SteamGridDB API Key",
+          "show_sidebar": "Show Configurator in Sidebar"
         }
       }
     }

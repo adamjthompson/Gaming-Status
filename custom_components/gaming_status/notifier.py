@@ -22,7 +22,7 @@ class GamingNotifier:
         )
         
         # Pull config to schedule the weekly report
-        config = self._get_config()
+        config = await self._async_get_config()
         report_config = config.get("WEEKLY_REPORT", {})
         
         # Schedule based on user config, defaulting to Monday (0) at 09:00
@@ -47,15 +47,19 @@ class GamingNotifier:
         if self._unsub_weekly:
             self._unsub_weekly()
 
-    def _get_config(self):
-        if not os.path.exists(self.config_path):
-            return {}
-        try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            _LOGGER.error(f"[Gaming Notifier] Error reading config: {e}")
-            return {}
+    async def _async_get_config(self):
+        """Safely fetch the JSON config without blocking the event loop."""
+        def read_file():
+            if not os.path.exists(self.config_path):
+                return {}
+            try:
+                with open(self.config_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                _LOGGER.error(f"[Gaming Notifier] Error reading config: {e}")
+                return {}
+                
+        return await self.hass.async_add_executor_job(read_file)
 
     async def _handle_state_change(self, event):
         entity_id = event.data.get("entity_id")
@@ -73,7 +77,7 @@ class GamingNotifier:
         old_game = " ".join(str(old_state.state).split())
         new_game = " ".join(str(new_state.state).split())
         
-        config = self._get_config()
+        config = await self._async_get_config()
         
         # Grab global exclusions and make them lowercase for bulletproof comparison
         exclusions = [x.strip().lower() for x in config.get("GLOBAL_EXCLUSIONS", [])]
@@ -94,7 +98,7 @@ class GamingNotifier:
             self.hass.async_create_task(self._process_game_started(entity_id, safe_owner, new_game))
 
     async def _process_game_ended(self, safe_owner, game_name, attributes):
-        config = self._get_config()
+        config = await self._async_get_config()
         profiles = config.get("GAMER_PROFILES", {})
         
         user_config = next((data for name, data in profiles.items() if name.lower().replace(" ", "_") == safe_owner), None)
@@ -128,7 +132,7 @@ class GamingNotifier:
         if current_game_clean != game_name:
             return
 
-        config = self._get_config()
+        config = await self._async_get_config()
         profiles = config.get("GAMER_PROFILES", {})
         user_config = next((data for name, data in profiles.items() if name.lower().replace(" ", "_") == safe_owner), None)
         
@@ -194,7 +198,7 @@ class GamingNotifier:
         if now.weekday() != getattr(self, '_run_day', 0): 
             return # Failsafe: Only run on the configured day
         
-        config = self._get_config()
+        config = await self._async_get_config()
         report_config = config.get("WEEKLY_REPORT", {})
         
         if not report_config.get("enabled", False):

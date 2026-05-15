@@ -88,18 +88,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         StaticPathConfig("/gaming_status/brand", brand_path, cache_headers=True),
     ])
 
-    async_register_built_in_panel(
-        hass,
-        component_name="iframe",
-        sidebar_title="Gaming Status",
-        sidebar_icon="mdi:controller",
-        frontend_url_path="gaming-status-config",
-        config={"url": "/gaming_status/configurator?v=186"}, 
-        require_admin=True,
-    )
+    # Check user options for the sidebar toggle (defaults to False now)
+    show_sidebar = entry.options.get("show_sidebar", False)
+
+    if show_sidebar:
+        async_register_built_in_panel(
+            hass,
+            component_name="iframe",
+            sidebar_title="Gaming Status",
+            sidebar_icon="mdi:controller",
+            frontend_url_path="gaming-status-config",
+            config={"url": "/gaming_status/configurator?v=186"}, 
+            require_admin=True,
+        )
+
+    # Listen for option updates (Reloads the integration if they toggle the sidebar)
+    entry.async_on_unload(entry.add_update_listener(update_listener))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+async def update_listener(hass: HomeAssistant, entry: ConfigEntry):
+    """Reload integration when options change."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
@@ -107,5 +118,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if "notifier" in hass.data.get(DOMAIN, {}):
         await hass.data[DOMAIN]["notifier"].async_stop()
         
-    async_remove_panel(hass, "gaming-status-config")
+    # Safely remove the panel (Catches the error if it was never loaded)
+    try:
+        async_remove_panel(hass, "gaming-status-config")
+    except ValueError:
+        pass
+
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
