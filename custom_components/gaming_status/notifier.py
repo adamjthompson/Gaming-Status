@@ -69,12 +69,19 @@ class GamingNotifier:
         if not old_state or not new_state:
             return
 
-        old_game = old_state.state
-        new_game = new_state.state
+        # Crush any double-spaces, tabs, or weird unicode spaces into a single normal space
+        old_game = " ".join(str(old_state.state).split())
+        new_game = " ".join(str(new_state.state).split())
         
-        ignored = [STATE_UNAVAILABLE, STATE_UNKNOWN, "Offline", "offline"]
-        old_is_game = old_game not in ignored
-        new_is_game = new_game not in ignored
+        config = self._get_config()
+        
+        # Grab global exclusions and make them lowercase for bulletproof comparison
+        exclusions = [x.strip().lower() for x in config.get("GLOBAL_EXCLUSIONS", [])]
+        
+        ignored = [STATE_UNAVAILABLE, STATE_UNKNOWN, "offline"]
+        
+        old_is_game = old_game.lower() not in ignored and old_game.lower() not in exclusions
+        new_is_game = new_game.lower() not in ignored and new_game.lower() not in exclusions
 
         safe_owner = entity_id.split('.')[1].replace("_gaming_status", "")
 
@@ -112,7 +119,13 @@ class GamingNotifier:
         await asyncio.sleep(15)  
 
         current_state = self.hass.states.get(entity_id)
-        if not current_state or current_state.state != game_name:
+        if not current_state:
+            return
+            
+        # Reclean the string after the sleep delay to ensure it matches
+        current_game_clean = " ".join(str(current_state.state).split())
+
+        if current_game_clean != game_name:
             return
 
         config = self._get_config()
