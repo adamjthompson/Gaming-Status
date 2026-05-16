@@ -56,7 +56,7 @@ Copy the `gaming_status` folder into your `custom_components` folder and restart
 
 ---
 
-## Configuration
+## ⚙️ Configuration
 
 Go to Settings / Devices & Services and press the Add Integration button, or click the shortcut button below (requires My Homeassistant configured):
 
@@ -64,10 +64,10 @@ Go to Settings / Devices & Services and press the Add Integration button, or cli
 
 Input your **SteamGridDB API Key** when prompted.
 
-## ⚙️ Configuration (Crucial Step)
+### Configurator
 Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer. All settings will be configured inside of `config/gaming_profiles.json`. 
 
-Use the *Gaming Status Configurator* to easily generate the required JSON file. This is linked from the configuration screen or can be toggled as an entry on your sidebar labeled "Gaming Status". Further editing of [advanced options](docs/advanced.md) can be performed manually in VSCode or your editor of choice. **After adding your information, you must save the JSON file and restart Home Assistant.**
+Use the *Gaming Status Configurator* to easily generate the required JSON file. This is linked from the integration settings or can be toggled as an entry on your sidebar labeled "Gaming Status". Further editing of [advanced options](docs/advanced.md) can be performed manually in VSCode or your editor of choice. **After adding your information, you must save the JSON file and restart Home Assistant.**
 
 *Additionally, there is a [`example.profiles.json`](custom_components/gaming_status/example.profiles.json) file provided that can be used as a starting point if you prefer to edit the file manually yourself. See the [Advanced Setup](docs/advanced.md) documentation for more details.*
 
