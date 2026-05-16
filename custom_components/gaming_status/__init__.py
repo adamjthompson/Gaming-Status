@@ -88,19 +88,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         StaticPathConfig("/gaming_status/brand", brand_path, cache_headers=True),
     ])
 
-    # Check user options for the sidebar toggle (defaults to False now)
+    # 1. Check user options for the sidebar toggle (defaults to False)
     show_sidebar = entry.options.get("show_sidebar", False)
 
-    if show_sidebar:
-        async_register_built_in_panel(
-            hass,
-            component_name="iframe",
-            sidebar_title="Gaming Status",
-            sidebar_icon="mdi:controller",
-            frontend_url_path="gaming-status-config",
-            config={"url": "/gaming_status/configurator?v=186"}, 
-            require_admin=True,
-        )
+    # 2. Conditionally set the Title and Icon. If False, passing None hides it from the sidebar!
+    panel_title = "Gaming Status" if show_sidebar else None
+    panel_icon = "mdi:controller" if show_sidebar else None
+
+    # 3. ALWAYS register the panel so the HA router knows the URL exists
+    async_register_built_in_panel(
+        hass,
+        component_name="iframe",
+        sidebar_title=panel_title,
+        sidebar_icon=panel_icon,
+        frontend_url_path="gaming-status-config",
+        config={"url": "/gaming_status/configurator?v=186"}, 
+        require_admin=True,
+    )
 
     # Listen for option updates (Reloads the integration if they toggle the sidebar)
     entry.async_on_unload(entry.add_update_listener(update_listener))
@@ -118,7 +122,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if "notifier" in hass.data.get(DOMAIN, {}):
         await hass.data[DOMAIN]["notifier"].async_stop()
         
-    # Safely remove the panel (Catches the error if it was never loaded)
+    # Safely remove the panel
     try:
         async_remove_panel(hass, "gaming-status-config")
     except ValueError:

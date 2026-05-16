@@ -14,9 +14,12 @@ class GamingNotifier:
         self.config_path = hass.config.path("gaming_profiles.json")
         self._unsub_listener = None
         self._unsub_weekly = None
+        self._startup_time = None
 
     async def async_start(self):
         """Start listening to all state changes and schedule reports."""
+        self._startup_time = datetime.now()
+        
         self._unsub_listener = self.hass.bus.async_listen(
             "state_changed", self._handle_state_change
         )
@@ -62,6 +65,11 @@ class GamingNotifier:
         return await self.hass.async_add_executor_job(read_file)
 
     async def _handle_state_change(self, event):
+        # 1. Prevent Startup & Reload Spam
+        # Ignore all transitions during the first 30 seconds of the integration loading
+        if self._startup_time and datetime.now() - self._startup_time < timedelta(seconds=30):
+            return
+
         entity_id = event.data.get("entity_id")
         
         if not entity_id.endswith("_gaming_status"):
@@ -71,6 +79,11 @@ class GamingNotifier:
         new_state = event.data.get("new_state")
 
         if not old_state or not new_state:
+            return
+            
+        # Ignore basic HA reboots and temporary sensor dropouts
+        if old_state.state in [STATE_UNAVAILABLE, STATE_UNKNOWN] or \
+           new_state.state in [STATE_UNAVAILABLE, STATE_UNKNOWN]:
             return
 
         # Crush any double-spaces, tabs, or weird unicode spaces into a single normal space
