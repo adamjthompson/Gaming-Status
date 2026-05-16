@@ -46,34 +46,28 @@ To display beautiful, high-resolution game covers on your dashboard, this integr
 
 ## 📥 Installation
 
-### HACS (Recommended)
-1. Open HACS in Home Assistant.
-2. Click the three dots in the top right corner and select **Custom repositories**.
-3. Add the URL to this repository and select **Integration** as the category.
-4. Click **Download**.
-5. **Restart Home Assistant.**
-6. Add the integration under Settings > Devices & Services and searching for **"Gaming Status"**
+**Method 1: HACS (Recommended)**
+Installation is easiest via the [Home Assistant Community Store (HACS)](https://hacs.xyz/), which is the best place to get third-party integrations for Home Assistant. Once you have HACS set up, simply click the button below (requires My Homeassistant configured) or follow the [instructions for adding a custom repository](https://hacs.xyz/docs/faq/custom_repositories) and then the integration will be available to install like any other.
 
-### Manual Installation
-If you prefer not to use HACS, you can install the integration manually:
+[![Open HACS Repository](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=adamjthompson&repository=Gaming-Status&category=integration)
 
-1. Download the latest release from the [GitHub Releases page](https://github.com/adamjthompson/Gaming-Status/releases). *(Note: Download the Source Code ZIP, not the main repository branch).*
-2. Extract the downloaded ZIP file.
-3. Locate the `custom_components/gaming_status/` folder inside the extracted files.
-4. Copy that entire `gaming_status` folder into your Home Assistant `config/custom_components/` directory. *(If the `custom_components` folder does not exist, create it).*
-5. **Restart Home Assistant.**
-6. Add the integration under Settings > Devices & Services and searching for **"Gaming Status"**
+**Method 2: Manual**
+Copy the `gaming_status` folder into your `custom_components` folder and restart Home Assistant.
 
-##  Activating the Integration
-1. Go to **Settings** ➔ **Devices & Services** in Home Assistant.
-2. Click **+ Add Integration**.
-3. Search for **Gaming Status** and select it.
-4. Input your **SteamGridDB API Key** when prompted.
+---
+
+## Configuration
+
+Go to Settings / Devices & Services and press the Add Integration button, or click the shortcut button below (requires My Homeassistant configured):
+
+[![Add Integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=gaming_status)
+
+Input your **SteamGridDB API Key** when prompted.
 
 ## ⚙️ Configuration (Crucial Step)
 Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer. All settings will be configured inside of `config/gaming_profiles.json`. 
 
-Use the *Gaming Status Configurator* to easily generate the required JSON file. This will show up after installation as an entry on your sidebar labeled "Gaming Status". Further editing of [advanced options](docs/advanced.md) can be performed manually in VSCode or your editor of choice. **After adding your information, you must save the JSON file and restart Home Assistant.**
+Use the *Gaming Status Configurator* to easily generate the required JSON file. This is linked from the configuration screen or can be toggled as an entry on your sidebar labeled "Gaming Status". Further editing of [advanced options](docs/advanced.md) can be performed manually in VSCode or your editor of choice. **After adding your information, you must save the JSON file and restart Home Assistant.**
 
 *Additionally, there is a [`example.profiles.json`](custom_components/gaming_status/example.profiles.json) file provided that can be used as a starting point if you prefer to edit the file manually yourself. See the [Advanced Setup](docs/advanced.md) documentation for more details.*
 
