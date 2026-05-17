@@ -41,14 +41,18 @@ class GamingProfilesAPI(HomeAssistantView):
         if "_api_error" in data:
             return self.json(data, status_code=500)
             
-        return self.json(data)
+        # FIX 1: Aggressive Cache-Busting Headers
+        # Ensures the browser always fetches the absolute latest file from the server
+        response = self.json(data)
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        return response
 
     async def post(self, request):
         """Write to the profiles file securely."""
-        # 1. Size Limit Enforcement & JSON Parsing
         try:
             body = await request.read()
-            if len(body) > 1_000_000:  # 1MB hard limit on raw bytes
+            if len(body) > 1_000_000:  
                 _LOGGER.warning("[Gaming Status] API Write Error - Payload exceeded 1MB limit")
                 return self.json({"error": "Payload too large"}, status_code=413)
             
@@ -57,14 +61,22 @@ class GamingProfilesAPI(HomeAssistantView):
             _LOGGER.error(f"[Gaming Status] API Write Error - Invalid JSON payload: {e}")
             return self.json({"error": "Invalid JSON"}, status_code=400)
 
-        # 2. Basic Schema Validation (Ensure the payload is actually a dictionary)
         if not isinstance(data, dict):
             _LOGGER.error("[Gaming Status] API Write Error - Payload is not a dictionary object")
             return self.json({"error": "Invalid payload format"}, status_code=400)
 
         def write_file():
-            with open(self.file_path, "w", encoding="utf-8") as f:
+            # FIX 2: Atomic File Writing & Hardware Sync
+            tmp_path = f"{self.file_path}.tmp"
+            
+            # Step 1: Write to a safe temporary file
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
+                f.flush()               # Flush Python's internal buffer
+                os.fsync(f.fileno())    # Force the OS to write to the physical disk immediately
+            
+            # Step 2: Atomically overwrite the real file
+            os.replace(tmp_path, self.file_path) 
                 
         await self.hass.async_add_executor_job(write_file)
         return self.json({"success": True})
@@ -88,25 +100,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         StaticPathConfig("/gaming_status/brand", brand_path, cache_headers=True),
     ])
 
-    # 1. Check user options for the sidebar toggle (defaults to False)
     show_sidebar = entry.options.get("show_sidebar", False)
 
-    # 2. Conditionally set the Title and Icon. If False, passing None hides it from the sidebar!
     panel_title = "Gaming Status" if show_sidebar else None
     panel_icon = "mdi:controller" if show_sidebar else None
 
-    # 3. ALWAYS register the panel so the HA router knows the URL exists
     async_register_built_in_panel(
         hass,
         component_name="iframe",
         sidebar_title=panel_title,
         sidebar_icon=panel_icon,
         frontend_url_path="gaming-status-config",
-        config={"url": "/gaming_status/configurator?v=188"}, 
+        config={"url": "/gaming_status/configurator?v=189"}, 
         require_admin=True,
     )
 
-    # Listen for option updates (Reloads the integration if they toggle the sidebar)
     entry.async_on_unload(entry.add_update_listener(update_listener))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -118,11 +126,9 @@ async def update_listener(hass: HomeAssistant, entry: ConfigEntry):
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    # STOP NOTIFIER ENGINE
     if "notifier" in hass.data.get(DOMAIN, {}):
         await hass.data[DOMAIN]["notifier"].async_stop()
         
-    # Safely remove the panel
     try:
         async_remove_panel(hass, "gaming-status-config")
     except ValueError:
