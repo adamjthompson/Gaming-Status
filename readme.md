@@ -54,8 +54,6 @@ Installation is easiest via the [Home Assistant Community Store (HACS)](https://
 **Method 2: Manual**
 Copy the `gaming_status` folder into your `custom_components` folder and restart Home Assistant.
 
----
-
 ## ⚙️ Configuration
 
 Go to Settings / Devices & Services and press the Add Integration button, or click the shortcut button below (requires My Homeassistant configured):
