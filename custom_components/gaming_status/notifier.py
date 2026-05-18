@@ -41,7 +41,7 @@ class GamingNotifier:
         self._triggered_parental_events: dict = {}
 
     # ------------------------------------------------------------------
-    # Properties — always reads latest options so live reloads work
+    # Properties
     # ------------------------------------------------------------------
 
     @property
@@ -104,6 +104,34 @@ class GamingNotifier:
             self._unsub_parental()
 
     # ------------------------------------------------------------------
+    # Generic Notification Helper
+    # ------------------------------------------------------------------
+    
+    async def _send_to_endpoint(self, ep_id: str, message: str) -> None:
+        """Helper to dispatch a message to a specific endpoint ID."""
+        endpoints = self._endpoints()
+        dest = endpoints.get(ep_id)
+        
+        if not dest:
+            return
+            
+        service_str = dest.get("notifier", "")
+        if not service_str or "." not in service_str:
+            return
+            
+        domain, service = service_str.split(".", 1)
+        service_data = {"message": message}
+        
+        target_id = dest.get("target_id", "").strip()
+        if target_id and target_id.lower() != "n/a":
+            service_data["target"] = target_id
+            
+        try:
+            await self.hass.services.async_call(domain, service, service_data)
+        except Exception as exc:
+            _LOGGER.warning("Gaming Status: notification failed for endpoint '%s': %s", ep_id, exc)
+
+    # ------------------------------------------------------------------
     # State change handler — session start/stop notifications
     # ------------------------------------------------------------------
 
@@ -133,17 +161,10 @@ class GamingNotifier:
         # Find which player this sensor belongs to
         players = self._players()
         target_player = None
-        target_id = None
         for player_name, player_data in players.items():
-            for platform in ("steam", "xbox", "playstation", "custom"):
-                if player_data.get(platform) == entity_id:
-                    # This is the master sensor entity, not the platform sensor
-                    pass
-            # Check master sensor naming convention
             safe = player_name.lower().replace(" ", "_")
             if entity_id == f"sensor.{safe}_gaming_status":
                 target_player = player_name
-                target_id = player_name
                 break
 
         if target_player is None:
@@ -156,51 +177,22 @@ class GamingNotifier:
         old_off = old_clean in (["offline"] + ignored) or old_clean in exclusions
         new_off = new_clean in (["offline"] + ignored) or new_clean in exclusions
 
+        # Route to the appropriate lists based on event
+        start_dests = user_config.get("notify_start_destinations", [])
+        end_dests = user_config.get("notify_end_destinations", [])
+
         # Session started
         if old_off and not new_off:
-            await self._send_notification(
-                target_id,
-                user_config,
-                f"🎮 {target_player} started playing {new_game}",
-                event_type="session_start",
-            )
+            for ep_id in start_dests:
+                await self._send_to_endpoint(ep_id, f"🎮 {target_player} started playing {new_game}")
         # Game switched
         elif not old_off and not new_off and old_game != new_game:
-            await self._send_notification(
-                target_id,
-                user_config,
-                f"🔄 {target_player} switched to {new_game}",
-                event_type="game_switch",
-            )
+            for ep_id in start_dests:
+                await self._send_to_endpoint(ep_id, f"🔄 {target_player} switched to {new_game}")
         # Session ended
         elif not old_off and new_off:
-            await self._send_notification(
-                target_id,
-                user_config,
-                f"⏹ {target_player} stopped playing {old_game}",
-                event_type="session_end",
-            )
-
-    async def _send_notification(
-        self, player_id: str, user_config: dict, message: str, event_type: str
-    ) -> None:
-        endpoints = self._endpoints()
-        assigned_ids = user_config.get("notifications", {}).get("assigned_endpoints", [])
-
-        for ep_id in assigned_ids:
-            dest = endpoints.get(ep_id)
-            if not dest:
-                continue
-            service_str = dest.get("service", "")
-            if not service_str or "." not in service_str:
-                continue
-            domain, service = service_str.split(".", 1)
-            service_data = dict(dest.get("data", {}))
-            service_data.setdefault("message", message)
-            try:
-                await self.hass.services.async_call(domain, service, service_data)
-            except Exception as exc:
-                _LOGGER.warning("Gaming Status: notification failed (%s): %s", ep_id, exc)
+            for ep_id in end_dests:
+                await self._send_to_endpoint(ep_id, f"⏹ {target_player} stopped playing {old_game}")
 
     # ------------------------------------------------------------------
     # Parental controls
@@ -209,7 +201,6 @@ class GamingNotifier:
     async def _check_parental_controls(self, now) -> None:
         parental = self._parental()
         players = self._players()
-        endpoints = self._endpoints()
         if not parental:
             return
 
@@ -218,7 +209,6 @@ class GamingNotifier:
 
         for player_name, rules in parental.items():
             safe_player = player_name.lower().replace(" ", "_")
-            player_data = players.get(player_name, {})
 
             # ---- Screen time ----
             st_rule = rules.get("screen_time", {})
@@ -229,7 +219,7 @@ class GamingNotifier:
                     else st_rule.get("weekday_minutes", 120)
                 )
                 st_key = f"{safe_player}_screen_time"
-                # Read today's session total from the history sensor attribute
+                
                 history_entity = f"sensor.{safe_player}_gaming_history"
                 hist_state = self.hass.states.get(history_entity)
                 if hist_state:
@@ -237,7 +227,7 @@ class GamingNotifier:
                     if today_minutes >= limit_minutes and st_key not in self._triggered_parental_events:
                         self._triggered_parental_events[st_key] = True
                         action = st_rule.get("action", "")
-                        await self._fire_parental_action(player_name, action, endpoints, f"⏰ {player_name} has reached their {limit_minutes}-minute screen time limit.")
+                        await self._fire_parental_action(player_name, action, f"⏰ {player_name} has reached their {limit_minutes}-minute screen time limit.")
                 elif st_key in self._triggered_parental_events:
                     self._triggered_parental_events.pop(st_key, None)
 
@@ -261,17 +251,27 @@ class GamingNotifier:
                             self._triggered_parental_events[cf_key] = True
                             pretty = datetime.strptime(curfew_time, "%H:%M").strftime("%I:%M %p").lstrip("0")
                             action = cf_rule.get("action", "")
-                            await self._fire_parental_action(player_name, action, endpoints, f"🌙 {player_name}'s curfew time of {pretty} has been reached.")
+                            await self._fire_parental_action(player_name, action, f"🌙 {player_name}'s curfew time of {pretty} has been reached.")
                     elif now_dt < curfew_dt:
                         self._triggered_parental_events.pop(cf_key, None)
                 except (ValueError, AttributeError):
                     pass
 
     async def _fire_parental_action(
-        self, player_name: str, action_service: str, endpoints: dict, message: str
+        self, player_name: str, action_service: str, message: str
     ) -> None:
+        if not action_service or action_service == "none":
+            return
+            
         _LOGGER.info("Gaming Status parental control triggered for %s: %s", player_name, message)
-        if action_service and "." in action_service:
+        
+        # 1. Fire a designated notification endpoint
+        if action_service.startswith("endpoint_"):
+            ep_id = action_service.replace("endpoint_", "", 1)
+            await self._send_to_endpoint(ep_id, message)
+            
+        # 2. Fire an HA script or automation
+        elif "." in action_service:
             domain, service = action_service.split(".", 1)
             try:
                 await self.hass.services.async_call(domain, service, {"message": message})
@@ -291,7 +291,6 @@ class GamingNotifier:
             return
 
         players = self._players()
-        endpoints = self._endpoints()
         assigned = report_config.get("destinations", [])
 
         lines = [f"📊 **Weekly Gaming Report** — {datetime.now().strftime('%B %d, %Y')}"]
@@ -310,13 +309,4 @@ class GamingNotifier:
         message = "\n".join(lines)
 
         for ep_id in assigned:
-            dest = endpoints.get(ep_id)
-            if not dest or "." not in dest.get("service", ""):
-                continue
-            domain, service = dest["service"].split(".", 1)
-            service_data = dict(dest.get("data", {}))
-            service_data.setdefault("message", message)
-            try:
-                await self.hass.services.async_call(domain, service, service_data)
-            except Exception as exc:
-                _LOGGER.warning("Gaming Status: weekly report send failed (%s): %s", ep_id, exc)
+            await self._send_to_endpoint(ep_id, message)
