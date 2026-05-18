@@ -47,17 +47,21 @@ class GamingProfilesAPI(HomeAssistantView):
             return self.json({"error": "Invalid JSON"}, status_code=400)
 
         def write_file():
-            tmp_path = f"{self.file_path}.tmp"
-            with open(tmp_path, "w", encoding="utf-8") as f:
+            # UNRAID FIX: Direct write with fsync avoids cross-device link errors on shfs
+            with open(self.file_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
                 f.flush()
                 os.fsync(f.fileno())
-            os.replace(tmp_path, self.file_path) 
                 
-        await self.hass.async_add_executor_job(write_file)
-        return self.json({"success": True})
+        try:
+            await self.hass.async_add_executor_job(write_file)
+            return self.json({"success": True})
+        except Exception as e:
+            _LOGGER.error(f"Failed to write config: {e}")
+            return self.json({"error": "Write failed"}, status_code=500)
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up Gaming Status from a UI config entry."""
     hass.data.setdefault(DOMAIN, {})
 
     notifier = GamingNotifier(hass)
@@ -78,36 +82,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     show_sidebar = entry.options.get("show_sidebar", False)
 
-    # 1. Main Configurator Panel
     async_register_built_in_panel(
         hass,
         component_name="iframe",
         sidebar_title="Gaming Status" if show_sidebar else None,
         sidebar_icon="mdi:controller" if show_sidebar else None,
         frontend_url_path="gaming-status-config",
-        config={"url": "/gaming_status/configurator?v=190"}, 
+        config={"url": "/gaming_status/configurator?v=191"}, 
         require_admin=True,
     )
     
-    # 2. Invisible Controls Panel (For Routing)
     async_register_built_in_panel(
         hass,
         component_name="iframe",
         sidebar_title=None,
         sidebar_icon=None,
         frontend_url_path="gaming-status-controls",
-        config={"url": "/gaming_status/controls?v=190"}, 
+        config={"url": "/gaming_status/controls?v=191"}, 
         require_admin=True,
     )
 
-    entry.async_on_unload(entry.add_update_listener(update_listener))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
-async def update_listener(hass: HomeAssistant, entry: ConfigEntry):
-    await hass.config_entries.async_reload(entry.entry_id)
-
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
     if "notifier" in hass.data.get(DOMAIN, {}):
         await hass.data[DOMAIN]["notifier"].async_stop()
         
