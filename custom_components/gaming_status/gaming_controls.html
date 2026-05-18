@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parental Controls</title>
+    <style>
+        :root {
+            --bg-color: #ffffff;
+            --card-bg: #eeeeee;
+            --text-main: #e1e1e1;
+            --text-muted: #333333;
+            --primary: #c62828; 
+            --primary-hover: #e53935;
+            --border: #2a3242;
+            --input-bg: #2a3242;
+        }
+        body { background-color: var(--bg-color); color: var(--text-main); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; }
+        h1, h2, h3, h4 { color: var(--primary); margin-top: 0; }
+        .card { background: var(--card-bg); border-radius: 0; padding: 20px; margin-bottom: 20px; border: 1px solid var(--border); }
+        h3 { color: var(--text-main); }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="text"], input[type="number"], input[type="time"], select { width: 100%; padding: 10px; border-radius: 0; border: 1px solid var(--border); background: var(--input-bg); color: var(--text-main); box-sizing: border-box; }
+        input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+        button { background: var(--primary); color: white; border: none; padding: 10px 15px; cursor: pointer; font-weight: bold; }
+        button:hover { background: var(--primary-hover); }
+        .save-btn { background: #388E3C; width: 100%; font-size: 1.2em; padding: 15px; margin-top: 20px; }
+        .save-btn:hover { background: #4CAF50; }
+        .dark-panel { border-left: 4px solid var(--primary); margin-bottom: 20px; background: #222; padding: 15px; }
+        .help-text { font-size: 0.85em; color: var(--text-muted); margin-top: 4px; margin-bottom: 15px; display: block; }
+        .settings-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 15px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; margin-top: 15px;">
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <img src="/gaming_status/brand/logo.png" alt="Logo" style="height: 60px;">
+            <h1 style="margin: 0;">Parental Controls</h1>
+        </div>
+        <button type="button" style="background: #2a3242; width: auto; padding: 10px 20px; font-size: 1em;" onclick="saveAndNavigate()">⚙️ Configurator</button>
+    </div>
+
+    <div class="card" id="st-container">
+        <h2>⏳ Screen Time</h2>
+        <span class="help-text">Set a total daily minute allowance. The configured action will trigger the moment the limit is reached during active play.</span>
+        <div id="st-list"></div>
+    </div>
+
+    <div class="card" id="cf-container">
+        <h2>🌙 Curfew</h2>
+        <span class="help-text">Set a strict cut-off time. The configured action will trigger if they are playing when the clock reaches this time, or if they start a game after it.</span>
+        <div id="cf-list"></div>
+    </div>
+
+    <button type="button" class="save-btn" onclick="saveControls()">💾 Save Rules to Home Assistant</button>
+
+    <script>
+        let fullConfig = {};
+        let haScripts = [];
+        let haAutomations = [];
+        let endpoints = [];
+
+        function getHAToken() {
+            try {
+                const tokensStr = window.parent.localStorage.getItem('hassTokens') || localStorage.getItem('hassTokens');
+                if (tokensStr) return JSON.parse(tokensStr).access_token;
+            } catch (e) {} return null;
+        }
+
+        async function fetchHAEntities() {
+            const token = getHAToken();
+            if (!token) return;
+            const template = `{"scripts": {{ states.script | map(attribute='entity_id') | list | tojson }}, "automations": {{ states.automation | map(attribute='entity_id') | list | tojson }}}`;
+            
+            try {
+                const res = await fetch('/api/template', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ template: template })
+                });
+                if (res.ok) {
+                    const data = JSON.parse(await res.text());
+                    haScripts = data.scripts || [];
+                    haAutomations = data.automations || [];
+                }
+            } catch (e) { console.error("Failed fetching scripts/automations"); }
+        }
+
+        function createOptions(selectElement, type, currentValue) {
+            selectElement.innerHTML = '';
+            let options = [];
+            if (type === 'notify') options = endpoints;
+            else if (type === 'script') options = haScripts.map(s => ({id: s, name: s}));
+            else if (type === 'automation') options = haAutomations.map(a => ({id: a, name: a}));
+
+            if (options.length === 0) {
+                selectElement.innerHTML = `<option value="">-- No ${type}s found --</option>`;
+                return;
+            }
+
+            options.forEach(opt => {
+                const o = document.createElement('option');
+                o.value = opt.id;
+                o.textContent = opt.name;
+                if (opt.id === currentValue) o.selected = true;
+                selectElement.appendChild(o);
+            });
+        }
+
+        function buildControlPanel(playerName, data, type = "st") {
+            const isCurfew = type === "cf";
+            const panel = document.createElement('div');
+            panel.className = 'dark-panel';
+            panel.dataset.player = playerName;
+
+            const header = document.createElement('div');
+            header.innerHTML = `<h3 style="margin:0;"><label style="margin:0;"><input type="checkbox" class="enable-cb" ${data.enabled ? 'checked' : ''}> ${playerName}</label></h3>`;
+            panel.appendChild(header);
+
+            const grid = document.createElement('div');
+            grid.className = 'settings-grid';
+            
+            const valDiv = document.createElement('div');
+            valDiv.style.display = 'flex';
+            valDiv.style.gap = '15px';
+
+            // Weekday Input
+            const wdDiv = document.createElement('div');
+            wdDiv.style.flex = '1';
+            wdDiv.innerHTML = `<label>Weekday</label>`;
+            const wdInput = document.createElement('input');
+            wdInput.className = 'wd-input';
+            wdInput.type = isCurfew ? 'time' : 'number';
+            if (!isCurfew) wdInput.placeholder = "e.g., 120";
+            
+            // Fallback to legacy single-value if they are upgrading from the first version
+            let legacyValue = isCurfew ? (data.time || "22:00") : (data.limit_minutes || 120);
+            wdInput.value = data.weekday || legacyValue;
+            wdDiv.appendChild(wdInput);
+
+            // Weekend Input
+            const weDiv = document.createElement('div');
+            weDiv.style.flex = '1';
+            weDiv.innerHTML = `<label>Weekend</label>`;
+            const weInput = document.createElement('input');
+            weInput.className = 'we-input';
+            weInput.type = isCurfew ? 'time' : 'number';
+            if (!isCurfew) weInput.placeholder = "e.g., 180";
+            
+            let legacyWeValue = isCurfew ? (data.time || "23:00") : (data.limit_minutes || 180);
+            weInput.value = data.weekend || legacyWeValue;
+            weDiv.appendChild(weInput);
+
+            valDiv.appendChild(wdDiv);
+            valDiv.appendChild(weDiv);
+
+            const actionTypeDiv = document.createElement('div');
+            const actionTypeSelect = document.createElement('select');
+            actionTypeSelect.className = 'action-type';
+            ['notify', 'script', 'automation'].forEach(opt => {
+                const o = document.createElement('option');
+                o.value = opt; o.textContent = opt.charAt(0).toUpperCase() + opt.slice(1);
+                if (data.action_type === opt) o.selected = true;
+                actionTypeSelect.appendChild(o);
+            });
+            actionTypeDiv.innerHTML = `<label>Action Type</label>`;
+            actionTypeDiv.appendChild(actionTypeSelect);
+
+            const targetDiv = document.createElement('div');
+            const targetSelect = document.createElement('select');
+            targetSelect.className = 'action-target';
+            targetDiv.innerHTML = `<label>Action Target</label>`;
+            targetDiv.appendChild(targetSelect);
+
+            createOptions(targetSelect, actionTypeSelect.value, data.action_target);
+
+            actionTypeSelect.addEventListener('change', (e) => {
+                createOptions(targetSelect, e.target.value, "");
+            });
+
+            grid.appendChild(valDiv);
+            grid.appendChild(actionTypeDiv);
+            grid.appendChild(targetDiv);
+            panel.appendChild(grid);
+
+            return panel;
+        }
+
+        async function init() {
+            await fetchHAEntities();
+            
+            const token = getHAToken();
+            const res = await fetch('/api/gaming_status/profiles?t=' + new Date().getTime(), {
+                headers: token ? { 'Authorization': 'Bearer ' + token } : {}
+            });
+            
+            if (res.ok) {
+                fullConfig = await res.json();
+                
+                if (fullConfig.NOTIFICATION_ENDPOINTS) {
+                    endpoints = Object.entries(fullConfig.NOTIFICATION_ENDPOINTS).map(([id, ep]) => ({id: id, name: ep.name}));
+                }
+
+                const stList = document.getElementById('st-list');
+                const cfList = document.getElementById('cf-list');
+                
+                let hasEligiblePlayers = false;
+
+                if (fullConfig.GAMER_PROFILES) {
+                    if (!fullConfig.PARENTAL_CONTROLS) fullConfig.PARENTAL_CONTROLS = {};
+
+                    for (const [name, profile] of Object.entries(fullConfig.GAMER_PROFILES)) {
+                        if (profile.notifications && profile.notifications.parental_controls) {
+                            hasEligiblePlayers = true;
+                            const pRules = fullConfig.PARENTAL_CONTROLS[name] || {};
+                            
+                            stList.appendChild(buildControlPanel(name, pRules.screen_time || {action_type: 'notify'}, "st"));
+                            cfList.appendChild(buildControlPanel(name, pRules.curfew || {action_type: 'notify'}, "cf"));
+                        }
+                    }
+                }
+
+                if (!hasEligiblePlayers) {
+                    const msg = `<p style="color: #888;">No players have Parental Controls enabled. Please enable them in the main Configurator first.</p>`;
+                    stList.innerHTML = msg;
+                    cfList.innerHTML = msg;
+                }
+            }
+        }
+
+        async function saveControls() {
+            if (!fullConfig.PARENTAL_CONTROLS) fullConfig.PARENTAL_CONTROLS = {};
+
+            document.getElementById('st-list').querySelectorAll('.dark-panel').forEach(panel => {
+                const p = panel.dataset.player;
+                if (!fullConfig.PARENTAL_CONTROLS[p]) fullConfig.PARENTAL_CONTROLS[p] = {};
+                
+                fullConfig.PARENTAL_CONTROLS[p].screen_time = {
+                    enabled: panel.querySelector('.enable-cb').checked,
+                    weekday: parseInt(panel.querySelector('.wd-input').value) || 120,
+                    weekend: parseInt(panel.querySelector('.we-input').value) || 180,
+                    action_type: panel.querySelector('.action-type').value,
+                    action_target: panel.querySelector('.action-target').value
+                };
+            });
+
+            document.getElementById('cf-list').querySelectorAll('.dark-panel').forEach(panel => {
+                const p = panel.dataset.player;
+                fullConfig.PARENTAL_CONTROLS[p].curfew = {
+                    enabled: panel.querySelector('.enable-cb').checked,
+                    weekday: panel.querySelector('.wd-input').value,
+                    weekend: panel.querySelector('.we-input').value,
+                    action_type: panel.querySelector('.action-type').value,
+                    action_target: panel.querySelector('.action-target').value
+                };
+            });
+
+            const token = getHAToken();
+            const res = await fetch('/api/gaming_status/profiles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                body: JSON.stringify(fullConfig)
+            });
+
+            if (res.ok) alert("Parental Controls successfully saved!");
+            else alert("Failed to save rules.");
+        }
+
+        async function saveAndNavigate() {
+            // 1. Gather all the current settings from the page
+            if (!fullConfig.PARENTAL_CONTROLS) fullConfig.PARENTAL_CONTROLS = {};
+
+            document.getElementById('st-list').querySelectorAll('.dark-panel').forEach(panel => {
+                const p = panel.dataset.player;
+                if (!fullConfig.PARENTAL_CONTROLS[p]) fullConfig.PARENTAL_CONTROLS[p] = {};
+                
+                fullConfig.PARENTAL_CONTROLS[p].screen_time = {
+                    enabled: panel.querySelector('.enable-cb').checked,
+                    weekday: parseInt(panel.querySelector('.wd-input').value) || 120,
+                    weekend: parseInt(panel.querySelector('.we-input').value) || 180,
+                    action_type: panel.querySelector('.action-type').value,
+                    action_target: panel.querySelector('.action-target').value
+                };
+            });
+
+            document.getElementById('cf-list').querySelectorAll('.dark-panel').forEach(panel => {
+                const p = panel.dataset.player;
+                fullConfig.PARENTAL_CONTROLS[p].curfew = {
+                    enabled: panel.querySelector('.enable-cb').checked,
+                    weekday: panel.querySelector('.wd-input').value,
+                    weekend: panel.querySelector('.we-input').value,
+                    action_type: panel.querySelector('.action-type').value,
+                    action_target: panel.querySelector('.action-target').value
+                };
+            });
+
+            // 2. Save silently in the background
+            let success = false;
+            try {
+                const token = getHAToken();
+                const res = await fetch('/api/gaming_status/profiles', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                    body: JSON.stringify(fullConfig)
+                });
+
+                if (res.ok) {
+                    success = true; 
+                } else {
+                    alert("Failed to save rules. Please check Home Assistant logs before navigating.");
+                }
+            } catch (err) {
+                alert("Error communicating with Home Assistant.");
+                console.error(err);
+            }
+
+            // 3. Navigate if the save was successful
+            if (success) {
+                window.location.href = '/gaming_status/configurator';
+            }
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>

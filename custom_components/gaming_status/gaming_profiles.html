@@ -104,7 +104,6 @@
         .url-error { border-color: #d32f2f !important; }
         .url-hint { font-size: 0.8em; color: #d32f2f; display: none; margin-top: 2px; }
         .url-hint.visible { display: block; }
-        #status-bar { padding: 10px; background: #2e7d32; text-align: center; font-weight: bold; border-radius: 0; margin-bottom: 20px; display: none; color: white; }
         
         .endpoint-checkboxes {
             display: grid;
@@ -185,11 +184,12 @@
     <datalist id="psn-sensors"></datalist>
     <datalist id="steam-sensors"></datalist>
 
-    <div id="status-bar">✓ Connected to Home Assistant</div>
-
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; margin-top: 15px;">
-        <img src="/gaming_status/brand/logo.png" alt="Logo" style="height: 60px;">
-        <h1 style="margin: 0;">Configurator</h1>
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; margin-top: 15px; flex-wrap: wrap; gap: 15px;">
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <img src="/gaming_status/brand/logo.png" alt="Logo" style="height: 60px;">
+            <h1 style="margin: 0;">Configurator</h1>
+        </div>
+        <button type="button" class="save-btn" style="width: auto; padding: 10px 20px; font-size: 1em; background: #c62828;" onclick="saveAndNavigate()">🛡️ Parental Controls</button>
     </div>
 
     <details class="card" id="endpoints-container" open>
@@ -345,6 +345,7 @@
             },
             "NOTIFICATION_ENDPOINTS": {},
             "GAMER_PROFILES": {},
+            "PARENTAL_CONTROLS": {}, // Ensure we store parental controls memory
             "WEEKLY_REPORT": {
                 "enabled": false,
                 "day": "0",
@@ -644,6 +645,13 @@
             group.appendChild(nameInput);
             div.appendChild(group);
 
+            // Parental Controls Checkbox
+            const pGroup = document.createElement('div');
+            pGroup.className = 'form-group';
+            const pEnabled = notifications?.parental_controls || false;
+            pGroup.innerHTML = `<label style="font-weight:normal; margin-bottom:0;"><input type="checkbox" class="p-parental" ${pEnabled ? 'checked' : ''}> Enable Parental Controls for this player</label>`;
+            div.appendChild(pGroup);
+
             const fields = [
                 { label: 'Xbox Gamertag',         cls: 'p-xbox',  ph: 'e.g., MajorNelson',   val: xboxVal,  list: 'xbox-sensors' },
                 { label: 'PlayStation Network ID', cls: 'p-psn',   ph: 'e.g., ShuheiYoshida', val: psnVal,   list: 'psn-sensors' },
@@ -822,9 +830,6 @@
                     fetchOptions.headers['Authorization'] = 'Bearer ' + token;
                 } else {
                     alert("⚠️ Authentication token not found.\n\nPlease log into Home Assistant and access this Configurator through the sidebar menu to load your data.")
-                    document.getElementById('status-bar').style.background = '#d32f2f';
-                    document.getElementById('status-bar').textContent = '❌ Authentication Error: Token Missing';
-                    document.getElementById('status-bar').style.display = 'block';
                     
                     addProfile();
                     loadDataIntoUI();
@@ -835,7 +840,6 @@
                 
                 if (response.ok) {
                     const data = await response.json();
-                    document.getElementById('status-bar').style.display = 'block';
 
                     if (Object.keys(data).length > 0) {
                         if (data.GLOBAL_SETTINGS) currentData.GLOBAL_SETTINGS = data.GLOBAL_SETTINGS;
@@ -844,6 +848,9 @@
                         if (data.GAME_TITLE_OVERRIDES) currentData.GAME_TITLE_OVERRIDES = data.GAME_TITLE_OVERRIDES;
                         if (data.CUSTOM_COVER_MAP) currentData.CUSTOM_COVER_MAP = data.CUSTOM_COVER_MAP;
                         if (data.WEEKLY_REPORT) currentData.WEEKLY_REPORT = data.WEEKLY_REPORT;
+                        
+                        // PRESERVE PARENTAL CONTROLS FROM SERVER!
+                        if (data.PARENTAL_CONTROLS) currentData.PARENTAL_CONTROLS = data.PARENTAL_CONTROLS;
 
                         document.getElementById('endpoints-list').replaceChildren();
                         if (data.NOTIFICATION_ENDPOINTS && Object.keys(data.NOTIFICATION_ENDPOINTS).length > 0) {
@@ -908,6 +915,7 @@
                 },
                 "NOTIFICATION_ENDPOINTS": {},
                 "GAMER_PROFILES": {},
+                "PARENTAL_CONTROLS": currentData.PARENTAL_CONTROLS || {}, // ENSURE DATA IS CARRIED OVER
                 "WEEKLY_REPORT": {},
                 "GLOBAL_EXCLUSIONS": [],
                 "GAME_TITLE_OVERRIDES": {},
@@ -952,12 +960,14 @@
 
                     const startNode = node.querySelector('.n-start');
                     const endNode = node.querySelector('.n-end');
+                    const parentalNode = node.querySelector('.p-parental');
                     const assigned = Array.from(node.querySelectorAll('.e-checkbox:checked')).map(cb => cb.value);
 
-                    if (startNode.checked || endNode.checked || assigned.length > 0) {
+                    if (startNode.checked || endNode.checked || (parentalNode && parentalNode.checked) || assigned.length > 0) {
                         config.GAMER_PROFILES[name].notifications = {
                             notify_start: startNode.checked,
                             notify_end: endNode.checked,
+                            parental_controls: parentalNode ? parentalNode.checked : false,
                             assigned_endpoints: assigned
                         };
                     }
@@ -1035,6 +1045,43 @@
             } catch (err) {
                 alert("Error communicating with Home Assistant.");
                 console.error(err);
+            }
+        }
+        
+        async function saveAndNavigate() {
+            const config = buildConfigObject();
+            if (!config) return; 
+
+            document.getElementById('json-output').value = JSON.stringify(config, null, 2);
+
+            let success = false;
+            try {
+                const token = getHAToken();
+                const fetchOptions = {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                };
+                
+                if (token) {
+                    fetchOptions.headers['Authorization'] = 'Bearer ' + token;
+                }
+
+                const response = await fetch('/api/gaming_status/profiles', fetchOptions);
+
+                if (response.ok) {
+                    success = true; // Mark as successful!
+                } else {
+                    alert("Failed to save settings. Please check Home Assistant logs before navigating.");
+                }
+            } catch (err) {
+                alert("Error communicating with Home Assistant.");
+                console.error(err);
+            }
+
+            // Perform the navigation to the RAW HTML file inside the iframe
+            if (success) {
+                window.location.href = '/gaming_status/controls';
             }
         }
 

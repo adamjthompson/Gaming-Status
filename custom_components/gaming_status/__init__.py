@@ -15,77 +15,51 @@ class GamingProfilesAPI(HomeAssistantView):
     """Secure API endpoint to read and write gaming_profiles.json natively."""
     url = "/api/gaming_status/profiles"
     name = "api:gaming_status:profiles"
-    requires_auth = True  # SECURITY FIX: Requires a valid Bearer Token
+    requires_auth = True
 
     def __init__(self, hass: HomeAssistant):
         self.hass = hass
         self.file_path = hass.config.path("gaming_profiles.json")
 
     async def get(self, request):
-        """Read the profiles file with strict error handling."""
         def read_file():
             if os.path.exists(self.file_path):
                 try:
                     with open(self.file_path, "r", encoding="utf-8") as f:
                         return json.load(f)
-                except json.JSONDecodeError as e:
-                    _LOGGER.error(f"[Gaming Status] Syntax Error in gaming_profiles.json: {e}")
-                    return {"_api_error": f"JSON Syntax Error: {e}"}
                 except Exception as e:
-                    _LOGGER.error(f"[Gaming Status] API Read Error: {e}")
                     return {"_api_error": str(e)}
             return {}
         
         data = await self.hass.async_add_executor_job(read_file)
-        
-        if "_api_error" in data:
-            return self.json(data, status_code=500)
+        if "_api_error" in data: return self.json(data, status_code=500)
             
-        # FIX 1: Aggressive Cache-Busting Headers
-        # Ensures the browser always fetches the absolute latest file from the server
         response = self.json(data)
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         return response
 
     async def post(self, request):
-        """Write to the profiles file securely."""
         try:
             body = await request.read()
-            if len(body) > 1_000_000:  
-                _LOGGER.warning("[Gaming Status] API Write Error - Payload exceeded 1MB limit")
-                return self.json({"error": "Payload too large"}, status_code=413)
-            
             data = json.loads(body)
         except Exception as e:
-            _LOGGER.error(f"[Gaming Status] API Write Error - Invalid JSON payload: {e}")
             return self.json({"error": "Invalid JSON"}, status_code=400)
 
-        if not isinstance(data, dict):
-            _LOGGER.error("[Gaming Status] API Write Error - Payload is not a dictionary object")
-            return self.json({"error": "Invalid payload format"}, status_code=400)
-
         def write_file():
-            # FIX 2: Atomic File Writing & Hardware Sync
             tmp_path = f"{self.file_path}.tmp"
-            
-            # Step 1: Write to a safe temporary file
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
-                f.flush()               # Flush Python's internal buffer
-                os.fsync(f.fileno())    # Force the OS to write to the physical disk immediately
-            
-            # Step 2: Atomically overwrite the real file
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp_path, self.file_path) 
                 
         await self.hass.async_add_executor_job(write_file)
         return self.json({"success": True})
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Gaming Status from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    # START NOTIFIER ENGINE
     notifier = GamingNotifier(hass)
     await notifier.async_start()
     hass.data[DOMAIN]["notifier"] = notifier
@@ -93,44 +67,53 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.http.register_view(GamingProfilesAPI(hass))
 
     configurator_path = os.path.join(os.path.dirname(__file__), "gaming_profiles.html")
+    controls_path = os.path.join(os.path.dirname(__file__), "gaming_controls.html")
     brand_path = os.path.join(os.path.dirname(__file__), "brand")
     
     await hass.http.async_register_static_paths([
         StaticPathConfig("/gaming_status/configurator", configurator_path, cache_headers=False),
+        StaticPathConfig("/gaming_status/controls", controls_path, cache_headers=False),
         StaticPathConfig("/gaming_status/brand", brand_path, cache_headers=True),
     ])
 
     show_sidebar = entry.options.get("show_sidebar", False)
 
-    panel_title = "Gaming Status" if show_sidebar else None
-    panel_icon = "mdi:controller" if show_sidebar else None
-
+    # 1. Main Configurator Panel
     async_register_built_in_panel(
         hass,
         component_name="iframe",
-        sidebar_title=panel_title,
-        sidebar_icon=panel_icon,
+        sidebar_title="Gaming Status" if show_sidebar else None,
+        sidebar_icon="mdi:controller" if show_sidebar else None,
         frontend_url_path="gaming-status-config",
-        config={"url": "/gaming_status/configurator?v=189"}, 
+        config={"url": "/gaming_status/configurator?v=190"}, 
+        require_admin=True,
+    )
+    
+    # 2. Invisible Controls Panel (For Routing)
+    async_register_built_in_panel(
+        hass,
+        component_name="iframe",
+        sidebar_title=None,
+        sidebar_icon=None,
+        frontend_url_path="gaming-status-controls",
+        config={"url": "/gaming_status/controls?v=190"}, 
         require_admin=True,
     )
 
     entry.async_on_unload(entry.add_update_listener(update_listener))
-
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 async def update_listener(hass: HomeAssistant, entry: ConfigEntry):
-    """Reload integration when options change."""
     await hass.config_entries.async_reload(entry.entry_id)
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
     if "notifier" in hass.data.get(DOMAIN, {}):
         await hass.data[DOMAIN]["notifier"].async_stop()
         
     try:
         async_remove_panel(hass, "gaming-status-config")
+        async_remove_panel(hass, "gaming-status-controls")
     except ValueError:
         pass
 
