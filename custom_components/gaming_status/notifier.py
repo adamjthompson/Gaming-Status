@@ -209,6 +209,11 @@ class GamingNotifier:
 
         for player_name, rules in parental.items():
             safe_player = player_name.lower().replace(" ", "_")
+            master_entity = f"sensor.{safe_player}_gaming_status"
+            master_state = self.hass.states.get(master_entity)
+            
+            if not master_state:
+                continue
 
             # ---- Screen time ----
             st_rule = rules.get("screen_time", {})
@@ -220,15 +225,15 @@ class GamingNotifier:
                 )
                 st_key = f"{safe_player}_screen_time"
                 
-                history_entity = f"sensor.{safe_player}_gaming_history"
-                hist_state = self.hass.states.get(history_entity)
-                if hist_state:
-                    today_minutes = float(hist_state.attributes.get("today_playtime_minutes", 0))
-                    if today_minutes >= limit_minutes and st_key not in self._triggered_parental_events:
-                        self._triggered_parental_events[st_key] = True
-                        action = st_rule.get("action", "")
-                        await self._fire_parental_action(player_name, action, f"⏰ {player_name} has reached their {limit_minutes}-minute screen time limit.")
-                elif st_key in self._triggered_parental_events:
+                # Convert daily hours into minutes
+                today_hours = float(master_state.attributes.get("total_daily_hours", 0))
+                today_minutes = today_hours * 60
+                
+                if today_minutes >= limit_minutes and st_key not in self._triggered_parental_events:
+                    self._triggered_parental_events[st_key] = True
+                    action = st_rule.get("action", "")
+                    await self._fire_parental_action(player_name, action, f"⏰ {player_name} has reached their {limit_minutes}-minute screen time limit.")
+                elif st_key in self._triggered_parental_events and today_minutes < limit_minutes:
                     self._triggered_parental_events.pop(st_key, None)
 
             # ---- Curfew ----
@@ -245,9 +250,7 @@ class GamingNotifier:
                     curfew_dt = now_dt.replace(hour=c_hour, minute=c_min, second=0, microsecond=0)
                     if now_dt >= curfew_dt and cf_key not in self._triggered_parental_events:
                         # Only fire if player is actively gaming
-                        master_entity = f"sensor.{safe_player}_gaming_status"
-                        master_state = self.hass.states.get(master_entity)
-                        if master_state and master_state.state.lower() not in ("offline", "unavailable", "unknown"):
+                        if master_state.state.lower() not in ("offline", "unavailable", "unknown"):
                             self._triggered_parental_events[cf_key] = True
                             pretty = datetime.strptime(curfew_time, "%H:%M").strftime("%I:%M %p").lstrip("0")
                             action = cf_rule.get("action", "")
@@ -297,14 +300,18 @@ class GamingNotifier:
 
         for player_name in players:
             safe = player_name.lower().replace(" ", "_")
-            history_entity = f"sensor.{safe}_gaming_history"
-            state = self.hass.states.get(history_entity)
+            master_entity = f"sensor.{safe}_gaming_status"
+            state = self.hass.states.get(master_entity)
+            
             if not state:
                 continue
+                
             attrs = state.attributes
-            weekly_hours = attrs.get("weekly_playtime_hours", 0)
-            top_game = attrs.get("top_game_this_week", "Unknown")
-            lines.append(f"\n🎮 **{player_name}**: {weekly_hours}h total — top game: {top_game}")
+            # Because Monday reports occur right after the reset, use last week's data to get the full 7-day picture
+            weekly_hours = attrs.get("total_weekly_hours_last_week", attrs.get("total_weekly_hours", 0))
+            last_game = attrs.get("last_played_game", "Unknown")
+            
+            lines.append(f"\n🎮 **{player_name}**: {weekly_hours}h total — Last game: {last_game}")
 
         message = "\n".join(lines)
 
