@@ -6,21 +6,25 @@ from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.core import callback
 from homeassistant.helpers.event import async_track_state_change_event
 
+from .const import OPT_PLAYERS
+
 _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up the binary sensor platform."""
-    def load():
-        with open(hass.config.path("gaming_profiles.json"), 'r', encoding='utf-8') as f: 
-            return json.load(f)
-            
-    d = await hass.async_add_executor_job(load)
     
+    # Load players directly from the new native HA options database
+    raw_players = config_entry.options.get(OPT_PLAYERS, "{}")
+    try:
+        players = json.loads(raw_players) if raw_players else {}
+    except (ValueError, TypeError):
+        players = {}
+        
     master_sensor_ids = []
     
-    # Grab all the profiles from the JSON to build our dynamic listener list
-    for n in d.get('GAMER_PROFILES', {}).keys():
-        safe_owner = n.lower().replace(" ", "_")
+    # Grab all the profiles to build our dynamic listener list
+    for name in players.keys():
+        safe_owner = name.lower().replace(" ", "_")
         master_sensor_ids.append(f"sensor.{safe_owner}_gaming_status")
         
     if master_sensor_ids:

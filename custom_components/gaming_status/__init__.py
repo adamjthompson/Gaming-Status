@@ -1,119 +1,111 @@
+"""Gaming Status integration — setup and teardown."""
+from __future__ import annotations
+
 import os
 import json
 import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.components.http import HomeAssistantView, StaticPathConfig
-from homeassistant.components.frontend import async_register_built_in_panel, async_remove_panel
-from .const import DOMAIN
+
+from .const import (
+    DOMAIN,
+    OPT_RESET_HISTORY,
+    OPT_GRACE_PERIOD,
+    OPT_AWAY_GRACE_PERIOD,
+    OPT_TRANSITION_GRACE,
+    OPT_MIN_SESSION,
+    OPT_PLAYERS,
+    OPT_ENDPOINTS,
+    OPT_WEEKLY_REPORT,
+    OPT_PARENTAL,
+    OPT_TITLE_OVERRIDES,
+    OPT_CUSTOM_COVERS,
+    OPT_TITLE_CLEANUPS,
+    OPT_GLOBAL_EXCLUSIONS,
+)
 from .notifier import GamingNotifier
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor", "binary_sensor"]
 
-class GamingProfilesAPI(HomeAssistantView):
-    """Secure API endpoint to read and write gaming_profiles.json natively."""
-    url = "/api/gaming_status/profiles"
-    name = "api:gaming_status:profiles"
-    requires_auth = True
+async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry):
+    """Silently migrate old JSON data to the new config options database."""
+    _LOGGER.debug("Migrating Gaming Status from version %s", config_entry.version)
 
-    def __init__(self, hass: HomeAssistant):
-        self.hass = hass
-        self.file_path = hass.config.path("gaming_profiles.json")
+    if config_entry.version == 1:
+        new_options = {**config_entry.options}
+        file_path = hass.config.path("gaming_profiles.json")
 
-    async def get(self, request):
-        def read_file():
-            if os.path.exists(self.file_path):
+        if os.path.exists(file_path):
+            def read_legacy_file():
                 try:
-                    with open(self.file_path, "r", encoding="utf-8") as f:
+                    with open(file_path, "r", encoding="utf-8") as f:
                         return json.load(f)
-                except Exception as e:
-                    return {"_api_error": str(e)}
-            return {}
-        
-        data = await self.hass.async_add_executor_job(read_file)
-        if "_api_error" in data: return self.json(data, status_code=500)
+                except Exception:
+                    return {}
+
+            old_data = await hass.async_add_executor_job(read_legacy_file)
+
+            # 1. Map Global Settings (Handling both old uppercase and newer lowercase formats)
+            global_settings = old_data.get("global_settings", old_data.get("GLOBAL_SETTINGS", {}))
             
-        response = self.json(data)
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        response.headers["Pragma"] = "no-cache"
-        return response
+            def _map_setting(old_keys, new_opt):
+                for k in old_keys:
+                    if k in global_settings:
+                        new_options[new_opt] = global_settings[k]
+                        break
 
-    async def post(self, request):
-        try:
-            body = await request.read()
-            data = json.loads(body)
-        except Exception as e:
-            return self.json({"error": "Invalid JSON"}, status_code=400)
+            _map_setting(["grace_period_seconds", "GRACE_PERIOD_SECONDS"], OPT_GRACE_PERIOD)
+            _map_setting(["away_grace_period_seconds", "AWAY_GRACE_PERIOD_SECONDS"], OPT_AWAY_GRACE_PERIOD)
+            _map_setting(["game_transition_grace_seconds", "GAME_TRANSITION_GRACE_SECONDS"], OPT_TRANSITION_GRACE)
+            _map_setting(["min_session_duration", "MIN_SESSION_DURATION"], OPT_MIN_SESSION)
+            _map_setting(["reset_history", "RESET_HISTORY"], OPT_RESET_HISTORY)
 
-        def write_file():
-            # UNRAID FIX: Direct write with fsync avoids cross-device link errors on shfs
-            with open(self.file_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-                
-        try:
-            await self.hass.async_add_executor_job(write_file)
-            return self.json({"success": True})
-        except Exception as e:
-            _LOGGER.error(f"Failed to write config: {e}")
-            return self.json({"error": "Write failed"}, status_code=500)
+            # 2. Map Complex Arrays (Dumping them to JSON strings for the new architecture)
+            def _migrate_complex(old_key, opt_key):
+                if old_key in old_data:
+                    new_options[opt_key] = json.dumps(old_data[old_key], ensure_ascii=False)
+
+            _migrate_complex("players", OPT_PLAYERS)
+            _migrate_complex("notification_endpoints", OPT_ENDPOINTS)
+            _migrate_complex("weekly_report", OPT_WEEKLY_REPORT)
+            _migrate_complex("parental_controls", OPT_PARENTAL)
+            _migrate_complex("game_title_overrides", OPT_TITLE_OVERRIDES)
+            _migrate_complex("custom_cover_map", OPT_CUSTOM_COVERS)
+            _migrate_complex("title_cleanups", OPT_TITLE_CLEANUPS)
+            _migrate_complex("global_exclusions", OPT_GLOBAL_EXCLUSIONS)
+
+            # Optional: Delete the old file so it doesn't clutter the user's config folder
+            try:
+                await hass.async_add_executor_job(os.remove, file_path)
+            except OSError:
+                pass
+
+        # Update the entry to Version 2
+        hass.config_entries.async_update_entry(config_entry, options=new_options, version=2)
+
+    _LOGGER.info("Gaming Status migration to version %s successful", config_entry.version)
+    return True
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Gaming Status from a UI config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    notifier = GamingNotifier(hass)
+    notifier = GamingNotifier(hass, entry)
     await notifier.async_start()
     hass.data[DOMAIN]["notifier"] = notifier
 
-    hass.http.register_view(GamingProfilesAPI(hass))
-
-    configurator_path = os.path.join(os.path.dirname(__file__), "gaming_profiles.html")
-    controls_path = os.path.join(os.path.dirname(__file__), "gaming_controls.html")
-    brand_path = os.path.join(os.path.dirname(__file__), "brand")
-    
-    await hass.http.async_register_static_paths([
-        StaticPathConfig("/gaming_status/configurator", configurator_path, cache_headers=False),
-        StaticPathConfig("/gaming_status/controls", controls_path, cache_headers=False),
-        StaticPathConfig("/gaming_status/brand", brand_path, cache_headers=True),
-    ])
-
-    show_sidebar = entry.options.get("show_sidebar", False)
-
-    async_register_built_in_panel(
-        hass,
-        component_name="iframe",
-        sidebar_title="Gaming Status" if show_sidebar else None,
-        sidebar_icon="mdi:controller" if show_sidebar else None,
-        frontend_url_path="gaming-status-config",
-        config={"url": "/gaming_status/configurator?v=191"}, 
-        require_admin=True,
-    )
-    
-    async_register_built_in_panel(
-        hass,
-        component_name="iframe",
-        sidebar_title=None,
-        sidebar_icon=None,
-        frontend_url_path="gaming-status-controls",
-        config={"url": "/gaming_status/controls?v=191"}, 
-        require_admin=True,
-    )
-
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the integration when options change so entities rebuild."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     if "notifier" in hass.data.get(DOMAIN, {}):
         await hass.data[DOMAIN]["notifier"].async_stop()
-        
-    try:
-        async_remove_panel(hass, "gaming-status-config")
-        async_remove_panel(hass, "gaming-status-controls")
-    except ValueError:
-        pass
 
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

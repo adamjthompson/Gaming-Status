@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Gaming Status Setup",
-        "description": "Enter your SteamGridDB API Key to automatically fetch beautiful game cover art. You can get a free key at [SteamGridDB]({api_url}).\n\n**Optional:** You can leave this blank and rely on custom covers or player avatars instead or add a key later.",
+        "description": "Enter your SteamGridDB API Key to automatically fetch game cover art. You can get a free key at [SteamGridDB]({api_url}).\n\n**Optional:** You can leave this blank and add a key later via the Configure button.",
         "data": {
           "steamgriddb_api_key": "SteamGridDB API Key"
         }
@@ -11,21 +11,176 @@
     },
     "abort": {
       "single_instance_allowed": "Only one instance of Gaming Status can be configured."
-    },
-    "error": {
-      "api_key_required": "API key cannot be empty."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Gaming Status Configuration",
-        "description": "Update your SteamGridDB API key or toggle the sidebar icon below.\n\n🎮 [**Click Here to Open the Web Configurator**](/gaming-status-config)\n\n*Use the configurator to manage players, notification endpoints, and weekly reports.*",
+        "title": "Gaming Status",
+        "menu_options": {
+          "global_settings": "Global Settings",
+          "manage_players": "Manage Players",
+          "notifications": "Notifications",
+          "parental_controls": "Parental Controls",
+          "advanced": "Advanced"
+        }
+      },
+      "global_settings": {
+        "title": "Global Settings",
+        "description": "Timing and behavior settings that apply to all players. **Only change these if you understand exactly what they do!**",
+        "data": {
+          "grace_period_seconds": "Offline grace period (seconds)",
+          "away_grace_period_seconds": "Away grace period (seconds)",
+          "game_transition_grace_seconds": "Game transition grace period (seconds)",
+          "min_session_duration": "Minimum session duration (seconds)",
+          "reset_history": "Reset play history on restart"
+        },
+        "data_description": {
+          "grace_period_seconds": "How long to wait before marking a player offline. Default: 300 (5 min)",
+          "away_grace_period_seconds": "How long to wait before marking a Steam Away player offline. Default: 600 (10 min)",
+          "game_transition_grace_seconds": "Bridges small gaps between game launches so sessions stay continuous. Default: 120 (2 min)",
+          "min_session_duration": "Sessions shorter than this are not counted in history. Default: 300 (5 min)",
+          "reset_history": "Clear all accumulated session history when Home Assistant restarts."
+        }
+      },
+      "manage_players": {
+        "title": "Manage Players",
+        "description": "{player_count_text}\n\nSelect a player below to edit their settings, or select to add a new profile.",
+        "data": {
+          "player_choice": "Player Menu"
+        }
+      },
+      "add_player": {
+        "title": "Add Player",
+        "description": "Provide a name and enter the HA entity IDs for each platform this player uses. Leave blank for platforms they don't have.",
+        "data": {
+          "player_name": "Friendly Name",
+          "steam": "Steam sensor",
+          "xbox": "Xbox sensor",
+          "playstation": "PlayStation sensor",
+          "custom": "Custom / PC sensor"
+        },
+        "data_description": {
+          "player_name": "e.g. John",
+          "steam": "e.g. sensor.steam_player_one",
+          "xbox": "e.g. sensor.player_one_xbox_status",
+          "playstation": "e.g. sensor.player_one_psn_online_status",
+          "custom": "e.g. sensor.player_one_active_pc_game"
+        }
+      },
+      "edit_player": {
+        "title": "Edit Player | {player_name}",
+        "description": "Update platform entity IDs, or check **Delete this player** to completely remove them.",
+        "data": {
+          "steam": "Steam sensor",
+          "xbox": "Xbox sensor",
+          "playstation": "PlayStation sensor",
+          "custom": "Custom / PC sensor",
+          "delete_player": "Delete this player"
+        },
+        "data_description": {
+          "xbox": "(Select the _status sensor)",
+          "playstation": "(Select the _online_status sensor)"
+        }
+      },
+      "player_details": {
+        "title": "Player Details | {player_name}",
+        "description": "Optional: Configure session notifications, ghost detection, and set per-player game exclusions.",
+        "data": {
+          "notify_start_destinations": "Session Start Notification(s)",
+          "notify_end_destinations": "Session End Notification(s)",
+          "ghosted_by": "Ghosted-by entity IDs (comma-separated)",
+          "exclude_games": "Games to exclude (comma-separated)"
+        },
+        "data_description": {
+          "notify_start_destinations": "Select notification method(s) when this player starts gaming.",
+          "notify_end_destinations": "Select notification method(s) when this player stops gaming.",
+          "ghosted_by": "e.g. sensor.player_two_steam — Hides this player's status from that player's view.",
+          "exclude_games": "e.g. Genshin Impact, Minecraft — Games to ignore for this player."
+        }
+      },
+      "notifications": {
+        "title": "Notifications",
+        "description": "Manage your notifications and weekly report.",
+        "data": {
+          "endpoint_choice": "Action"
+        }
+      },
+      "add_endpoint": {
+        "title": "Add Notification",
+        "description": "Configure a new gaming notification method.",
+        "data": {
+          "endpoint_name": "Name",
+          "notification_type": "Notification Type",
+          "notifier": "Notifier",
+          "target_id": "Target ID"
+        },
+        "data_description": {
+          "endpoint_name": "A friendly name, e.g. Dad's Phone",
+          "target_id": "Required for Discord or SMS (Channel ID / Phone Number)."
+        }
+      },
+      "edit_endpoint": {
+        "title": "Edit Notification | {endpoint_name}",
+        "data": {
+          "endpoint_name": "Name",
+          "notification_type": "Notification Type",
+          "notifier": "Notifier",
+          "target_id": "Target ID",
+          "delete_endpoint": "Delete this notification"
+        }
+      },
+      "weekly_report": {
+        "title": "Weekly Report",
+        "description": "Send a weekly gaming summary to the selected notification methods.",
+        "data": {
+          "enabled": "Enable weekly report",
+          "day": "Day of week",
+          "time": "Send time (HH:MM)",
+          "destinations": "Notification method"
+        }
+      },
+      "parental_controls": {
+        "title": "Parental Controls",
+        "description": "Select a player to configure screen time and curfew rules.",
+        "data": {
+          "player_choice": "Player"
+        }
+      },
+      "parental_player": {
+        "title": "Parental Controls | {player_name}",
+        "data": {
+          "st_enabled": "Enable screen time limit",
+          "st_weekday_minutes": "Weekday limit (minutes)",
+          "st_weekend_minutes": "Weekend limit (minutes)",
+          "st_action_target": "Action when limit reached",
+          "cf_enabled": "Enable curfew",
+          "cf_weekday": "Weekday curfew time (HH:MM)",
+          "cf_weekend": "Weekend curfew time (HH:MM)",
+          "cf_action_target": "Action at curfew"
+        }
+      },
+      "advanced": {
+        "title": "Advanced",
+        "description": "Game title overrides, custom cover art, title cleanup strings, and global exclusions. Use simple comma-separated lists!",
         "data": {
           "steamgriddb_api_key": "SteamGridDB API Key",
-          "show_sidebar": "Show Configurator in Sidebar"
+          "title_overrides": "Game Title Overrides",
+          "custom_covers": "Custom Cover Map",
+          "title_cleanups": "Title Cleanup Strings",
+          "global_exclusions": "Global Exclusion List"
+        },
+        "data_description": {
+          "title_overrides": "Comma-separated key:value pairs mapping raw names to display names. e.g. Minecraft Launcher: Minecraft, Grand Theft Auto V: GTA V",
+          "custom_covers": "Comma-separated key:value pairs mapping display names to URLs. e.g. Marvel Rivals: https://..., Minecraft: /local/...",
+          "title_cleanups": "Comma-separated strings to strip from game names. e.g. Tom Clancy's, Sid Meier's",
+          "global_exclusions": "Comma-separated list of games to ignore across all players. e.g. Home, YouTube, Netflix"
         }
       }
+    },
+    "error": {
+      "name_required": "Friendly Name cannot be empty.",
+      "name_exists": "A player with that name already exists."
     }
   }
 }

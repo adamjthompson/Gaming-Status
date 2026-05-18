@@ -1141,25 +1141,91 @@ class HistoryChartSensor(RestoreEntity, SensorEntity):
             except (ValueError, TypeError):
                 pass
 
-from .const import CONF_STEAMGRIDDB_API_KEY
+import json as _json
+
+from .const import (
+    CONF_STEAMGRIDDB_API_KEY,
+    OPT_PLAYERS,
+    OPT_GRACE_PERIOD,
+    OPT_AWAY_GRACE_PERIOD,
+    OPT_TRANSITION_GRACE,
+    OPT_MIN_SESSION,
+    OPT_RESET_HISTORY,
+    OPT_TITLE_OVERRIDES,
+    OPT_CUSTOM_COVERS,
+    OPT_GLOBAL_EXCLUSIONS,
+    DEFAULT_GRACE_PERIOD_SECONDS,
+    DEFAULT_AWAY_GRACE_PERIOD_SECONDS,
+    DEFAULT_GAME_TRANSITION_GRACE_SECONDS,
+    DEFAULT_MIN_SESSION_DURATION,
+    DEFAULT_RESET_HISTORY,
+    PLAYER_PLATFORMS,
+)
+
+
+def _load_opt_json(options, key, fallback):
+    """Safely parse a JSON option string."""
+    raw = options.get(key)
+    if not raw:
+        return fallback
+    try:
+        return _json.loads(raw)
+    except (TypeError, ValueError):
+        return fallback
+
+
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    def load():
-        with open(hass.config.path("gaming_profiles.json"), 'r', encoding='utf-8') as f: return json.load(f)
-    d = await hass.async_add_executor_job(load)
-    r_s = d.get('GLOBAL_SETTINGS', {})
-    a_s = {k: r_s.get(k, v) for k, v in {"RESET_HISTORY": DEFAULT_RESET_HISTORY, "GRACE_PERIOD_SECONDS": DEFAULT_GRACE_PERIOD_SECONDS, "AWAY_GRACE_PERIOD_SECONDS": DEFAULT_AWAY_GRACE_PERIOD_SECONDS, "GAME_TRANSITION_GRACE_SECONDS": DEFAULT_GAME_TRANSITION_GRACE_SECONDS, "MIN_SESSION_DURATION": DEFAULT_MIN_SESSION_DURATION}.items()}
-    
-    utils.GAME_TITLE_OVERRIDES = {
-        k.strip().lower(): v 
-        for k, v in d.get('GAME_TITLE_OVERRIDES', {}).items()
+    """Set up Gaming Status sensors from options stored in the config entry."""
+    opts = config_entry.options
+
+    # --- Active settings (timing / behaviour) ---
+    active_settings = {
+        "RESET_HISTORY": opts.get(OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY),
+        "GRACE_PERIOD_SECONDS": opts.get(OPT_GRACE_PERIOD, DEFAULT_GRACE_PERIOD_SECONDS),
+        "AWAY_GRACE_PERIOD_SECONDS": opts.get(OPT_AWAY_GRACE_PERIOD, DEFAULT_AWAY_GRACE_PERIOD_SECONDS),
+        "GAME_TRANSITION_GRACE_SECONDS": opts.get(OPT_TRANSITION_GRACE, DEFAULT_GAME_TRANSITION_GRACE_SECONDS),
+        "MIN_SESSION_DURATION": opts.get(OPT_MIN_SESSION, DEFAULT_MIN_SESSION_DURATION),
     }
-    
-    utils.CUSTOM_COVER_MAP, utils.STEAMGRIDDB_API_KEY = {k: safe_url(v) for k, v in d.get('CUSTOM_COVER_MAP', {}).items() if safe_url(v)}, config_entry.data.get(CONF_STEAMGRIDDB_API_KEY)
-    
+
+    # --- Utils module globals (shared with sensor class methods) ---
+    raw_overrides = _load_opt_json(opts, OPT_TITLE_OVERRIDES, {})
+    utils.GAME_TITLE_OVERRIDES = {k.strip().lower(): v for k, v in raw_overrides.items()}
+
+    raw_covers = _load_opt_json(opts, OPT_CUSTOM_COVERS, {})
+    utils.CUSTOM_COVER_MAP = {k: safe_url(v) for k, v in raw_covers.items() if safe_url(v)}
+
+    utils.STEAMGRIDDB_API_KEY = config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, "")
+
+    # --- Global exclusions ---
+    global_exclusions = _load_opt_json(opts, OPT_GLOBAL_EXCLUSIONS, [])
+
+    # --- Player profiles ---
+    players = _load_opt_json(opts, OPT_PLAYERS, {})
+
     ents = []
-    for n, p_d in d.get('GAMER_PROFILES', {}).items():
-        gh, ex = p_d.get("ghosted_by", []), p_d.get("exclude_games", [])
-        for pk in ["steam", "xbox", "playstation", "custom"]:
-            if p_d.get(pk): ents.append(PersistentStatusSensor(hass, p_d[pk], pk, n, gh, ex, a_s, d.get('GLOBAL_EXCLUSIONS', [])))
-        ents.extend([MasterGamingSensor(hass, n, p_d), HistoryChartSensor(hass, n)])
+    for player_name, player_data in players.items():
+        ghosted_by = player_data.get("ghosted_by", [])
+        exclude_games = player_data.get("exclude_games", [])
+
+        for platform in PLAYER_PLATFORMS:
+            entity_id = player_data.get(platform)
+            if entity_id:
+                ents.append(
+                    PersistentStatusSensor(
+                        hass,
+                        entity_id,
+                        platform,
+                        player_name,
+                        ghosted_by,
+                        exclude_games,
+                        active_settings,
+                        global_exclusions,
+                    )
+                )
+
+        ents.extend([
+            MasterGamingSensor(hass, player_name, player_data),
+            HistoryChartSensor(hass, player_name),
+        ])
+
     async_add_entities(ents)
