@@ -89,6 +89,7 @@ Manage where your [gaming alerts and weekly reports](docs/notifications.md) are 
 Set automated rules based on accumulated playtime or time of day.
 * **Screen Time:** Set distinct weekday and weekend daily minute limits.
 * **Curfew:** Set distinct weekday and weekend cutoff times (e.g., 22:00).
+* **Reminder Frequency:** Set how often to repeat the action.
 * **Actions:** When a limit is reached, you can automatically trigger a notification, run a Home Assistant script, or fire an automation (like turning off a smart plug or TV).
 
 #### 4. Advanced

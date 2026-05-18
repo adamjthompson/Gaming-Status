@@ -1,6 +1,7 @@
 """Gaming Status notifier — session alerts, weekly report, parental controls."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
@@ -104,11 +105,29 @@ class GamingNotifier:
             self._unsub_parental()
 
     # ------------------------------------------------------------------
-    # Generic Notification Helper
+    # Generic Notification Helpers
     # ------------------------------------------------------------------
     
-    async def _send_to_endpoint(self, ep_id: str, message: str) -> None:
-        """Helper to dispatch a message to a specific endpoint ID."""
+    def _format_duration(self, minutes: int) -> str:
+        if minutes < 60:
+            return f"{minutes} minute{'s' if minutes != 1 else ''}"
+        hours = minutes // 60
+        mins = minutes % 60
+        hour_str = f"1 hour" if hours == 1 else f"{hours} hours"
+        if mins == 0:
+            return hour_str
+        return f"{hour_str} and {mins} minute{'s' if mins != 1 else ''}"
+    
+    async def _send_to_endpoint(
+        self, 
+        ep_id: str, 
+        message: str, 
+        image_url: str = None, 
+        game_title: str = None, 
+        duration_str: str = None, 
+        event_type: str = "info"
+    ) -> None:
+        """Helper to dispatch a message, formatting specifically for Discord Embeds vs Mobile App."""
         endpoints = self._endpoints()
         dest = endpoints.get(ep_id)
         
@@ -120,11 +139,49 @@ class GamingNotifier:
             return
             
         domain, service = service_str.split(".", 1)
-        service_data = {"message": message}
-        
         target_id = dest.get("target_id", "").strip()
+        ep_type = dest.get("type", "Mobile App")
+        
+        service_data = {}
+
+        # Set Target (Discord requires a list, Mobile uses string)
         if target_id and target_id.lower() != "n/a":
-            service_data["target"] = target_id
+            if ep_type == "Discord":
+                service_data["target"] = [target_id]
+            else:
+                service_data["target"] = target_id
+
+        # Formatting Fork
+        if ep_type == "Discord":
+            service_data["message"] = message
+            
+            # Colors: Green = 65280, Red = 16711680, Blue = 3447003
+            if event_type == "start":
+                color = 65280
+            elif event_type == "stop":
+                color = 16711680
+            else:
+                color = 3447003 
+
+            embed = {"color": color}
+            if game_title:
+                embed["title"] = game_title
+            if duration_str:
+                embed["description"] = f"Duration: {duration_str}"
+            if image_url:
+                embed["image"] = {"url": image_url}
+                
+            service_data["data"] = {"embed": embed}
+            
+        else:
+            # Mobile App / SMS formatting
+            final_message = message
+            if duration_str:
+                final_message += f"\nDuration: {duration_str}"
+            
+            service_data["message"] = final_message
+            if image_url and ep_type != "SMS":
+                service_data["data"] = {"image": image_url}
             
         try:
             await self.hass.services.async_call(domain, service, service_data)
@@ -177,22 +234,75 @@ class GamingNotifier:
         old_off = old_clean in (["offline"] + ignored) or old_clean in exclusions
         new_off = new_clean in (["offline"] + ignored) or new_clean in exclusions
 
-        # Route to the appropriate lists based on event
+        # Identify event type
+        is_start = old_off and not new_off
+        is_switch = not old_off and not new_off and old_game != new_game
+        is_end = not old_off and new_off
+
+        if not (is_start or is_switch or is_end):
+            return
+
         start_dests = user_config.get("notify_start_destinations", [])
         end_dests = user_config.get("notify_end_destinations", [])
 
-        # Session started
-        if old_off and not new_off:
+        if is_start or is_switch:
+            image_url = None
+            old_url = old_state.attributes.get("game_cover_art") if old_state else None
+            
+            # Intelligent Polling: Wait up to 16 seconds for the new cover art to inject
+            for _ in range(8):
+                await asyncio.sleep(2)
+                current_state = self.hass.states.get(entity_id)
+                if current_state:
+                    current_url = current_state.attributes.get("game_cover_art") or current_state.attributes.get("cached_game_cover")
+                    
+                    if current_url:
+                        if is_switch and current_url == old_url:
+                            continue
+                        image_url = current_url
+                        break
+
+            event_verb = "started playing" if is_start else "switched to"
             for ep_id in start_dests:
-                await self._send_to_endpoint(ep_id, f"🎮 {target_player} started playing {new_game}")
-        # Game switched
-        elif not old_off and not new_off and old_game != new_game:
-            for ep_id in start_dests:
-                await self._send_to_endpoint(ep_id, f"🔄 {target_player} switched to {new_game}")
-        # Session ended
-        elif not old_off and new_off:
+                await self._send_to_endpoint(
+                    ep_id, 
+                    message=f"{target_player} {event_verb} {new_game}", 
+                    image_url=image_url,
+                    game_title=new_game,
+                    event_type="start"
+                )
+                
+        elif is_end:
+            image_url = old_state.attributes.get("game_cover_art") or old_state.attributes.get("cached_game_cover")
+            
+            # Calculate Duration
+            duration_str = None
+            start_time_str = old_state.attributes.get("play_start_time")
+            if start_time_str:
+                try:
+                    start_dt = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
+                    now_dt = datetime.now(start_dt.tzinfo) if start_dt.tzinfo else datetime.now()
+                    diff = now_dt - start_dt
+                    total_minutes = int(diff.total_seconds() / 60)
+                    hours = total_minutes // 60
+                    minutes = total_minutes % 60
+                    
+                    if hours > 0:
+                        duration_str = f"{hours}h {minutes}m"
+                    else:
+                        duration_str = f"{minutes}m"
+                except Exception:
+                    pass
+
             for ep_id in end_dests:
-                await self._send_to_endpoint(ep_id, f"⏹ {target_player} stopped playing {old_game}")
+                await self._send_to_endpoint(
+                    ep_id, 
+                    message=f"{target_player} finished playing {old_game}", 
+                    image_url=image_url,
+                    game_title=old_game,
+                    duration_str=duration_str,
+                    event_type="stop"
+                )
 
     # ------------------------------------------------------------------
     # Parental controls
@@ -224,16 +334,35 @@ class GamingNotifier:
                     else st_rule.get("weekday_minutes", 120)
                 )
                 st_key = f"{safe_player}_screen_time"
+                st_repeat = int(st_rule.get("repeat", 0))
                 
                 # Convert daily hours into minutes
                 today_hours = float(master_state.attributes.get("total_daily_hours", 0))
-                today_minutes = today_hours * 60
+                today_minutes = int(today_hours * 60)
                 
-                if today_minutes >= limit_minutes and st_key not in self._triggered_parental_events:
-                    self._triggered_parental_events[st_key] = True
-                    action = st_rule.get("action", "")
-                    await self._fire_parental_action(player_name, action, f"⏰ {player_name} has reached their {limit_minutes}-minute screen time limit.")
-                elif st_key in self._triggered_parental_events and today_minutes < limit_minutes:
+                if today_minutes >= limit_minutes:
+                    is_playing = master_state.state.lower() not in ("offline", "unavailable", "unknown")
+                    last_fired = self._triggered_parental_events.get(st_key)
+                    
+                    if is_playing:
+                        should_fire = False
+                        if last_fired is None:
+                            should_fire = True
+                        elif st_repeat > 0 and (now_dt - last_fired).total_seconds() >= (st_repeat * 60):
+                            should_fire = True
+                            
+                        if should_fire:
+                            self._triggered_parental_events[st_key] = now_dt
+                            action = st_rule.get("action", "")
+                            overage = today_minutes - limit_minutes
+                            
+                            if overage <= 1:
+                                message = f"{player_name} has reached the {limit_minutes}-minute screen time limit."
+                            else:
+                                message = f"{player_name} has exceeded the {limit_minutes}-minute screen time limit by {overage} minutes ({today_minutes} minutes total)."
+                                
+                            await self._fire_parental_action(player_name, action, message)
+                elif today_minutes < limit_minutes:
                     self._triggered_parental_events.pop(st_key, None)
 
             # ---- Curfew ----
@@ -245,16 +374,37 @@ class GamingNotifier:
                     if is_weekend
                     else cf_rule.get("weekday", "22:00")
                 )
+                cf_repeat = int(cf_rule.get("repeat", 0))
+                
                 try:
                     c_hour, c_min = map(int, curfew_time.split(":"))
                     curfew_dt = now_dt.replace(hour=c_hour, minute=c_min, second=0, microsecond=0)
-                    if now_dt >= curfew_dt and cf_key not in self._triggered_parental_events:
-                        # Only fire if player is actively gaming
-                        if master_state.state.lower() not in ("offline", "unavailable", "unknown"):
-                            self._triggered_parental_events[cf_key] = True
-                            pretty = datetime.strptime(curfew_time, "%H:%M").strftime("%I:%M %p").lstrip("0")
-                            action = cf_rule.get("action", "")
-                            await self._fire_parental_action(player_name, action, f"🌙 {player_name}'s curfew time of {pretty} has been reached.")
+                    
+                    if now_dt >= curfew_dt:
+                        is_playing = master_state.state.lower() not in ("offline", "unavailable", "unknown")
+                        last_fired = self._triggered_parental_events.get(cf_key)
+                        
+                        if is_playing:
+                            should_fire = False
+                            if last_fired is None:
+                                should_fire = True
+                            elif cf_repeat > 0 and (now_dt - last_fired).total_seconds() >= (cf_repeat * 60):
+                                should_fire = True
+                                
+                            if should_fire:
+                                self._triggered_parental_events[cf_key] = now_dt
+                                pretty = datetime.strptime(curfew_time, "%H:%M").strftime("%I:%M %p").lstrip("0")
+                                action = cf_rule.get("action", "")
+                                
+                                overage_minutes = int((now_dt - curfew_dt).total_seconds() / 60)
+                                
+                                if overage_minutes <= 1:
+                                    message = f"{player_name} has reached the {pretty} curfew."
+                                else:
+                                    overage_text = self._format_duration(overage_minutes)
+                                    message = f"{player_name} has exceeded the {pretty} curfew by {overage_text}."
+                                    
+                                await self._fire_parental_action(player_name, action, message)
                     elif now_dt < curfew_dt:
                         self._triggered_parental_events.pop(cf_key, None)
                 except (ValueError, AttributeError):
@@ -271,7 +421,7 @@ class GamingNotifier:
         # 1. Fire a designated notification endpoint
         if action_service.startswith("endpoint_"):
             ep_id = action_service.replace("endpoint_", "", 1)
-            await self._send_to_endpoint(ep_id, message)
+            await self._send_to_endpoint(ep_id, message, event_type="info")
             
         # 2. Fire an HA script or automation
         elif "." in action_service:
@@ -296,7 +446,7 @@ class GamingNotifier:
         players = self._players()
         assigned = report_config.get("destinations", [])
 
-        lines = [f"📊 **Weekly Gaming Report** — {datetime.now().strftime('%B %d, %Y')}"]
+        lines = [f"**Weekly Gaming Report** — {datetime.now().strftime('%B %d, %Y')}"]
 
         for player_name in players:
             safe = player_name.lower().replace(" ", "_")
@@ -311,9 +461,9 @@ class GamingNotifier:
             weekly_hours = attrs.get("total_weekly_hours_last_week", attrs.get("total_weekly_hours", 0))
             last_game = attrs.get("last_played_game", "Unknown")
             
-            lines.append(f"\n🎮 **{player_name}**: {weekly_hours}h total — Last game: {last_game}")
+            lines.append(f"\n**{player_name}**: {weekly_hours}h total — Last game: {last_game}")
 
         message = "\n".join(lines)
 
         for ep_id in assigned:
-            await self._send_to_endpoint(ep_id, message)
+            await self._send_to_endpoint(ep_id, message, event_type="info")

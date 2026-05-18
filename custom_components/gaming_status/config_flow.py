@@ -122,7 +122,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     # -----------------------------------------------------------------------
 
     async def async_step_init(self, user_input=None):
-        """Main menu — choose a section to configure."""
         return self.async_show_menu(
             step_id="init",
             menu_options=[
@@ -205,7 +204,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             step_id=MENU_MANAGE_PLAYERS,
             data_schema=vol.Schema(
                 {
-                    # Added the default attribute to jump straight to Add new player
                     vol.Required("player_choice", default="__add_new__"): selector.SelectSelector(
                         selector.SelectSelectorConfig(options=choices, mode=selector.SelectSelectorMode.DROPDOWN)
                     ),
@@ -360,7 +358,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             selector.SelectOptionDict(value=k, label=v["name"]) for k, v in endpoints.items()
         ]
         
-        # Renamed label to Add new notification
         choices.append(selector.SelectOptionDict(value="__add_new__", label="➕ Add new notification"))
         choices.append(selector.SelectOptionDict(value="__weekly_report__", label="📅 Weekly report settings"))
 
@@ -368,7 +365,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             step_id=MENU_NOTIFICATIONS,
             data_schema=vol.Schema(
                 {
-                    # Added the default attribute to jump straight to Add new notification
                     vol.Required("endpoint_choice", default="__add_new__"): selector.SelectSelector(
                         selector.SelectSelectorConfig(options=choices, mode=selector.SelectSelectorMode.DROPDOWN)
                     ),
@@ -508,17 +504,26 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         st = rules.get("screen_time", {})
         cf = rules.get("curfew", {})
 
+        REPEAT_OPTIONS = [
+            selector.SelectOptionDict(value="0", label="Once per day"),
+            selector.SelectOptionDict(value="15", label="Every 15 minutes"),
+            selector.SelectOptionDict(value="30", label="Every 30 minutes"),
+            selector.SelectOptionDict(value="60", label="Every 60 minutes"),
+        ]
+
         if user_input is not None:
             rules["screen_time"] = {
                 "enabled": user_input.get("st_enabled", False),
                 "weekday_minutes": user_input.get("st_weekday_minutes", 120),
                 "weekend_minutes": user_input.get("st_weekend_minutes", 180),
+                "repeat": int(user_input.get("st_repeat", "0")),
                 "action": user_input.get("st_action_target", "none"),
             }
             rules["curfew"] = {
                 "enabled": user_input.get("cf_enabled", False),
                 "weekday": user_input.get("cf_weekday", "22:00"),
                 "weekend": user_input.get("cf_weekend", "23:00"),
+                "repeat": int(user_input.get("cf_repeat", "0")),
                 "action": user_input.get("cf_action_target", "none"),
             }
             parental[name] = rules
@@ -532,10 +537,16 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional("st_enabled", default=st.get("enabled", False)): bool,
                     vol.Optional("st_weekday_minutes", default=st.get("weekday_minutes", 120)): vol.All(int, vol.Range(min=0)),
                     vol.Optional("st_weekend_minutes", default=st.get("weekend_minutes", 180)): vol.All(int, vol.Range(min=0)),
+                    vol.Optional("st_repeat", default=str(st.get("repeat", 0))): selector.SelectSelector(
+                        selector.SelectSelectorConfig(options=REPEAT_OPTIONS, mode=selector.SelectSelectorMode.DROPDOWN)
+                    ),
                     vol.Optional("st_action_target", default=st.get("action", "none")): self._get_action_targets(),
                     vol.Optional("cf_enabled", default=cf.get("enabled", False)): bool,
                     vol.Optional("cf_weekday", default=cf.get("weekday", "22:00")): str,
                     vol.Optional("cf_weekend", default=cf.get("weekend", "23:00")): str,
+                    vol.Optional("cf_repeat", default=str(cf.get("repeat", 0))): selector.SelectSelector(
+                        selector.SelectSelectorConfig(options=REPEAT_OPTIONS, mode=selector.SelectSelectorMode.DROPDOWN)
+                    ),
                     vol.Optional("cf_action_target", default=cf.get("action", "none")): self._get_action_targets(),
                 }
             ),
