@@ -122,14 +122,15 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     # -----------------------------------------------------------------------
 
     async def async_step_init(self, user_input=None):
+        """Main menu — choose a section to configure."""
         return self.async_show_menu(
             step_id="init",
             menu_options=[
-                MENU_GLOBAL_SETTINGS,
                 MENU_MANAGE_PLAYERS,
                 MENU_NOTIFICATIONS,
                 MENU_PARENTAL,
                 MENU_ADVANCED,
+                MENU_GLOBAL_SETTINGS,
             ],
         )
 

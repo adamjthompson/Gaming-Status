@@ -18,29 +18,11 @@
       "init": {
         "title": "Gaming Status",
         "menu_options": {
-          "global_settings": "Global Settings",
           "manage_players": "Manage Players",
           "notifications": "Notifications",
           "parental_controls": "Parental Controls",
-          "advanced": "Advanced"
-        }
-      },
-      "global_settings": {
-        "title": "Global Settings",
-        "description": "Timing and behavior settings that apply to all players. **Only change these if you understand exactly what they do!**",
-        "data": {
-          "grace_period_seconds": "Offline grace period (seconds)",
-          "away_grace_period_seconds": "Away grace period (seconds)",
-          "game_transition_grace_seconds": "Game transition grace period (seconds)",
-          "min_session_duration": "Minimum session duration (seconds)",
-          "reset_history": "Reset play history on restart"
-        },
-        "data_description": {
-          "grace_period_seconds": "How long to wait before marking a player offline. Default: 300 (5 min)",
-          "away_grace_period_seconds": "How long to wait before marking a Steam Away player offline. Default: 600 (10 min)",
-          "game_transition_grace_seconds": "Bridges small gaps between game launches so sessions stay continuous. Default: 120 (2 min)",
-          "min_session_duration": "Sessions shorter than this are not counted in history. Default: 300 (5 min)",
-          "reset_history": "Clear all accumulated session history when Home Assistant restarts."
+          "advanced": "Advanced",
+          "global_settings": "Global Settings"
         }
       },
       "manage_players": {
@@ -175,6 +157,24 @@
           "custom_covers": "Comma-separated key:value pairs mapping display names to URLs. e.g. Marvel Rivals: https://..., Minecraft: /local/...",
           "title_cleanups": "Comma-separated strings to strip from game names. e.g. Tom Clancy's, Sid Meier's",
           "global_exclusions": "Comma-separated list of games to ignore across all players. e.g. Home, YouTube, Netflix"
+        }
+      },
+      "global_settings": {
+        "title": "Global Settings",
+        "description": "Timing and behavior settings that apply to all players. **Only change these if you understand exactly what they do!**",
+        "data": {
+          "grace_period_seconds": "Offline grace period (seconds)",
+          "away_grace_period_seconds": "Away grace period (seconds)",
+          "game_transition_grace_seconds": "Game transition grace period (seconds)",
+          "min_session_duration": "Minimum session duration (seconds)",
+          "reset_history": "Reset play history on restart"
+        },
+        "data_description": {
+          "grace_period_seconds": "How long to wait before marking a player offline. Default: 300 (5 min)",
+          "away_grace_period_seconds": "How long to wait before marking a Steam Away player offline. Default: 600 (10 min)",
+          "game_transition_grace_seconds": "Bridges small gaps between game launches so sessions stay continuous. Default: 120 (2 min)",
+          "min_session_duration": "Sessions shorter than this are not counted in history. Default: 300 (5 min)",
+          "reset_history": "Clear all accumulated session history when Home Assistant restarts."
         }
       }
     },

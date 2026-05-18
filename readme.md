@@ -11,6 +11,7 @@ Some of the key features are listed below.
 ## ✨ Features
 * **Unified Master Sensor:** Combines Xbox, PlayStation, Steam, and Custom PC clients into one clean "Master Status" sensor per person.
 * **Online/Offline Notifications** Receive Discord, SMS, and/or Mobile notifications when users start or finish playing a game.
+* **Parental Controls:** Track daily playtime and recieve notifications or trigger an automation or script when a limit or curfew is reached.
 * **Custom PC Game Support:** Track non-platform games (like Epic Games, Minecraft, or Genshin Impact) using template funnels or binary sensors.
 * **Smart Ghosting Protection:** Automatically prevents echo sessions (e.g., when the Windows Xbox app incorrectly broadcasts a Steam game).
 * **Drop-Out Protection:** Built-in grace periods prevent a gamer from appearing "Offline" if their game crashes, they switch titles, or their internet briefly blips, keeping play sessions perfectly intact.
@@ -60,18 +61,56 @@ Go to Settings / Devices & Services and press the Add Integration button, or cli
 
 [![Add Integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=gaming_status)
 
-Input your **SteamGridDB API Key** when prompted.
+Gaming Status is configured entirely through the Home Assistant UI. **There is no YAML or JSON configuration required.** *(Note: If you are upgrading from an older version, your `gaming_profiles.json` file will be automatically migrated to the new database and can be safely deleted).*
 
-### Configurator
-Because every home setup is unique, this integration requires a manual configuration file to map your entities to the right gamer. All settings will be configured inside of `config/gaming_profiles.json`. 
+### Initial Setup
+1. In Home Assistant, navigate to **Settings** > **Devices & Services**.
+2. Click **+ Add Integration** and search for **Gaming Status**.
+3. You will be prompted to enter a **SteamGridDB API Key** (Optional). This is highly recommended to automatically fetch beautiful hero art for your games. You can get a free key [here](https://www.steamgriddb.com/profile/api).
+4. Click Submit. 
 
-Use the *Gaming Status Configurator* to easily generate the required JSON file. This is linked from the integration settings or can be toggled as an entry on your sidebar labeled "Gaming Status". Further editing of [advanced options](docs/advanced.md) can be performed manually in VSCode or your editor of choice. **After adding your information, you must save the JSON file and restart Home Assistant.**
+### Options & Features
+To configure your players, notifications, and rules, click the **Configure** button (gear icon) on the Gaming Status integration card. This opens the main configuration hub, which is divided into five sections:
 
-*Additionally, there is a [`example.profiles.json`](custom_components/gaming_status/example.profiles.json) file provided that can be used as a starting point if you prefer to edit the file manually yourself. See the [Advanced Setup](docs/advanced.md) documentation for more details.*
+#### 1. Manage Players
+Add, edit, or delete the gamers in your household.
+* **Platform Sensors:** When adding a player, you simply select their respective integration sensors from the dropdowns. The integration will automatically filter your entities to show the correct Steam, Xbox (`_status`), and PlayStation (`_online_status`) sensors.
+* **Player Details:** After adding a player, you can configure:
+  * **Session Notifications:** Select notification methods for when this specific player starts or stops gaming. *Note: These must be configured under Notifications.*
+  * **Ghosted-by:** Enter comma-separated entity IDs (e.g., `sensor.player_two_steam`) to hide this player's status from someone else's view.
+  * **Exclude Games:** Comma-separated list of games to ignore for this specific player.
+
+#### 2. Notifications
+Manage where your [gaming alerts and weekly reports](docs/notifications.md) are sent.
+* **Add Notification:** Map a friendly name (e.g., "Dad's Phone") to an existing Home Assistant `notify.` service. It fully supports standard mobile app notifications, Discord, and SMS.
+* **Weekly Report:** Send a beautifully formatted summary of everyone's weekly playtime and top games to your selected endpoints on a specific day and time.
+
+#### 3. Parental Controls
+Set automated rules based on accumulated playtime or time of day.
+* **Screen Time:** Set distinct weekday and weekend daily minute limits.
+* **Curfew:** Set distinct weekday and weekend cutoff times (e.g., 22:00).
+* **Actions:** When a limit is reached, you can automatically trigger a notification, run a Home Assistant script, or fire an automation (like turning off a smart plug or TV).
+
+#### 4. Advanced
+Fine-tune game names, covers, and exclusions using simple, comma-separated lists.
+* **Game Title Overrides:** Clean up messy or lengthy names. Format as `raw name: display name`.
+  * *Example:* `Minecraft Launcher: Minecraft, Grand Theft Auto V: GTA V`
+* **Custom Cover Map:** Manually assign cover art for custom games or unrecognized titles. Fully supports web URLs and Home Assistant `/local/` paths.
+  * *Example:* `Marvel Rivals: /local/covers/marvel.png, Halo: https://...`
+* **Title Cleanups:** A list of strings to automatically strip from game names.
+  * *Example:* `Tom Clancy's, Sid Meier's`
+* **Global Exclusions:** Games or apps that should be universally ignored by the tracker. 
+  * *Example:* `Home, YouTube, Netflix, Xbox App`
+
+#### 5. Global Settings
+These variables control how the integration handles network drops, game crashes, and short sessions across all players.
+* **Grace Periods:** Bridges the gap between game launches or brief network drops so your session doesn't falsely show as "Offline". 
+* **Minimum Session Duration:** Prevents quickly opening and closing a game (like launching a launcher) from cluttering your play history.
+* **Reset History:** A toggle to clear all accumulated daily/weekly session history upon the next Home Assistant restart. *Use with caution!*
 
 ### Entities
 
-Upon restart, the integration will instantly read your `config/gaming_profiles.json` file and generate the master tracking sensors for your dashboard. Look for the new master sensors named `sensor.XXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
+Upon restart, the integration will instantly read your settings and generate the master tracking sensors for your dashboard. Look for the new master sensors named `sensor.XXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
 
 | Entity | Type | Description |
 | ---| --- | --- |

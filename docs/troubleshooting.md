@@ -3,34 +3,8 @@ Below are some of the possible issues you may encounter and their fixes.
 
 ---
 
-## The integration loads, but no sensors are created
-One possibility is a simple JSON formatting error in your `gaming_profiles.json` file. JSON is extremely strict and doesn't allow 'trailing commas' after the last item in a list. See example below:
-
-**Bad JSON**
-```json
-"exclude_games": [
-  "Genshin Impact",
-  "Minecraft",  <-- THIS TRAILING COMMA BREAKS EVERYTHING
-]
-```
-
-**Good JSON**
-```json
-"exclude_games": [
-  "Genshin Impact",
-  "Minecraft"
-]
-```
-
-## My sensor always says "Offline" even when I'm playing! (1)
-99% of the time, this is a typo in your `gaming_profiles.json` file. 
-1. Go to **Developer Tools ➔ States** and find your base platform sensor (e.g., `sensor.steam_gamertag...`).
-2. Make sure the entity ID in your `gaming_profiles.json` matches that exact string letter-for-letter. 
-3. Ensure the base official integrations (Steam, Xbox, PlayStation) are actually signed in and working. If the official Xbox sensor is broken, this integration has no data to read!
-*(Note: Remember to restart Home Assistant after making any changes to `gaming_profiles.json`!)*
-
-## My sensor always says "Offline" even when I'm playing! (2)
-Another possibility is the privacy settings of your account. Your online status and game activity must be viewable by the public in order to be properly reported by the Gaming Status integration. Instructions for changing the necessary settings is included below:
+## My sensor always says "Offline" even when I'm playing!
+One possibility is the privacy settings of your account. Your online status and game activity must be viewable by the public in order to be properly reported by the Gaming Status integration. Instructions for changing the necessary settings is included below:
 
 ### PlayStation Network (PSN)
 *Please remember that only the <ins>official</ins> PlayStation Integration will work properly with Gaming Status; if you have the HACS version installed, uninstall or disable it and install the official integration.* If your PSN sensor reports as "Offline" while you are gaming, your PSN privacy settings are likely restricting API access.
@@ -78,7 +52,7 @@ Xbox possesses highly granular privacy controls that explicitly separate your on
 
 ## The game cover art is missing or incorrect.
 The integration searches SteamGridDB for high-quality cover art based on the name of the game. If a publisher names a game weirdly on Xbox (like *"Call of Duty®: HQ - Cross-Gen Bundle"*), the search will fail.
-- **The Fix:** Open your `gaming_profiles.json` and use the `GAME_TITLE_OVERRIDES` dictionary to map that messy title to a clean one (e.g., `"Call of Duty®: HQ - Cross-Gen Bundle": "Call of Duty"`). The integration will instantly find the right art!
+- **The Fix:** Use the **Game Title Overrides** in the Advanced section to map that messy title to a clean one (e.g., `"Call of Duty®: HQ - Cross-Gen Bundle": "Call of Duty"`). The integration will instantly find the right art!
 
 ## My gamerpic / avatar is blank or broken.
 Sometimes, official APIs (especially PlayStation) fail to pass the avatar image URL to Home Assistant. 
