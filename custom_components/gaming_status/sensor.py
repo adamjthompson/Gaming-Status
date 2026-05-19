@@ -220,6 +220,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     data["current_game"] = state 
 
         data["avatar_url"] = attrs.get("entity_picture")
+        
+        # Force custom sensors to drop generic integration logos so the mdi:controller fallback works
+        if self._gaming_type == "custom":
+            data["avatar_url"] = None
 
         is_globally_excluded = False
         if normalized_state in self._global_exclusions_lower: is_globally_excluded = True
@@ -903,7 +907,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 self._current_game = None
                 self._play_start_time = None
 
-            # FIX: Native Image Entity Pipeline
             entity_pic = self._local_avatar_path
             if not entity_pic and platform_data.get("avatar_url"):
                 entity_pic = platform_data.get("avatar_url")  # Removed safe_url
