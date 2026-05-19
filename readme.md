@@ -120,6 +120,7 @@ Upon restart, the integration will instantly read your settings and generate the
 | sensor.XXXXX_playstation | Sensor | PlayStation sensor for each added profile |
 | sensor.XXXXX_gaming_status | Sensor | Master sensor for each added profile that combines all added platforms into one "Online/Offline" status |
 | sensor.XXXXX_daily_gaming_hours_chart | Sensor | Daily game time, tracked in 0.0 h format |
+| sensor.players_online | Sensor | Global sensor that tracks the total number of players currently online |
 | binary_sensor.anyone_gaming | Binary Sensor | Useful for showing or hiding cards |
 
 ### Attributes for Master Sensors
@@ -165,6 +166,11 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | rolling_weekly_hours | 2.49 | Accumulated playtime in hours calculated over a dynamic, trailing 7-day window |
 | last_session_play_time | 3533 | The total duration in seconds of the most recently completed gaming session (raw seconds) |
 | temp_offline_start |   | The exact timestamp when a background grace period was triggered after temporarily losing the game state
+
+### Attributes for Players Online Sensor
+| Attribute | Example | Description |
+| --- | --- | --- |
+| active_games | Marvel Rivals, NBA 2K26 (or "None") | A comma-separated string of the games currently being played by online players |
 
 ## ❓ What Next?
 Once everything is up and running (with sensors showing up from the integration), try playing a game for at least 5 minutes to make sure the online status is reflected in the master "_gaming_status" sensors. *Note that, by default, sessions shorter than 300 seconds (5 minutes) are discarded and do not count toward the total playtime hours.* If the sensors are working correctly, try some of the following! If not, see the [troubleshooting](docs/troubleshooting.md) documentation.

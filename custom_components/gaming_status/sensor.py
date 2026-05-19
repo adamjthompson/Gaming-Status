@@ -1176,7 +1176,57 @@ def _load_opt_json(options, key, fallback):
     except (TypeError, ValueError):
         return fallback
 
+# ------------------------------------------------------------------
+# 4. GLOBAL ONLINE COUNT SENSOR
+# ------------------------------------------------------------------
 
+class GlobalOnlineCountSensor(SensorEntity):
+    _attr_should_poll = False
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    
+    def __init__(self, hass, players):
+        self.hass = hass
+        self._attr_name = "Players Online"
+        self._attr_unique_id = "global_players_online_count_v1"
+        self.entity_id = "sensor.players_online"
+        self._attr_icon = "mdi:account-group"
+        self._attr_native_value = 0
+        
+        self._master_sensors = []
+        for player_name in players:
+            safe_owner = player_name.lower().replace(" ", "_")
+            self._master_sensors.append(f"sensor.{safe_owner}_gaming_status")
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, self._master_sensors, self._async_master_changed
+            )
+        )
+        self._update_count()
+
+    @callback
+    def _async_master_changed(self, event):
+        self._update_count()
+
+    def _update_count(self):
+        count = 0
+        active_games = []
+        for entity_id in self._master_sensors:
+            state = self.hass.states.get(entity_id)
+            if state and state.state.lower() not in ["offline", "unavailable", "unknown", "source missing"]:
+                count += 1
+                active_games.append(state.state)
+                
+        self._attr_native_value = count
+        if active_games:
+            self._attr_extra_state_attributes = {"active_games": ", ".join(active_games)}
+        else:
+            self._attr_extra_state_attributes = {"active_games": "None"}
+            
+        self.async_write_ha_state()
+        
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up Gaming Status sensors from options stored in the config entry."""
     opts = config_entry.options
@@ -1230,5 +1280,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             MasterGamingSensor(hass, player_name, player_data),
             HistoryChartSensor(hass, player_name),
         ])
+
+    ents.append(GlobalOnlineCountSensor(hass, players))
 
     async_add_entities(ents)
