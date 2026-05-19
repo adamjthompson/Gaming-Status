@@ -47,16 +47,18 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
     _unrecorded_attributes = frozenset({
         "secondary", "daily_play_time_formatted", "weekly_play_time_formatted",
         "game_cover_art", "entity_picture", "cached_game_cover", 
-        "last_online_valid_timestamp", "current_game", "timer_status"
+        "last_online_valid_timestamp", "current_game", "timer_status",
+        "daily_play_limit_minutes", "remaining_play_time_minutes"
     })
 
-    def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None, active_settings=None, global_exclusions=None, available_avatars=None):
+    def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None, active_settings=None, global_exclusions=None, available_avatars=None, parental_rules=None):
         self.hass = hass
         self._source_entity_id = source_entity_id
         self._gaming_type = gaming_type
         self._owner_name = owner_name
         self._ghosted_by = ghosted_by or []
         self._available_avatars = available_avatars or []
+        self._parental_rules = parental_rules or {}
         
         self._exclude_games = {g.lower() for g in (exclude_games or [])}
         self._global_exclusions_lower = {x.lower() for x in (global_exclusions or [])}
@@ -99,6 +101,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._last_state_change_ts = None
         self._last_update_dt = None
         
+        # Internal Storage Variables (Moved to Store)
         self._backup_last_session_time = 0 
         self._backup_last_online_timestamp = None
         self._backup_last_played_game = None
@@ -126,6 +129,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
     @callback
     def _get_store_data(self):
+        """Construct the data payload to save to Home Assistant storage."""
         return {
             "history": self._play_history,
             "backups": {
@@ -464,6 +468,15 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         return self._apply_title_override(clean)
 
     def _write_common_attributes(self, secondary="", timer_status=None, game_cover=None):
+        # Calculate parental stats
+        st_rule = self._parental_rules.get("screen_time", {})
+        if st_rule.get("enabled"):
+            is_weekend = dt_util.now().weekday() >= 5
+            limit = st_rule.get("weekend_minutes", 180) if is_weekend else st_rule.get("weekday_minutes", 120)
+            spent = int(self._daily_play_time / 60)
+            self._attr_extra_state_attributes["daily_play_limit_minutes"] = limit
+            self._attr_extra_state_attributes["remaining_play_time_minutes"] = max(0, limit - spent)
+
         if timer_status:
             self._attr_extra_state_attributes["timer_status"] = timer_status
             
@@ -1231,6 +1244,7 @@ from .const import (
 
 
 def _load_opt_json(options, key, fallback):
+    """Safely parse a JSON option string."""
     raw = options.get(key)
     if not raw:
         return fallback
@@ -1294,6 +1308,7 @@ class GlobalOnlineCountSensor(SensorEntity):
         self.async_write_ha_state()
         
 async def async_setup_entry(hass, config_entry, async_add_entities):
+    """Set up Gaming Status sensors from options stored in the config entry."""
     opts = config_entry.options
 
     active_settings = {
@@ -1320,6 +1335,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     players = _load_opt_json(opts, OPT_PLAYERS, {})
     
+    # --- Parental control rules for limit calculations ---
+    parental_rules = _load_json(opts.get(OPT_PARENTAL, "{}"), {})
+
     avatar_dir = hass.config.path("www/gaming_status")
     try:
         available_avatars = await hass.async_add_executor_job(os.listdir, avatar_dir)
@@ -1330,6 +1348,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     for player_name, player_data in players.items():
         ghosted_by = player_data.get("ghosted_by", [])
         exclude_games = player_data.get("exclude_games", [])
+        rules = parental_rules.get(player_name, {})
 
         for platform in PLAYER_PLATFORMS:
             entity_id = player_data.get(platform)
@@ -1345,6 +1364,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                         active_settings,
                         global_exclusions,
                         available_avatars,
+                        rules,
                     )
                 )
 
@@ -1356,3 +1376,10 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     ents.append(GlobalOnlineCountSensor(hass, players))
 
     async_add_entities(ents)
+
+def _load_json(raw, fallback):
+    """Safely parse a JSON option string."""
+    try:
+        return json.loads(raw) if raw else fallback
+    except (ValueError, TypeError):
+        return fallback
