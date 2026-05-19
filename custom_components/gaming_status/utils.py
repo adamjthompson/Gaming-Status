@@ -17,6 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 # Initialize empty globals (Populated securely by sensor.py during setup)
 GAME_TITLE_OVERRIDES = {}
 TITLE_CLEANUPS = []
+COMPILED_TITLE_CLEANUPS = []
 CUSTOM_COVER_MAP = {}
 STEAMGRIDDB_API_KEY = None
 
@@ -24,6 +25,11 @@ STEAMGRIDDB_API_KEY = None
 COVER_URL_CACHE = OrderedDict()
 MAX_CACHE_SIZE = 500
 _MISSING_KEY_WARNED = False
+
+def compile_title_cleanups():
+    """Pre-compile regex patterns for performance."""
+    global COMPILED_TITLE_CLEANUPS
+    COMPILED_TITLE_CLEANUPS = [re.compile(re.escape(p), re.IGNORECASE) for p in TITLE_CLEANUPS]
 
 async def get_steamgriddb_game_cover(hass, game_name):
     """
@@ -135,8 +141,7 @@ def _format_game_name_for_display(game_name):
     if " - " in clean_name: clean_name = clean_name.split(" - ")[0].strip()
     clean_name = re.sub(r'[™®©]', '', clean_name).strip()
     
-    for phrase in TITLE_CLEANUPS:
-        pattern = re.compile(re.escape(phrase), re.IGNORECASE)
+    for pattern in COMPILED_TITLE_CLEANUPS:
         clean_name = pattern.sub("", clean_name).strip()
         
     clean_name = " ".join(clean_name.split())

@@ -139,6 +139,11 @@ class GamingNotifier:
             return
             
         domain, service = service_str.split(".", 1)
+        
+        if not self.hass.services.has_service(domain, service):
+            _LOGGER.warning("Gaming Status: notification skipped, service %s.%s not found", domain, service)
+            return
+
         target_id = dest.get("target_id", "").strip()
         ep_type = dest.get("type", "Mobile App")
         
@@ -426,10 +431,13 @@ class GamingNotifier:
         # 2. Fire an HA script or automation
         elif "." in action_service:
             domain, service = action_service.split(".", 1)
-            try:
-                await self.hass.services.async_call(domain, service, {"message": message})
-            except Exception as exc:
-                _LOGGER.warning("Gaming Status: parental action failed: %s", exc)
+            if self.hass.services.has_service(domain, service):
+                try:
+                    await self.hass.services.async_call(domain, service, {"message": message})
+                except Exception as exc:
+                    _LOGGER.warning("Gaming Status: parental action failed: %s", exc)
+            else:
+                _LOGGER.warning("Gaming Status: parental action skipped, service %s.%s not found", domain, service)
 
     # ------------------------------------------------------------------
     # Weekly report

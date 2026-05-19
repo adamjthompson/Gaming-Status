@@ -4,6 +4,7 @@ Gaming Status Sensor Platform
 import logging
 import asyncio
 import os
+import re
 import json
 from datetime import datetime, timezone, timedelta
 from dateutil import parser
@@ -23,7 +24,7 @@ from .const import (
     DOMAIN, ZOMBIE_ATTRIBUTES, PLATFORM_CONFIG, PLATFORM_PRIORITY,
     DEFAULT_RESET_HISTORY, DEFAULT_GRACE_PERIOD_SECONDS,
     DEFAULT_AWAY_GRACE_PERIOD_SECONDS, DEFAULT_GAME_TRANSITION_GRACE_SECONDS,
-    DEFAULT_MIN_SESSION_DURATION
+    DEFAULT_MIN_SESSION_DURATION, OPT_TITLE_CLEANUPS
 )
 
 from . import utils
@@ -51,12 +52,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         "timer_status", "last_reset_date", "last_weekly_reset"
     })
 
-    def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None, active_settings=None, global_exclusions=None):
+    def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None, active_settings=None, global_exclusions=None, available_avatars=None):
         self.hass = hass
         self._source_entity_id = source_entity_id
         self._gaming_type = gaming_type
         self._owner_name = owner_name
         self._ghosted_by = ghosted_by or []
+        self._available_avatars = available_avatars or []
         
         self._exclude_games = {g.lower() for g in (exclude_games or [])}
         self._global_exclusions_lower = {x.lower() for x in (global_exclusions or [])}
@@ -104,6 +106,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._backup_last_online_timestamp = None
         self._backup_last_played_game = None
         self._last_state_change_ts = None
+        self._last_update_dt = None
         
         config = PLATFORM_CONFIG[gaming_type]
         self._attr_icon = config["icon"]
@@ -290,7 +293,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             
             data["gamertag"] = _get_gamertag_from_entity(self._source_entity_id, "xbox")
             
-            # FIX: Native Xbox Gamerpic Entity lookup
             if data["gamertag"]:
                 safe_tag = data["gamertag"].lower().replace(" ", "_")
                 xbox_img = self.hass.states.get(f"image.{safe_tag}_gamerpic")
@@ -447,7 +449,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._attr_extra_state_attributes["last_reset_date"] = self._last_reset_date
         self._attr_extra_state_attributes["last_weekly_reset"] = self._last_weekly_reset
         
-        # LIVE TOKEN REFRESH: Dynamically grab the newest token to prevent 403 Forbidden errors
         live_avatar = self._local_avatar_path
         if not live_avatar:
             if self._gaming_type == "xbox":
@@ -456,7 +457,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     safe_tag = gamertag.lower().replace(" ", "_")
                     xbox_img = self.hass.states.get(f"image.{safe_tag}_gamerpic")
                     if xbox_img and xbox_img.attributes.get("entity_picture"):
-                        live_avatar = xbox_img.attributes.get("entity_picture")  # Removed safe_url
+                        live_avatar = xbox_img.attributes.get("entity_picture")
             elif self._gaming_type == "playstation":
                 try:
                     object_id = self._source_entity_id.split('.')[1]
@@ -464,19 +465,20 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         gamertag = object_id[:-14]
                         ps_img = self.hass.states.get(f"image.{gamertag}_avatar")
                         if ps_img and ps_img.attributes.get("entity_picture"):
-                            live_avatar = ps_img.attributes.get("entity_picture")  # Removed safe_url
+                            live_avatar = ps_img.attributes.get("entity_picture")
                 except Exception: pass
                 
         if live_avatar:
             self._attr_entity_picture = live_avatar
         
-        # Lock the live, valid URL into the attributes
         self._attr_extra_state_attributes["entity_picture"] = self._attr_entity_picture
         
         if self._last_online_valid_timestamp:
             self._attr_extra_state_attributes["last_online_valid_timestamp"] = str(self._last_online_valid_timestamp)
         
-        self._last_update_timestamp = dt_util.now().isoformat()
+        now = dt_util.now()
+        self._last_update_dt = now
+        self._last_update_timestamp = now.isoformat()
         
         total_rolling = self._cached_history_seconds + self._daily_play_time
         self._attr_extra_state_attributes["rolling_weekly_hours"] = round(total_rolling / 3600, 2)
@@ -504,13 +506,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._cached_history_seconds = sum(self._play_history.values())
 
         def _check_local_avatar():
-            safe_name = self._owner_name.lower().replace(" ", "_")
+            safe_name = re.sub(r'[^a-z0-9_]', '', self._owner_name.lower().replace(" ", "_"))
             for ext in ['png', 'jpg']:
-                local_path = self.hass.config.path(f"www/gaming_status/{self._gaming_type}_{safe_name}_avatar.{ext}")
-                if os.path.exists(local_path): 
-                    return f"/local/gaming_status/{self._gaming_type}_{safe_name}_avatar.{ext}"
+                file_name = f"{self._gaming_type}_{safe_name}_avatar.{ext}"
+                if file_name in self._available_avatars:
+                    return f"/local/gaming_status/{file_name}"
             return None
-        self._local_avatar_path = await self.hass.async_add_executor_job(_check_local_avatar)
+        self._local_avatar_path = _check_local_avatar()
 
         last_state = await self.async_get_last_state()
         
@@ -553,8 +555,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             
             self._attr_extra_state_attributes = dict(attrs)
             
-            # FIX: Ensure restored avatar uses the native image pipeline safely
-            self._attr_entity_picture = attrs.get("entity_picture")  # Removed safe_url
+            self._attr_entity_picture = attrs.get("entity_picture")
             
             if self._last_played_game and str(self._last_played_game).lower() == "offline": self._last_played_game = None
             if self._current_game and str(self._current_game).lower() == "offline":
@@ -637,14 +638,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if self._last_played_game and str(self._last_played_game).lower() == "offline": self._last_played_game = None
             now_dt = dt_util.now()
             delta_seconds = 30
-            if getattr(self, '_last_update_timestamp', None):
-                try:
-                    last = _safe_parse_datetime(self._last_update_timestamp)
-                    if last:
-                        delta = (now_dt - last).total_seconds()
-                        if 0 < delta < 120: delta_seconds = int(delta)
-                        else: delta_seconds = 30
-                except Exception: pass
+            if self._last_update_dt:
+                delta = (now_dt - self._last_update_dt).total_seconds()
+                if 0 < delta < 120: delta_seconds = int(delta)
+                else: delta_seconds = 30
 
             if not self._attr_extra_state_attributes: self._attr_extra_state_attributes = {}
             if self._temp_offline_start:
@@ -909,7 +906,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
             entity_pic = self._local_avatar_path
             if not entity_pic and platform_data.get("avatar_url"):
-                entity_pic = platform_data.get("avatar_url")  # Removed safe_url
+                entity_pic = platform_data.get("avatar_url")
                 
             self._attr_entity_picture = entity_pic
 
@@ -962,7 +959,7 @@ class MasterGamingSensor(RestoreEntity, SensorEntity):
             self._attr_native_value = last_state.state
             self._attr_extra_state_attributes = dict(last_state.attributes)
             
-            self._attr_entity_picture = last_state.attributes.get("entity_picture")  # Removed safe_url
+            self._attr_entity_picture = last_state.attributes.get("entity_picture")
             
             lp = self._attr_extra_state_attributes.get("last_played_game")
             if lp and str(lp).lower() == "offline": self._attr_extra_state_attributes["last_played_game"] = None
@@ -1029,7 +1026,7 @@ class MasterGamingSensor(RestoreEntity, SensorEntity):
 
         if active_state:
             self._attr_native_value = active_state.state
-            self._attr_entity_picture = active_state.attributes.get("entity_picture")  # Removed safe_url
+            self._attr_entity_picture = active_state.attributes.get("entity_picture")
             
             platform_key = self._platform_sensors.get(active_sensor_id, "gaming")
             pretty_platform_name = PLATFORM_CONFIG.get(platform_key, {}).get("name_suffix", platform_key.title())
@@ -1054,7 +1051,7 @@ class MasterGamingSensor(RestoreEntity, SensorEntity):
             
             if most_recent_sensor:
                 pretty_name = PLATFORM_CONFIG.get(most_recent_key, {}).get("name_suffix", "Gaming")
-                self._attr_entity_picture = most_recent_sensor.attributes.get("entity_picture")  # Removed safe_url
+                self._attr_entity_picture = most_recent_sensor.attributes.get("entity_picture")
                 
                 self._attr_extra_state_attributes = {
                     "secondary": most_recent_sensor.attributes.get("secondary", "Offline"),
@@ -1156,6 +1153,7 @@ from .const import (
     OPT_RESET_HISTORY,
     OPT_TITLE_OVERRIDES,
     OPT_CUSTOM_COVERS,
+    OPT_TITLE_CLEANUPS,
     OPT_GLOBAL_EXCLUSIONS,
     DEFAULT_GRACE_PERIOD_SECONDS,
     DEFAULT_AWAY_GRACE_PERIOD_SECONDS,
@@ -1247,6 +1245,10 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     raw_covers = _load_opt_json(opts, OPT_CUSTOM_COVERS, {})
     utils.CUSTOM_COVER_MAP = {k: safe_url(v) for k, v in raw_covers.items() if safe_url(v)}
 
+    raw_cleanups = _load_opt_json(opts, OPT_TITLE_CLEANUPS, [])
+    utils.TITLE_CLEANUPS = raw_cleanups
+    utils.compile_title_cleanups()
+
     utils.STEAMGRIDDB_API_KEY = config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, "")
 
     # --- Global exclusions ---
@@ -1254,6 +1256,13 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     # --- Player profiles ---
     players = _load_opt_json(opts, OPT_PLAYERS, {})
+    
+    # --- Performance Cache: Read Avatar Dir once ---
+    avatar_dir = hass.config.path("www/gaming_status")
+    try:
+        available_avatars = await hass.async_add_executor_job(os.listdir, avatar_dir)
+    except FileNotFoundError:
+        available_avatars = []
 
     ents = []
     for player_name, player_data in players.items():
@@ -1273,6 +1282,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                         exclude_games,
                         active_settings,
                         global_exclusions,
+                        available_avatars,
                     )
                 )
 
