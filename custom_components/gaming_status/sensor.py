@@ -1337,8 +1337,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     players = _load_opt_json(opts, OPT_PLAYERS, {})
     
     # --- Parental control rules for limit calculations ---
-    parental_rules = _load_json(opts.get(OPT_PARENTAL, "{}"), {})
-
+    parental_rules = _load_opt_json(opts, OPT_PARENTAL, "{}")
+    
     avatar_dir = hass.config.path("www/gaming_status")
     try:
         available_avatars = await hass.async_add_executor_job(os.listdir, avatar_dir)
