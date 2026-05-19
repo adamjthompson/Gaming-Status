@@ -49,7 +49,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         "secondary", "daily_play_time_formatted", "weekly_play_time_formatted",
         "game_cover_art", "entity_picture", "temp_offline_start",
         "cached_game_cover", "last_online_valid_timestamp", "current_game",
-        "timer_status", "last_reset_date", "last_weekly_reset"
+        "timer_status", "last_reset_date", "last_weekly_reset",
+        "backup_last_session_time", "backup_last_online_timestamp",
+        "backup_last_played_game", "backup_last_game_stopped_timestamp"
     })
 
     def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None, active_settings=None, global_exclusions=None, available_avatars=None):
@@ -105,6 +107,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._backup_last_session_time = 0 
         self._backup_last_online_timestamp = None
         self._backup_last_played_game = None
+        self._backup_last_game_stopped_timestamp = None
         self._last_state_change_ts = None
         self._last_update_dt = None
         
@@ -346,6 +349,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
     def _handle_game_transition(self, new_game_name, explicit_end_time=None):
         now = dt_util.now()
         actual_end_time = explicit_end_time if explicit_end_time else now
+        
+        discarded_session = False
 
         if self._play_start_time:
             start_dt = _safe_parse_datetime(self._play_start_time)
@@ -355,21 +360,26 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 session_seconds = (actual_end_time - start_dt).total_seconds()
                 
                 if session_seconds <= self._active_settings["MIN_SESSION_DURATION"]:
+                    discarded_session = True
                     self._daily_play_time = max(0, int((self._daily_play_time or 0) - session_seconds))
                     self._weekly_play_time = max(0, int((self._weekly_play_time or 0) - session_seconds))
                     
-                    if self._backup_last_session_time and self._backup_last_session_time > 0:
+                    if getattr(self, "_backup_last_session_time", None) is not None and self._backup_last_session_time > 0:
                         self._last_session_play_time = self._backup_last_session_time
-                    if self._backup_last_online_timestamp:
+                    if getattr(self, "_backup_last_online_timestamp", None) is not None:
                         self._last_online_valid_timestamp = self._backup_last_online_timestamp
-                    if self._backup_last_played_game:
+                    if getattr(self, "_backup_last_played_game", None) is not None:
                         self._last_played_game = self._backup_last_played_game
                         
                 elif session_seconds > 0:
                     self._last_session_play_time = int(session_seconds)
 
         if not new_game_name:
-            self._last_game_stopped_timestamp = actual_end_time.isoformat()
+            if not discarded_session:
+                self._last_game_stopped_timestamp = actual_end_time.isoformat()
+            elif getattr(self, "_backup_last_game_stopped_timestamp", None) is not None:
+                self._last_game_stopped_timestamp = self._backup_last_game_stopped_timestamp
+                
             self._current_game = None
             self._play_start_time = None
         else:
@@ -399,6 +409,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._backup_last_session_time = self._last_session_play_time
             self._backup_last_online_timestamp = self._last_online_valid_timestamp
             self._backup_last_played_game = self._last_played_game
+            self._backup_last_game_stopped_timestamp = getattr(self, "_last_game_stopped_timestamp", None)
+            
             self._last_session_play_time = 0
             self._cover_fetch_attempted = False
 
@@ -494,6 +506,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             
         self._attr_extra_state_attributes["cached_game_cover"] = self._cached_game_cover
         self._attr_extra_state_attributes["secondary"] = secondary
+        
+        # Ensure backups persist across HA restarts
+        self._attr_extra_state_attributes["backup_last_session_time"] = self._backup_last_session_time
+        self._attr_extra_state_attributes["backup_last_online_timestamp"] = self._backup_last_online_timestamp
+        self._attr_extra_state_attributes["backup_last_played_game"] = self._backup_last_played_game
+        self._attr_extra_state_attributes["backup_last_game_stopped_timestamp"] = getattr(self, "_backup_last_game_stopped_timestamp", None)
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
@@ -533,6 +551,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._last_played_game = self._clean_restored_game_name(restored_last_game)
             self._cached_game_cover = attrs.get("cached_game_cover")
             self._last_session_play_time = int(attrs.get("last_session_play_time") or 0)
+            
+            self._backup_last_session_time = int(attrs.get("backup_last_session_time") or 0)
+            self._backup_last_online_timestamp = attrs.get("backup_last_online_timestamp")
+            self._backup_last_played_game = attrs.get("backup_last_played_game")
+            self._backup_last_game_stopped_timestamp = attrs.get("backup_last_game_stopped_timestamp")
+            
             try:
                 self._daily_play_time = int(float(attrs.get("daily_play_time") or 0))
                 self._weekly_play_time = int(float(attrs.get("weekly_play_time") or 0))
@@ -554,7 +578,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 else: self._previous_state_online = True
             
             self._attr_extra_state_attributes = dict(attrs)
-            
             self._attr_entity_picture = attrs.get("entity_picture")
             
             if self._last_played_game and str(self._last_played_game).lower() == "offline": self._last_played_game = None
@@ -821,7 +844,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 
                 display_state = game_name_display
                 
-                # Only process new cover art if we haven't already locked one in for this session
                 if normalized_new and not self._cover_fetch_attempted:
                     fetched = await get_steamgriddb_game_cover(self.hass, game_name_display)
                     self._cover_fetch_attempted = True
@@ -831,7 +853,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     else:
                         self._cached_game_cover = platform_data.get("game_cover_url")
                 
-                # If we somehow don't have a cover yet, fall back to the platform data
                 elif not self._cached_game_cover and platform_data.get("game_cover_url"):
                     self._cached_game_cover = platform_data.get("game_cover_url")
                 
@@ -915,7 +936,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
         except Exception as e:
             _LOGGER.error("Error in _unified_update for %s: %s", self.entity_id, e)
-
 
 # ------------------------------------------------------------------
 # 2. MASTER SENSOR CLASS
