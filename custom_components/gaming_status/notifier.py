@@ -40,29 +40,23 @@ class GamingNotifier:
         self._unsub_parental = None
         self._startup_time: datetime | None = None
         self._triggered_parental_events: dict = {}
+        
+        opts = self._entry.options
+        
+        # OPTIMIZATION: Parse JSON once at startup and cache in memory
+        self._cached_players = _load_json(opts.get(OPT_PLAYERS), {})
+        self._cached_endpoints = _load_json(opts.get(OPT_ENDPOINTS), {})
+        self._cached_weekly = _load_json(opts.get(OPT_WEEKLY_REPORT), {})
+        self._cached_parental = _load_json(opts.get(OPT_PARENTAL), {})
+        
+        raw_exclusions = _load_json(opts.get(OPT_GLOBAL_EXCLUSIONS), [])
+        self._cached_exclusions = [x.strip().lower() for x in raw_exclusions]
 
-    # ------------------------------------------------------------------
-    # Properties
-    # ------------------------------------------------------------------
-
-    @property
-    def _opts(self) -> dict:
-        return self._entry.options
-
-    def _players(self) -> dict:
-        return _load_json(self._opts.get(OPT_PLAYERS), {})
-
-    def _endpoints(self) -> dict:
-        return _load_json(self._opts.get(OPT_ENDPOINTS), {})
-
-    def _weekly_report(self) -> dict:
-        return _load_json(self._opts.get(OPT_WEEKLY_REPORT), {})
-
-    def _parental(self) -> dict:
-        return _load_json(self._opts.get(OPT_PARENTAL), {})
-
-    def _global_exclusions(self) -> list:
-        return _load_json(self._opts.get(OPT_GLOBAL_EXCLUSIONS), [])
+        # OPTIMIZATION: Instant O(1) lookup map (entity_id -> player_name)
+        self._entity_player_map = {
+            f"sensor.{p.lower().replace(' ', '_')}_gaming_status": p
+            for p in self._cached_players
+        }
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -71,18 +65,14 @@ class GamingNotifier:
     async def async_start(self) -> None:
         self._startup_time = datetime.now()
 
-        # OPTIMIZATION: Only listen to the specific master sensors, not the global event bus
-        players = self._players()
-        master_entities = [
-            f"sensor.{p.lower().replace(' ', '_')}_gaming_status" for p in players
-        ]
+        master_entities = list(self._entity_player_map.keys())
         
         if master_entities:
             self._unsub_listener = async_track_state_change_event(
                 self.hass, master_entities, self._handle_state_change
             )
 
-        report = self._weekly_report()
+        report = self._cached_weekly
         run_day = int(report.get("day", 0))
         run_time_str = report.get("time", "09:00")
         try:
@@ -134,9 +124,7 @@ class GamingNotifier:
         duration_str: str = None, 
         event_type: str = "info"
     ) -> None:
-        """Helper to dispatch a message, formatting specifically for Discord Embeds vs Mobile App."""
-        endpoints = self._endpoints()
-        dest = endpoints.get(ep_id)
+        dest = self._cached_endpoints.get(ep_id)
         
         if not dest:
             return
@@ -205,6 +193,11 @@ class GamingNotifier:
             return
 
         entity_id = event.data.get("entity_id", "")
+        target_player = self._entity_player_map.get(entity_id)
+        
+        if not target_player:
+            return
+
         old_state = event.data.get("old_state")
         new_state = event.data.get("new_state")
         
@@ -218,26 +211,13 @@ class GamingNotifier:
         old_game = " ".join(str(old_state.state).split())
         new_game = " ".join(str(new_state.state).split())
 
-        exclusions = [x.strip().lower() for x in self._global_exclusions()]
         ignored = [STATE_UNAVAILABLE, STATE_UNKNOWN, "offline"]
-
-        players = self._players()
-        target_player = None
-        for player_name, player_data in players.items():
-            safe = player_name.lower().replace(" ", "_")
-            if entity_id == f"sensor.{safe}_gaming_status":
-                target_player = player_name
-                break
-
-        if target_player is None:
-            return
-
-        user_config = players.get(target_player, {})
+        user_config = self._cached_players.get(target_player, {})
 
         old_clean = old_game.lower().strip()
         new_clean = new_game.lower().strip()
-        old_off = old_clean in (["offline"] + ignored) or old_clean in exclusions
-        new_off = new_clean in (["offline"] + ignored) or new_clean in exclusions
+        old_off = old_clean in (["offline"] + ignored) or old_clean in self._cached_exclusions
+        new_off = new_clean in (["offline"] + ignored) or new_clean in self._cached_exclusions
 
         is_start = old_off and not new_off
         is_switch = not old_off and not new_off and old_game != new_game
@@ -311,15 +291,13 @@ class GamingNotifier:
     # ------------------------------------------------------------------
 
     async def _check_parental_controls(self, now) -> None:
-        parental = self._parental()
-        players = self._players()
-        if not parental:
+        if not self._cached_parental:
             return
 
         now_dt = datetime.now()
         is_weekend = now_dt.weekday() >= 5
 
-        for player_name, rules in parental.items():
+        for player_name, rules in self._cached_parental.items():
             safe_player = player_name.lower().replace(" ", "_")
             master_entity = f"sensor.{safe_player}_gaming_status"
             master_state = self.hass.states.get(master_entity)
@@ -390,7 +368,7 @@ class GamingNotifier:
                             if last_fired is None:
                                 should_fire = True
                             elif cf_repeat > 0 and (now_dt - last_fired).total_seconds() >= (cf_repeat * 60):
-                                list_fire = True
+                                should_fire = True
                                 
                             if should_fire:
                                 self._triggered_parental_events[cf_key] = now_dt
@@ -441,16 +419,14 @@ class GamingNotifier:
         if now.weekday() != self._run_day:
             return
 
-        report_config = self._weekly_report()
-        if not report_config.get("enabled"):
+        if not self._cached_weekly.get("enabled"):
             return
 
-        players = self._players()
-        assigned = report_config.get("destinations", [])
+        assigned = self._cached_weekly.get("destinations", [])
 
         lines = [f"**Weekly Gaming Report** — {datetime.now().strftime('%B %d, %Y')}"]
 
-        for player_name in players:
+        for player_name in self._cached_players:
             safe = player_name.lower().replace(" ", "_")
             master_entity = f"sensor.{safe}_gaming_status"
             state = self.hass.states.get(master_entity)
