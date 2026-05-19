@@ -147,12 +147,9 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | secondary | Last seen 5h ago: Halo 3 (58m) | Current state or the time elapsed and session duration of the last played game
 | daily_play_time | 8345 | Playtime for the current calendar day (raw seconds) |
 | daily_play_time_formatted | 2h19m  | Current day's total playtime (human-readable string) |
-| daily_play_time_yesterday| 12673 | Playtime during the previous calendar day (raw seconds) |
 | weekly_play_time | 22040 | Playtime across the current calendar week (raw seconds) |
 | weekly_play_time_formatted | 6h 7m | Current week's total playtime (human-readable string) |
 | weekly_play_time_last_week | 21310 | Playtime during the previous calendar week (raw seconds) |
-| last_reset_date | 2026-04-30 | Calendar date string indicating the last time the daily playtime trackers were reset to zero |
-| last_weekly_reset | 2026-17 | Calendar week string (Year-Week) indicating the last time the weekly playtime trackers were reset to zero
 | last_played_game | Halo 3 | Title of the most recently closed game detected on this specific platform
 | current_game | Genshin Impact | Title of the game actively being played right now, or null if the user is offline
 | game_cover_art |   | URL of the hero image for the actively played game, used for UI display
@@ -164,12 +161,6 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | timer_status | Stopped (Offline) | Current state of the internal playtime stopwatch (Running, Paused, or Stopped) |
 | last_online_valid_timestamp |    | ISO 8601 timestamp of the last time detected online
 | rolling_weekly_hours | 2.49 | Accumulated playtime in hours calculated over a dynamic, trailing 7-day window |
-| last_session_play_time | 3533 | The total duration in seconds of the most recently completed gaming session (raw seconds) |
-| temp_offline_start |   | The exact timestamp when a background grace period was triggered after temporarily losing the game state
-| backup_last_session_time |   | Caches the total duration (in seconds) of the last valid play session. |
-| backup_last_online_timestamp |   | Caches the exact timestamp of the last valid time the player was online. |
-| backup_last_played_game |   | Caches the exact title of the last valid game played. |
-| backup_last_game_stopped_timestamp |   | Caches the exact timestamp when the last valid play session ended. |
 
 ### Attributes for Players Online Sensor
 | Attribute | Example | Description |
