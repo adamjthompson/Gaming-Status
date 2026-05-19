@@ -13,7 +13,6 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up the binary sensor platform."""
     
-    # Load players directly from the new native HA options database
     raw_players = config_entry.options.get(OPT_PLAYERS, "{}")
     try:
         players = json.loads(raw_players) if raw_players else {}
@@ -22,7 +21,6 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         
     master_sensor_ids = []
     
-    # Grab all the profiles to build our dynamic listener list
     for name in players.keys():
         safe_owner = name.lower().replace(" ", "_")
         master_sensor_ids.append(f"sensor.{safe_owner}_gaming_status")
@@ -39,14 +37,12 @@ class GlobalGamingSensor(BinarySensorEntity):
         self._master_sensor_ids = master_sensor_ids
         self._attr_name = "Anyone Gaming"
         self._attr_unique_id = "global_anyone_gaming_v1"
-        # Home Assistant automatically prepends binary_sensor. to the ID because of the filename!
         self._attr_is_on = False
         self._attr_icon = "mdi:controller-off"
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
         
-        # Create a hyper-efficient, targeted listener for ONLY the dynamic list of master sensors
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, self._master_sensor_ids, self._async_gamers_changed
@@ -68,8 +64,12 @@ class GlobalGamingSensor(BinarySensorEntity):
                 is_anyone_gaming = True
                 break
                 
-        # True Binary Sensors use _attr_is_on with True/False
+        new_icon = "mdi:controller" if is_anyone_gaming else "mdi:controller-off"
+        
+        # OPTIMIZATION: State Equality Bypass
+        if self._attr_is_on == is_anyone_gaming and self._attr_icon == new_icon:
+            return
+                
         self._attr_is_on = is_anyone_gaming
-        self._attr_icon = "mdi:controller" if is_anyone_gaming else "mdi:controller-off"
-            
+        self._attr_icon = new_icon
         self.async_write_ha_state()

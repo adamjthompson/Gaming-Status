@@ -762,7 +762,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
             self._write_common_attributes(secondary, timer_status=timer_status)
             
-            # OPTIMIZATION: Prevent useless state machine writes and cascading updates if fully offline
             if was_offline and timer_status == "Stopped (Offline)" and self._daily_play_time == old_daily and secondary == old_secondary:
                 return
                 
@@ -1079,13 +1078,18 @@ class MasterGamingSensor(RestoreEntity, SensorEntity):
         total_rolling_weekly_hours = round(total_rolling_weekly_hours, 2)
         total_weekly_hours_last_week = round(total_weekly_seconds_last_week / 3600, 2)
 
+        new_state_value = "Offline"
+        new_icon = "mdi:controller"
+        new_entity_picture = None
+        new_attrs = {}
+
         if active_state:
-            self._attr_native_value = active_state.state
-            self._attr_entity_picture = active_state.attributes.get("entity_picture")
+            new_state_value = active_state.state
+            new_entity_picture = active_state.attributes.get("entity_picture")
             
             platform_key = self._platform_sensors.get(active_sensor_id, "gaming")
             pretty_platform_name = PLATFORM_CONFIG.get(platform_key, {}).get("name_suffix", platform_key.title())
-            self._attr_extra_state_attributes = {
+            new_attrs = {
                 "secondary": active_state.attributes.get("secondary", ""),
                 "active_platform": pretty_platform_name, 
                 "game_cover_art": active_state.attributes.get("game_cover_art"),
@@ -1097,18 +1101,16 @@ class MasterGamingSensor(RestoreEntity, SensorEntity):
                 "rolling_weekly_hours": total_rolling_weekly_hours, 
                 "total_weekly_hours_last_week": total_weekly_hours_last_week,
                 "last_played_game": active_state.attributes.get("last_played_game"),
-                "entity_picture": self._attr_entity_picture
+                "entity_picture": new_entity_picture
             }
-            if platform_key in PLATFORM_CONFIG: self._attr_icon = PLATFORM_CONFIG[platform_key]["icon"]
+            if platform_key in PLATFORM_CONFIG: 
+                new_icon = PLATFORM_CONFIG[platform_key]["icon"]
         else:
-            self._attr_native_value = "Offline"
-            self._attr_icon = "mdi:controller"
-            
             if most_recent_sensor:
                 pretty_name = PLATFORM_CONFIG.get(most_recent_key, {}).get("name_suffix", "Gaming")
-                self._attr_entity_picture = most_recent_sensor.attributes.get("entity_picture")
+                new_entity_picture = most_recent_sensor.attributes.get("entity_picture")
                 
-                self._attr_extra_state_attributes = {
+                new_attrs = {
                     "secondary": most_recent_sensor.attributes.get("secondary", "Offline"),
                     "active_platform": pretty_name,
                     "game_cover_art": most_recent_sensor.attributes.get("game_cover_art"),
@@ -1118,16 +1120,15 @@ class MasterGamingSensor(RestoreEntity, SensorEntity):
                     "total_weekly_hours": total_weekly_hours,
                     "rolling_weekly_hours": total_rolling_weekly_hours,
                     "total_weekly_hours_last_week": total_weekly_hours_last_week,
-                    "entity_picture": self._attr_entity_picture
+                    "entity_picture": new_entity_picture
                 }
-                lp = self._attr_extra_state_attributes.get("last_played_game")
-                if lp and str(lp).lower() == "offline": self._attr_extra_state_attributes["last_played_game"] = None
+                lp = new_attrs.get("last_played_game")
+                if lp and str(lp).lower() == "offline": new_attrs["last_played_game"] = None
                 
                 if most_recent_key in PLATFORM_CONFIG:
-                    self._attr_icon = PLATFORM_CONFIG[most_recent_key]["icon"]
+                    new_icon = PLATFORM_CONFIG[most_recent_key]["icon"]
             else:
-                self._attr_entity_picture = None
-                self._attr_extra_state_attributes = {
+                new_attrs = {
                     "secondary": "Offline",
                     "total_daily_hours": total_daily_hours,
                     "total_weekly_hours": total_weekly_hours,
@@ -1135,6 +1136,18 @@ class MasterGamingSensor(RestoreEntity, SensorEntity):
                     "total_weekly_hours_last_week": total_weekly_hours_last_week,
                     "entity_picture": None
                 }
+
+        # OPTIMIZATION: State Equality Bypass
+        if (self._attr_native_value == new_state_value and 
+            self._attr_icon == new_icon and 
+            self._attr_entity_picture == new_entity_picture and
+            self._attr_extra_state_attributes == new_attrs):
+            return
+
+        self._attr_native_value = new_state_value
+        self._attr_icon = new_icon
+        self._attr_entity_picture = new_entity_picture
+        self._attr_extra_state_attributes = new_attrs
         self.async_write_ha_state()
 
 # ------------------------------------------------------------------
@@ -1164,14 +1177,12 @@ class HistoryChartSensor(RestoreEntity, SensorEntity):
             except ValueError: 
                 self._attr_native_value = 0.0
 
-        # 1. Listen for future changes
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, [self._master_sensor_id], self._async_master_changed
             )
         )
 
-        # 2. IMMEDIATE STARTUP SYNC: Grab the current value right now so we don't have to wait
         master_state = self.hass.states.get(self._master_sensor_id)
         if master_state:
             daily_hours = master_state.attributes.get("total_daily_hours", 0.0)
@@ -1220,7 +1231,6 @@ from .const import (
 
 
 def _load_opt_json(options, key, fallback):
-    """Safely parse a JSON option string."""
     raw = options.get(key)
     if not raw:
         return fallback
@@ -1272,16 +1282,18 @@ class GlobalOnlineCountSensor(SensorEntity):
                 count += 1
                 active_games.append(state.state)
                 
+        new_games_str = ", ".join(active_games) if active_games else "None"
+        
+        # OPTIMIZATION: State Equality Bypass
+        current_games_str = getattr(self, "_attr_extra_state_attributes", {}).get("active_games", "None")
+        if self._attr_native_value == count and current_games_str == new_games_str:
+            return
+
         self._attr_native_value = count
-        if active_games:
-            self._attr_extra_state_attributes = {"active_games": ", ".join(active_games)}
-        else:
-            self._attr_extra_state_attributes = {"active_games": "None"}
-            
+        self._attr_extra_state_attributes = {"active_games": new_games_str}
         self.async_write_ha_state()
         
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    """Set up Gaming Status sensors from options stored in the config entry."""
     opts = config_entry.options
 
     active_settings = {
