@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.event import async_track_time_change, async_track_time_interval
+from homeassistant.helpers.event import async_track_state_change_event, async_track_time_change, async_track_time_interval
 
 from .const import (
     OPT_PLAYERS,
@@ -71,9 +71,16 @@ class GamingNotifier:
     async def async_start(self) -> None:
         self._startup_time = datetime.now()
 
-        self._unsub_listener = self.hass.bus.async_listen(
-            "state_changed", self._handle_state_change
-        )
+        # OPTIMIZATION: Only listen to the specific master sensors, not the global event bus
+        players = self._players()
+        master_entities = [
+            f"sensor.{p.lower().replace(' ', '_')}_gaming_status" for p in players
+        ]
+        
+        if master_entities:
+            self._unsub_listener = async_track_state_change_event(
+                self.hass, master_entities, self._handle_state_change
+            )
 
         report = self._weekly_report()
         run_day = int(report.get("day", 0))
@@ -149,18 +156,15 @@ class GamingNotifier:
         
         service_data = {}
 
-        # Set Target (Discord requires a list, Mobile uses string)
         if target_id and target_id.lower() != "n/a":
             if ep_type == "Discord":
                 service_data["target"] = [target_id]
             else:
                 service_data["target"] = target_id
 
-        # Formatting Fork
         if ep_type == "Discord":
             service_data["message"] = message
             
-            # Colors: Green = 65280, Red = 16711680, Blue = 3447003
             if event_type == "start":
                 color = 65280
             elif event_type == "stop":
@@ -179,7 +183,6 @@ class GamingNotifier:
             service_data["data"] = {"embed": embed}
             
         else:
-            # Mobile App / SMS formatting
             final_message = message
             if duration_str:
                 final_message += f"\nDuration: {duration_str}"
@@ -202,11 +205,9 @@ class GamingNotifier:
             return
 
         entity_id = event.data.get("entity_id", "")
-        if not entity_id.endswith("_gaming_status"):
-            return
-
         old_state = event.data.get("old_state")
         new_state = event.data.get("new_state")
+        
         if not old_state or not new_state:
             return
 
@@ -220,7 +221,6 @@ class GamingNotifier:
         exclusions = [x.strip().lower() for x in self._global_exclusions()]
         ignored = [STATE_UNAVAILABLE, STATE_UNKNOWN, "offline"]
 
-        # Find which player this sensor belongs to
         players = self._players()
         target_player = None
         for player_name, player_data in players.items():
@@ -239,7 +239,6 @@ class GamingNotifier:
         old_off = old_clean in (["offline"] + ignored) or old_clean in exclusions
         new_off = new_clean in (["offline"] + ignored) or new_clean in exclusions
 
-        # Identify event type
         is_start = old_off and not new_off
         is_switch = not old_off and not new_off and old_game != new_game
         is_end = not old_off and new_off
@@ -254,7 +253,6 @@ class GamingNotifier:
             image_url = None
             old_url = old_state.attributes.get("game_cover_art") if old_state else None
             
-            # Intelligent Polling: Wait up to 16 seconds for the new cover art to inject
             for _ in range(8):
                 await asyncio.sleep(2)
                 current_state = self.hass.states.get(entity_id)
@@ -280,7 +278,6 @@ class GamingNotifier:
         elif is_end:
             image_url = old_state.attributes.get("game_cover_art") or old_state.attributes.get("cached_game_cover")
             
-            # Calculate Duration
             duration_str = None
             start_time_str = old_state.attributes.get("play_start_time")
             if start_time_str:
@@ -341,7 +338,6 @@ class GamingNotifier:
                 st_key = f"{safe_player}_screen_time"
                 st_repeat = int(st_rule.get("repeat", 0))
                 
-                # Convert daily hours into minutes
                 today_hours = float(master_state.attributes.get("total_daily_hours", 0))
                 today_minutes = int(today_hours * 60)
                 
@@ -394,7 +390,7 @@ class GamingNotifier:
                             if last_fired is None:
                                 should_fire = True
                             elif cf_repeat > 0 and (now_dt - last_fired).total_seconds() >= (cf_repeat * 60):
-                                should_fire = True
+                                list_fire = True
                                 
                             if should_fire:
                                 self._triggered_parental_events[cf_key] = now_dt
@@ -423,12 +419,10 @@ class GamingNotifier:
             
         _LOGGER.info("Gaming Status parental control triggered for %s: %s", player_name, message)
         
-        # 1. Fire a designated notification endpoint
         if action_service.startswith("endpoint_"):
             ep_id = action_service.replace("endpoint_", "", 1)
             await self._send_to_endpoint(ep_id, message, event_type="info")
             
-        # 2. Fire an HA script or automation
         elif "." in action_service:
             domain, service = action_service.split(".", 1)
             if self.hass.services.has_service(domain, service):
@@ -465,7 +459,6 @@ class GamingNotifier:
                 continue
                 
             attrs = state.attributes
-            # Because Monday reports occur right after the reset, use last week's data to get the full 7-day picture
             weekly_hours = attrs.get("total_weekly_hours_last_week", attrs.get("total_weekly_hours", 0))
             last_game = attrs.get("last_played_game", "Unknown")
             

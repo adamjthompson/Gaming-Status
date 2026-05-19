@@ -35,7 +35,6 @@ from .utils import (
     safe_url
 )
 
-# Optimization: Module-level frozenset for Xbox idle states
 XBOX_IDLE_STATES = frozenset(s.lower() for s in PLATFORM_CONFIG["xbox"]["idle_states"])
 
 # ------------------------------------------------------------------
@@ -100,7 +99,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._last_state_change_ts = None
         self._last_update_dt = None
         
-        # Internal Storage Variables
         self._backup_last_session_time = 0 
         self._backup_last_online_timestamp = None
         self._backup_last_played_game = None
@@ -128,7 +126,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
     @callback
     def _get_store_data(self):
-        """Construct the data payload to save to Home Assistant storage."""
         return {
             "history": self._play_history,
             "backups": {
@@ -578,7 +575,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._last_played_game = self._clean_restored_game_name(restored_last_game)
             self._cached_game_cover = attrs.get("cached_game_cover")
             
-            # Migration fallback for users upgrading to the .storage internal variables
             if not stored_data or "internal_state" not in stored_data:
                 self._temp_offline_start = _safe_parse_datetime(attrs.get("temp_offline_start"))
                 self._last_session_play_time = int(attrs.get("last_session_play_time") or 0)
@@ -683,6 +679,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
     @callback
     def _update_play_time(self, now=None):
         try:
+            was_offline = (self._attr_native_value.lower() == "offline")
+            old_daily = self._daily_play_time
+            old_secondary = self._attr_extra_state_attributes.get("secondary")
+            
             self._check_daily_reset()
             if self._last_played_game and str(self._last_played_game).lower() == "offline": self._last_played_game = None
             now_dt = dt_util.now()
@@ -761,6 +761,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     secondary = "Offline"
 
             self._write_common_attributes(secondary, timer_status=timer_status)
+            
+            # OPTIMIZATION: Prevent useless state machine writes and cascading updates if fully offline
+            if was_offline and timer_status == "Stopped (Offline)" and self._daily_play_time == old_daily and secondary == old_secondary:
+                return
+                
             self.async_write_ha_state()
 
         except Exception as e:
@@ -1279,7 +1284,6 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up Gaming Status sensors from options stored in the config entry."""
     opts = config_entry.options
 
-    # --- Active settings (timing / behaviour) ---
     active_settings = {
         "RESET_HISTORY": opts.get(OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY),
         "GRACE_PERIOD_SECONDS": opts.get(OPT_GRACE_PERIOD, DEFAULT_GRACE_PERIOD_SECONDS),
@@ -1288,7 +1292,6 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         "MIN_SESSION_DURATION": opts.get(OPT_MIN_SESSION, DEFAULT_MIN_SESSION_DURATION),
     }
 
-    # --- Utils module globals (shared with sensor class methods) ---
     raw_overrides = _load_opt_json(opts, OPT_TITLE_OVERRIDES, {})
     utils.GAME_TITLE_OVERRIDES = {k.strip().lower(): v for k, v in raw_overrides.items()}
 
@@ -1301,13 +1304,10 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     utils.STEAMGRIDDB_API_KEY = config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, "")
 
-    # --- Global exclusions ---
     global_exclusions = _load_opt_json(opts, OPT_GLOBAL_EXCLUSIONS, [])
 
-    # --- Player profiles ---
     players = _load_opt_json(opts, OPT_PLAYERS, {})
     
-    # --- Performance Cache: Read Avatar Dir once ---
     avatar_dir = hass.config.path("www/gaming_status")
     try:
         available_avatars = await hass.async_add_executor_job(os.listdir, avatar_dir)
