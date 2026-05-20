@@ -164,7 +164,7 @@ class GamingNotifier:
             
             # Placing text in "description" puts it INSIDE the colored bar
             if event_type == "info":
-                embed["title"] = "Parental Control Alert"
+                embed["title"] = "Gaming Status"
                 embed["description"] = message
             else:
                 if game_title: embed["title"] = game_title
@@ -179,7 +179,7 @@ class GamingNotifier:
             service_data["message"] = message
             
             if event_type == "info":
-                service_data["title"] = "Parental Control Alert"
+                service_data["title"] = "Gaming Status"
             elif event_type == "start":
                 service_data["title"] = game_title if game_title else "Gaming Status"
             elif event_type == "stop":

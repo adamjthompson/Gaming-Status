@@ -10,5 +10,5 @@
   "requirements": [
     "python-dateutil>=2.8.2"
   ],
-  "version": "2.2.5-beta"
+  "version": "2.1.0-beta"
 }

@@ -511,45 +511,84 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             selector.SelectOptionDict(value="60", label="Every 60 minutes"),
         ]
 
+        endpoints = _endpoints(self._options)
+        endpoint_options = [
+            selector.SelectOptionDict(value=k, label=v["name"]) for k, v in endpoints.items()
+        ]
+
         if user_input is not None:
             rules["screen_time"] = {
                 "enabled": user_input.get("st_enabled", False),
                 "weekday_minutes": user_input.get("st_weekday_minutes", 120),
                 "weekend_minutes": user_input.get("st_weekend_minutes", 180),
                 "repeat": int(user_input.get("st_repeat", "0")),
-                "action": user_input.get("st_action_target", "none"),
+                "action": user_input.get("st_action_targets", []),
             }
             rules["curfew"] = {
                 "enabled": user_input.get("cf_enabled", False),
                 "weekday": user_input.get("cf_weekday", "22:00"),
                 "weekend": user_input.get("cf_weekend", "23:00"),
                 "repeat": int(user_input.get("cf_repeat", "0")),
-                "action": user_input.get("cf_action_target", "none"),
+                "action": user_input.get("cf_action_targets", []),
             }
             parental[name] = rules
             self._options[OPT_PARENTAL] = _dump_json(parental)
             return await self._update_and_return()
 
+        # --- Migration handling for older string configs ---
+        st_action = st.get("action", [])
+        if isinstance(st_action, str):
+            if st_action and st_action.lower() != "none":
+                st_action = [st_action.replace("endpoint_", "", 1)] if st_action.startswith("endpoint_") else [st_action]
+            else:
+                st_action = []
+
+        cf_action = cf.get("action", [])
+        if isinstance(cf_action, str):
+            if cf_action and cf_action.lower() != "none":
+                cf_action = [cf_action.replace("endpoint_", "", 1)] if cf_action.startswith("endpoint_") else [cf_action]
+            else:
+                cf_action = []
+
+        schema_dict = {
+            vol.Optional("st_enabled", default=st.get("enabled", False)): bool,
+            vol.Optional("st_weekday_minutes", default=st.get("weekday_minutes", 120)): vol.All(int, vol.Range(min=0)),
+            vol.Optional("st_weekend_minutes", default=st.get("weekend_minutes", 180)): vol.All(int, vol.Range(min=0)),
+            vol.Optional("st_repeat", default=str(st.get("repeat", 0))): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=REPEAT_OPTIONS, mode=selector.SelectSelectorMode.DROPDOWN)
+            ),
+        }
+
+        if endpoint_options:
+            schema_dict[vol.Optional("st_action_targets", default=st_action)] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=endpoint_options, 
+                    multiple=True, 
+                    mode=selector.SelectSelectorMode.DROPDOWN
+                )
+            )
+
+        schema_dict.update({
+            vol.Optional("cf_enabled", default=cf.get("enabled", False)): bool,
+            vol.Optional("cf_weekday", default=cf.get("weekday", "22:00")): str,
+            vol.Optional("cf_weekend", default=cf.get("weekend", "23:00")): str,
+            vol.Optional("cf_repeat", default=str(cf.get("repeat", 0))): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=REPEAT_OPTIONS, mode=selector.SelectSelectorMode.DROPDOWN)
+            ),
+        })
+
+        if endpoint_options:
+            schema_dict[vol.Optional("cf_action_targets", default=cf_action)] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=endpoint_options, 
+                    multiple=True, 
+                    mode=selector.SelectSelectorMode.DROPDOWN
+                )
+            )
+
         return self.async_show_form(
             step_id="parental_player",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional("st_enabled", default=st.get("enabled", False)): bool,
-                    vol.Optional("st_weekday_minutes", default=st.get("weekday_minutes", 120)): vol.All(int, vol.Range(min=0)),
-                    vol.Optional("st_weekend_minutes", default=st.get("weekend_minutes", 180)): vol.All(int, vol.Range(min=0)),
-                    vol.Optional("st_repeat", default=str(st.get("repeat", 0))): selector.SelectSelector(
-                        selector.SelectSelectorConfig(options=REPEAT_OPTIONS, mode=selector.SelectSelectorMode.DROPDOWN)
-                    ),
-                    vol.Optional("st_action_target", default=st.get("action", "none")): self._get_action_targets(),
-                    vol.Optional("cf_enabled", default=cf.get("enabled", False)): bool,
-                    vol.Optional("cf_weekday", default=cf.get("weekday", "22:00")): str,
-                    vol.Optional("cf_weekend", default=cf.get("weekend", "23:00")): str,
-                    vol.Optional("cf_repeat", default=str(cf.get("repeat", 0))): selector.SelectSelector(
-                        selector.SelectSelectorConfig(options=REPEAT_OPTIONS, mode=selector.SelectSelectorMode.DROPDOWN)
-                    ),
-                    vol.Optional("cf_action_target", default=cf.get("action", "none")): self._get_action_targets(),
-                }
-            ),
+            data_schema=vol.Schema(schema_dict),
             description_placeholders={"player_name": name},
         )
 
@@ -749,25 +788,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             schema[vol.Optional("delete_endpoint", default=False)] = bool
             
         return vol.Schema(schema)
-
-    def _get_action_targets(self):
-        options = [selector.SelectOptionDict(value="none", label="None")]
-        
-        for k, v in _endpoints(self._options).items():
-            options.append(selector.SelectOptionDict(value=f"endpoint_{k}", label=f"Notify: {v['name']}"))
-            
-        for state in self.hass.states.async_all(["automation", "script"]):
-            friendly = state.attributes.get("friendly_name", state.entity_id)
-            label = f"Run: {friendly}"
-            options.append(selector.SelectOptionDict(value=state.entity_id, label=label))
-            
-        return selector.SelectSelector(
-            selector.SelectSelectorConfig(
-                options=options, 
-                mode=selector.SelectSelectorMode.DROPDOWN, 
-                custom_value=True
-            )
-        )
 
     def _cleanup_endpoint_refs(self, ep_id: str) -> None:
         players = _players(self._options)

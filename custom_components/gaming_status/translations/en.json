@@ -136,12 +136,12 @@
           "st_weekday_minutes": "Weekday limit (minutes)",
           "st_weekend_minutes": "Weekend limit (minutes)",
           "st_repeat": "Screen time action frequency",
-          "st_action_target": "Action when limit reached",
+          "st_action_targets": "Notification method(s) when limit reached",
           "cf_enabled": "Enable curfew",
           "cf_weekday": "Weekday curfew time (HH:MM)",
           "cf_weekend": "Weekend curfew time (HH:MM)",
           "cf_repeat": "Curfew action frequency",
-          "cf_action_target": "Action at curfew"
+          "cf_action_targets": "Notification method(s) at curfew"
         }
       },
       "advanced": {
