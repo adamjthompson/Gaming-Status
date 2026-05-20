@@ -265,6 +265,7 @@ class GamingNotifier:
 
                 if limit_raw is not None and remaining_raw is not None:
                     try:
+                        # Hard cast to prevent HA state restore strings from crashing the logic
                         limit = int(float(limit_raw))
                         remaining = int(float(remaining_raw))
                     except (ValueError, TypeError):
@@ -277,14 +278,13 @@ class GamingNotifier:
                             today_minutes = int(float(master_state.attributes.get("total_daily_hours", 0)) * 60)
                             overage = today_minutes - limit
                             
-                            # Retrieve the exact overage amount logged during the LAST notification
                             last_notified_overage = self._triggered_parental_events.get(st_key)
                             
                             should_notify = False
                             if last_notified_overage is None:
-                                should_notify = True  # First time hitting the limit today
+                                should_notify = True 
                             elif st_repeat > 0 and (overage - last_notified_overage) >= st_repeat:
-                                should_notify = True  # They have played an additional 'st_repeat' minutes
+                                should_notify = True
                                 
                             if should_notify:
                                 self._triggered_parental_events[st_key] = overage
@@ -305,22 +305,35 @@ class GamingNotifier:
                     if now_dt >= curfew_dt:
                         is_playing = master_state.state.lower() not in ("offline", "unavailable", "unknown")
                         last_fired = self._triggered_parental_events.get(cf_key)
+                        
                         if is_playing and (last_fired is None or (cf_repeat > 0 and (now_dt - last_fired).total_seconds() >= (cf_repeat * 60))):
                             self._triggered_parental_events[cf_key] = now_dt
                             overage_minutes = int((now_dt - curfew_dt).total_seconds() / 60)
                             await self._fire_parental_action(player_name, cf_rule.get("action", ""), f"{player_name} has exceeded the {datetime.strptime(curfew_time, '%H:%M').strftime('%I:%M %p').lstrip('0')} curfew by {overage_minutes} minutes." if overage_minutes > 1 else f"{player_name} has reached the {datetime.strptime(curfew_time, '%H:%M').strftime('%I:%M %p').lstrip('0')} curfew.")
-                    elif now_dt < curfew_dt: self._triggered_parental_events.pop(cf_key, None)
+                    elif now_dt < curfew_dt: 
+                        self._triggered_parental_events.pop(cf_key, None)
                 except (ValueError, AttributeError): pass
 
-    async def _fire_parental_action(self, player_name: str, action_service: str, message: str) -> None:
-        if not action_service or action_service == "none": return
-        if action_service.startswith("endpoint_"): await self._send_to_endpoint(action_service.replace("endpoint_", "", 1), message, event_type="info")
-        elif "." in action_service:
-            domain, service = action_service.split(".", 1)
-            if self.hass.services.has_service(domain, service):
-                try: await self.hass.services.async_call(domain, service, {"message": message})
-                except Exception as exc: _LOGGER.warning("Gaming Status: parental action failed: %s", exc)
-            else: _LOGGER.warning("Gaming Status: parental action skipped, service %s.%s not found", domain, service)
+    async def _fire_parental_action(self, player_name: str, action_data, message: str) -> None:
+        if not action_data or action_data == "none": return
+        
+        targets = action_data if isinstance(action_data, list) else [action_data]
+        
+        for target in targets:
+            if not isinstance(target, str): continue
+            target = target.strip()
+            if not target or target == "none": continue
+            
+            if target.startswith("endpoint_"):
+                await self._send_to_endpoint(target.replace("endpoint_", "", 1), message, event_type="info")
+            elif target in self._cached_endpoints:
+                await self._send_to_endpoint(target, message, event_type="info")
+            elif "." in target:
+                domain, service = target.split(".", 1)
+                if self.hass.services.has_service(domain, service):
+                    try: await self.hass.services.async_call(domain, service, {"message": message})
+                    except Exception as exc: _LOGGER.warning("Gaming Status: parental action failed: %s", exc)
+                else: _LOGGER.warning("Gaming Status: parental action skipped, service %s.%s not found", domain, service)
 
     # ------------------------------------------------------------------
     # Weekly report
