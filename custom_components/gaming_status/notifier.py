@@ -131,23 +131,18 @@ class GamingNotifier:
         duration_str: str = None,
         event_type: str = "info"
     ) -> bool:
-        """Dispatch a notification to a configured endpoint.
-
-        Returns True if the HA service call was made successfully, False in
-        every other case (missing endpoint, bad config, service not found,
-        call raised). Callers that gate state changes on delivery (e.g.
-        parental controls) must check the return value before recording.
-        """
         dest = self._cached_endpoints.get(ep_id)
         if not dest:
             _LOGGER.warning("Gaming Status: endpoint '%s' not found in config", ep_id)
             return False
 
-        # The config flow saves the HA service string under the key "service".
         service_str = dest.get("service", "")
         if not service_str or "." not in service_str:
-            _LOGGER.warning("Gaming Status: endpoint '%s' has no valid service configured", ep_id)
-            return False
+            # Fallback to older 'notifier' key if 'service' is empty
+            service_str = dest.get("notifier", "")
+            if not service_str or "." not in service_str:
+                _LOGGER.warning("Gaming Status: endpoint '%s' has no valid service configured", ep_id)
+                return False
 
         domain, service = service_str.split(".", 1)
 
@@ -196,23 +191,9 @@ class GamingNotifier:
         old_state,
         is_switch: bool,
     ) -> str | None:
-        """Wait for cover art to be available on the active platform sensor.
-
-        Strategy:
-        - Read the platform sensors directly (the source of truth) rather than
-          the master sensor, which only updates after a further state-change
-          propagation step and was the cause of the original timing race.
-        - If a /local/ URL is already present it is a user-defined custom cover
-          and is returned immediately — no waiting needed.
-        - For SteamGridDB URLs we wait up to 30 seconds (15 x 2s) for the
-          async fetch to complete before giving up and sending without art.
-        - For a game-switch event we skip any URL that matches the previous
-          game's art so we don't accidentally reuse stale cover art.
-        """
         safe = player_name.lower().replace(" ", "_")
         old_url = old_state.attributes.get("game_cover_art") if old_state else None
 
-        # Build the ordered list of platform sensor entity IDs for this player.
         platform_entity_ids = [
             f"sensor.{safe}_{platform}"
             for platform in ("steam", "xbox", "playstation", "custom")
@@ -220,7 +201,6 @@ class GamingNotifier:
         ]
 
         def _read_cover() -> str | None:
-            """Return the first valid cover URL found across platform sensors."""
             for pid in platform_entity_ids:
                 pstate = self.hass.states.get(pid)
                 if not pstate:
@@ -231,21 +211,15 @@ class GamingNotifier:
                 )
                 if not url:
                     continue
-                # For a game switch, ignore the previous game's art which may
-                # still be present on the sensor before it has been updated.
                 if is_switch and url == old_url:
                     continue
                 return url
             return None
 
-        # Check immediately — cached art from a previous session may already
-        # be present, or a /local/ custom cover is always ready to use now.
         url = _read_cover()
         if url:
             return url
 
-        # Art not yet available — poll the platform sensors directly, waiting
-        # up to 30 seconds for the SteamGridDB fetch to complete.
         _LOGGER.debug(
             "Gaming Status: cover art not yet ready for %s, waiting up to 30s",
             player_name,
@@ -301,7 +275,6 @@ class GamingNotifier:
         start_dests = user_config.get("notify_start_destinations", [])
         end_dests = user_config.get("notify_end_destinations", [])
 
-        # --- Calculate duration for the previous session ---
         duration_str = None
         if is_switch or is_end:
             start_time_str = old_state.attributes.get("play_start_time")
@@ -317,7 +290,6 @@ class GamingNotifier:
                 except Exception: pass
 
         if is_start or is_switch:
-            # Build the message now — it doesn't depend on cover art.
             if is_switch and duration_str:
                 msg = f"{target_player} switched to {new_game} after {duration_str}"
             elif is_switch:
@@ -330,9 +302,6 @@ class GamingNotifier:
             )
 
             for ep_id in start_dests:
-                # Discord can only display publicly reachable URLs.
-                # /local/ paths are LAN-only, so strip them for Discord endpoints
-                # rather than sending an embed whose image silently fails to load.
                 dest = self._cached_endpoints.get(ep_id, {})
                 discord_safe_url = image_url if (image_url or "").startswith("https://") else None
                 effective_url = discord_safe_url if dest.get("type") == "Discord" else image_url
@@ -350,8 +319,6 @@ class GamingNotifier:
     async def _check_parental_controls(self, now) -> None:
         if not self._cached_parental: return
 
-        # dt_util.now() is timezone-aware and respects HA's configured timezone,
-        # avoiding DST issues that datetime.now() (naive) can produce.
         now_dt = dt_util.now()
         is_weekend = now_dt.weekday() >= 5
 
@@ -360,6 +327,10 @@ class GamingNotifier:
             master_entity = f"sensor.{safe_player}_gaming_status"
             master_state = self.hass.states.get(master_entity)
             if not master_state: continue
+            
+            # --- Create a foolproof fallback in case the Parental UI dropdown is blank ---
+            user_config = self._cached_players.get(player_name, {})
+            fallback_dests = list(set(user_config.get("notify_start_destinations", []) + user_config.get("notify_end_destinations", [])))
 
             is_playing = master_state.state.lower() not in ("offline", "unavailable", "unknown")
 
@@ -369,19 +340,6 @@ class GamingNotifier:
                 st_key = f"{safe_player}_screen_time"
                 st_repeat = int(st_rule.get("repeat", 0))
 
-                # Calculate entirely from _cached_parental (always current — updated
-                # on every integration reload) and total_daily_hours (a recorded
-                # attribute, always present on the live state object).
-                #
-                # We deliberately do NOT read remaining_play_time_minutes or
-                # daily_play_limit_minutes from the sensor attributes because:
-                # 1. Both are in _unrecorded_attributes so they are None after restart
-                #    until the sensor receives a platform state-change event.
-                # 2. The sensor only recalculates them when _update_master_state runs,
-                #    which only happens on platform state changes — so if the limit is
-                #    changed in config but the game state hasn't changed, the sensor
-                #    still carries the old limit value until the next state change fires.
-                is_weekend = now_dt.weekday() >= 5
                 limit = int(
                     st_rule.get("weekend_minutes", 180)
                     if is_weekend
@@ -405,16 +363,16 @@ class GamingNotifier:
                                 msg = f"{player_name} has exceeded the {limit}-minute screen time limit by {overage} minutes ({today_minutes} minutes total)."
                             else:
                                 msg = f"{player_name} has reached the {limit}-minute screen time limit."
-                            # Only record as notified if delivery actually succeeded so
-                            # that a transient failure retries next tick rather than
-                            # permanently suppressing further notifications.
-                            if await self._fire_parental_action(player_name, st_rule.get("action", ""), msg):
+                                
+                            # Safety routing check
+                            action = st_rule.get("action", "none")
+                            if not action or action == "none": 
+                                action = fallback_dests
+                                
+                            if await self._fire_parental_action(player_name, action, msg):
                                 self._triggered_parental_events[st_key] = overage
 
                 else:
-                    # today_minutes is below the limit — player is back under their
-                    # limit (e.g. after a daily reset). Clear the fired flag so the
-                    # next breach triggers a fresh notification.
                     self._triggered_parental_events.pop(st_key, None)
 
             # --- CURFEW ---
@@ -440,23 +398,21 @@ class GamingNotifier:
                                 msg = f"{player_name} has exceeded the {pretty_time} curfew by {overage_minutes} minutes."
                             else:
                                 msg = f"{player_name} has reached the {pretty_time} curfew."
-                            if await self._fire_parental_action(player_name, cf_rule.get("action", ""), msg):
+                                
+                            # Safety routing check
+                            action = cf_rule.get("action", "none")
+                            if not action or action == "none": 
+                                action = fallback_dests
+                                
+                            if await self._fire_parental_action(player_name, action, msg):
                                 self._triggered_parental_events[cf_key] = now_dt
 
                     elif now_dt < curfew_dt:
-                        # Past midnight, new day — clear so curfew fires again tonight.
                         self._triggered_parental_events.pop(cf_key, None)
 
                 except (ValueError, AttributeError): pass
 
     async def _fire_parental_action(self, player_name: str, action_data, message: str) -> bool:
-        """Dispatch a parental control action to one or more targets.
-
-        Returns True if every configured target was reached successfully.
-        Returns False if action_data is empty, invalid, or any target fails.
-        Callers must check the return value before recording the event as fired
-        so that a transient delivery failure doesn't permanently suppress retries.
-        """
         if not action_data or action_data == "none":
             return False
 
