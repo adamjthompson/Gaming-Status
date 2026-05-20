@@ -254,32 +254,46 @@ class GamingNotifier:
             master_state = self.hass.states.get(master_entity)
             if not master_state: continue
 
-            # --- SCREEN TIME LIMIT (Syncs natively with Master Sensor) ---
+            # --- SCREEN TIME LIMIT (Game-Time Based Repeats) ---
             st_rule = rules.get("screen_time", {})
             if st_rule.get("enabled"):
                 st_key = f"{safe_player}_screen_time"
                 st_repeat = int(st_rule.get("repeat", 0))
                 
-                limit = master_state.attributes.get("daily_play_limit_minutes")
-                remaining = master_state.attributes.get("remaining_play_time_minutes")
+                limit_raw = master_state.attributes.get("daily_play_limit_minutes")
+                remaining_raw = master_state.attributes.get("remaining_play_time_minutes")
 
-                if limit is not None and remaining is not None:
+                if limit_raw is not None and remaining_raw is not None:
+                    try:
+                        limit = int(float(limit_raw))
+                        remaining = int(float(remaining_raw))
+                    except (ValueError, TypeError):
+                        continue
+
                     if remaining <= 0:
                         is_playing = master_state.state.lower() not in ("offline", "unavailable", "unknown")
-                        last_fired = self._triggered_parental_events.get(st_key)
                         
-                        if is_playing and (last_fired is None or (st_repeat > 0 and (now_dt - last_fired).total_seconds() >= (st_repeat * 60))):
-                            self._triggered_parental_events[st_key] = now_dt
-                            
+                        if is_playing:
                             today_minutes = int(float(master_state.attributes.get("total_daily_hours", 0)) * 60)
                             overage = today_minutes - limit
                             
-                            msg = f"{player_name} has exceeded the {limit}-minute screen time limit by {overage} minutes ({today_minutes} minutes total)." if overage > 1 else f"{player_name} has reached the {limit}-minute screen time limit."
-                            await self._fire_parental_action(player_name, st_rule.get("action", ""), msg)
+                            # Retrieve the exact overage amount logged during the LAST notification
+                            last_notified_overage = self._triggered_parental_events.get(st_key)
+                            
+                            should_notify = False
+                            if last_notified_overage is None:
+                                should_notify = True  # First time hitting the limit today
+                            elif st_repeat > 0 and (overage - last_notified_overage) >= st_repeat:
+                                should_notify = True  # They have played an additional 'st_repeat' minutes
+                                
+                            if should_notify:
+                                self._triggered_parental_events[st_key] = overage
+                                msg = f"{player_name} has exceeded the {limit}-minute screen time limit by {overage} minutes ({today_minutes} minutes total)." if overage > 0 else f"{player_name} has reached the {limit}-minute screen time limit."
+                                await self._fire_parental_action(player_name, st_rule.get("action", ""), msg)
                     elif remaining > 0: 
                         self._triggered_parental_events.pop(st_key, None)
 
-            # --- CURFEW LIMIT ---
+            # --- CURFEW LIMIT (Clock-Time Based Repeats) ---
             cf_rule = rules.get("curfew", {})
             if cf_rule.get("enabled"):
                 cf_key = f"{safe_player}_curfew"
@@ -294,7 +308,7 @@ class GamingNotifier:
                         if is_playing and (last_fired is None or (cf_repeat > 0 and (now_dt - last_fired).total_seconds() >= (cf_repeat * 60))):
                             self._triggered_parental_events[cf_key] = now_dt
                             overage_minutes = int((now_dt - curfew_dt).total_seconds() / 60)
-                            await self._fire_parental_action(player_name, cf_rule.get("action", ""), f"{player_name} has exceeded the {datetime.strptime(curfew_time, '%H:%M').strftime('%I:%M %p').lstrip('0')} curfew by {self._format_duration(overage_minutes)}." if overage_minutes > 1 else f"{player_name} has reached the {datetime.strptime(curfew_time, '%H:%M').strftime('%I:%M %p').lstrip('0')} curfew.")
+                            await self._fire_parental_action(player_name, cf_rule.get("action", ""), f"{player_name} has exceeded the {datetime.strptime(curfew_time, '%H:%M').strftime('%I:%M %p').lstrip('0')} curfew by {overage_minutes} minutes." if overage_minutes > 1 else f"{player_name} has reached the {datetime.strptime(curfew_time, '%H:%M').strftime('%I:%M %p').lstrip('0')} curfew.")
                     elif now_dt < curfew_dt: self._triggered_parental_events.pop(cf_key, None)
                 except (ValueError, AttributeError): pass
 
