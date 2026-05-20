@@ -130,18 +130,30 @@ class GamingNotifier:
         game_title: str = None,
         duration_str: str = None,
         event_type: str = "info"
-    ) -> None:
-        dest = self._cached_endpoints.get(ep_id)
-        if not dest: return
+    ) -> bool:
+        """Dispatch a notification to a configured endpoint.
 
+        Returns True if the HA service call was made successfully, False in
+        every other case (missing endpoint, bad config, service not found,
+        call raised). Callers that gate state changes on delivery (e.g.
+        parental controls) must check the return value before recording.
+        """
+        dest = self._cached_endpoints.get(ep_id)
+        if not dest:
+            _LOGGER.warning("Gaming Status: endpoint '%s' not found in config", ep_id)
+            return False
+
+        # The config flow saves the HA service string under the key "service".
         service_str = dest.get("service", "")
-        if not service_str or "." not in service_str: return
+        if not service_str or "." not in service_str:
+            _LOGGER.warning("Gaming Status: endpoint '%s' has no valid service configured", ep_id)
+            return False
 
         domain, service = service_str.split(".", 1)
 
         if not self.hass.services.has_service(domain, service):
             _LOGGER.warning("Gaming Status: notification skipped, service %s.%s not found", domain, service)
-            return
+            return False
 
         target_id = dest.get("target_id", "").strip()
         ep_type = dest.get("type", "Mobile App")
@@ -166,8 +178,12 @@ class GamingNotifier:
             service_data["message"] = final_message
             if image_url and ep_type != "SMS": service_data["data"] = {"image": image_url}
 
-        try: await self.hass.services.async_call(domain, service, service_data)
-        except Exception as exc: _LOGGER.warning("Gaming Status: notification failed for endpoint '%s': %s", ep_id, exc)
+        try:
+            await self.hass.services.async_call(domain, service, service_data)
+            return True
+        except Exception as exc:
+            _LOGGER.warning("Gaming Status: notification failed for endpoint '%s': %s", ep_id, exc)
+            return False
 
     # ------------------------------------------------------------------
     # Cover art resolution
@@ -380,12 +396,16 @@ class GamingNotifier:
                             should_notify = True
 
                         if should_notify:
-                            self._triggered_parental_events[st_key] = overage
                             if overage > 0:
                                 msg = f"{player_name} has exceeded the {limit}-minute screen time limit by {overage} minutes ({today_minutes} minutes total)."
                             else:
                                 msg = f"{player_name} has reached the {limit}-minute screen time limit."
-                            await self._fire_parental_action(player_name, st_rule.get("action", ""), msg)
+                            # Only record as notified if delivery actually succeeded.
+                            # If _fire_parental_action returns False (e.g. service
+                            # unavailable), we leave _triggered_parental_events alone
+                            # so the next tick retries rather than silently suppressing.
+                            if await self._fire_parental_action(player_name, st_rule.get("action", ""), msg):
+                                self._triggered_parental_events[st_key] = overage
 
                 elif today_minutes < limit:
                     # Player is back under the limit (e.g. after a daily reset) —
@@ -412,14 +432,15 @@ class GamingNotifier:
                             last_fired is None or
                             (cf_repeat > 0 and (now_dt - last_fired).total_seconds() >= (cf_repeat * 60))
                         ):
-                            self._triggered_parental_events[cf_key] = now_dt
                             overage_minutes = int((now_dt - curfew_dt).total_seconds() / 60)
                             pretty_time = datetime.strptime(curfew_time, "%H:%M").strftime("%I:%M %p").lstrip("0")
                             if overage_minutes > 1:
                                 msg = f"{player_name} has exceeded the {pretty_time} curfew by {overage_minutes} minutes."
                             else:
                                 msg = f"{player_name} has reached the {pretty_time} curfew."
-                            await self._fire_parental_action(player_name, cf_rule.get("action", ""), msg)
+                            # Only record as fired if delivery actually succeeded.
+                            if await self._fire_parental_action(player_name, cf_rule.get("action", ""), msg):
+                                self._triggered_parental_events[cf_key] = now_dt
 
                     elif now_dt < curfew_dt:
                         # Past midnight, new day — clear so curfew fires again tonight.
@@ -427,10 +448,19 @@ class GamingNotifier:
 
                 except (ValueError, AttributeError): pass
 
-    async def _fire_parental_action(self, player_name: str, action_data, message: str) -> None:
-        if not action_data or action_data == "none": return
+    async def _fire_parental_action(self, player_name: str, action_data, message: str) -> bool:
+        """Dispatch a parental control action to one or more targets.
+
+        Returns True if every configured target was reached successfully.
+        Returns False if action_data is empty, invalid, or any target fails.
+        Callers must check the return value before recording the event as fired
+        so that a transient delivery failure doesn't permanently suppress retries.
+        """
+        if not action_data or action_data == "none":
+            return False
 
         targets = action_data if isinstance(action_data, list) else [action_data]
+        any_succeeded = False
 
         for target in targets:
             if not isinstance(target, str): continue
@@ -438,15 +468,28 @@ class GamingNotifier:
             if not target or target == "none": continue
 
             if target.startswith("endpoint_"):
-                await self._send_to_endpoint(target.replace("endpoint_", "", 1), message, event_type="info")
+                sent = await self._send_to_endpoint(target.replace("endpoint_", "", 1), message, event_type="info")
             elif target in self._cached_endpoints:
-                await self._send_to_endpoint(target, message, event_type="info")
+                sent = await self._send_to_endpoint(target, message, event_type="info")
             elif "." in target:
                 domain, service = target.split(".", 1)
                 if self.hass.services.has_service(domain, service):
-                    try: await self.hass.services.async_call(domain, service, {"message": message})
-                    except Exception as exc: _LOGGER.warning("Gaming Status: parental action failed: %s", exc)
-                else: _LOGGER.warning("Gaming Status: parental action skipped, service %s.%s not found", domain, service)
+                    try:
+                        await self.hass.services.async_call(domain, service, {"message": message})
+                        sent = True
+                    except Exception as exc:
+                        _LOGGER.warning("Gaming Status: parental action failed: %s", exc)
+                        sent = False
+                else:
+                    _LOGGER.warning("Gaming Status: parental action skipped, service %s.%s not found", domain, service)
+                    sent = False
+            else:
+                sent = False
+
+            if sent:
+                any_succeeded = True
+
+        return any_succeeded
 
     # ------------------------------------------------------------------
     # Weekly report
