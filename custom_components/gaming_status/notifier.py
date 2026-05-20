@@ -128,7 +128,6 @@ class GamingNotifier:
         message: str,
         image_url: str = None,
         game_title: str = None,
-        duration_str: str = None,
         event_type: str = "info"
     ) -> bool:
         """Dispatch a notification to a configured endpoint."""
@@ -139,7 +138,6 @@ class GamingNotifier:
 
         service_str = dest.get("service", "")
         if not service_str or "." not in service_str:
-            # Fallback to older 'notifier' key if 'service' is empty
             service_str = dest.get("notifier", "")
             if not service_str or "." not in service_str:
                 _LOGGER.warning("Gaming Status: endpoint '%s' has no valid service configured", ep_id)
@@ -164,34 +162,28 @@ class GamingNotifier:
             color = 65280 if event_type == "start" else (16711680 if event_type == "stop" else 3447003)
             embed = {"color": color}
             
-            # --- Format specifically for Parental Alerts vs Standard Alerts ---
+            # Placing text in "description" puts it INSIDE the colored bar
             if event_type == "info":
                 embed["title"] = "Parental Control Alert"
                 embed["description"] = message
-                service_data["message"] = "" 
             else:
-                service_data["message"] = message
-                # Discord still requires title for embed structure
                 if game_title: embed["title"] = game_title
-                if duration_str: embed["description"] = f"Duration: {duration_str}"
+                embed["description"] = message
                 
             if image_url: embed["image"] = {"url": image_url}
             
-            # PREVENT SILENT FAILURES: Discord API rejects embeds that only have a color.
-            if len(embed) > 1: 
-                service_data["data"] = {"embed": embed}
-            else:
-                service_data["message"] = message
+            service_data["message"] = "" 
+            service_data["data"] = {"embed": embed}
                 
         else: # Standard Mobile App / SMS
-            final_message = message
-            if duration_str: final_message += f"\nDuration: {duration_str}"
-            service_data["message"] = final_message
+            service_data["message"] = message
             
-            # Inject a custom title strictly for Parental Alerts.
-            # Start and Stop events remain untouched to preserve original formatting.
             if event_type == "info":
                 service_data["title"] = "Parental Control Alert"
+            elif event_type == "start":
+                service_data["title"] = game_title if game_title else "Gaming Status"
+            elif event_type == "stop":
+                service_data["title"] = f"Finished {game_title}" if game_title else "Gaming Session Ended"
                 
             if image_url and ep_type != "SMS": 
                 service_data["data"] = {"image": image_url}
@@ -243,20 +235,12 @@ class GamingNotifier:
         if url:
             return url
 
-        _LOGGER.debug(
-            "Gaming Status: cover art not yet ready for %s, waiting up to 30s",
-            player_name,
-        )
         for _ in range(15):
             await asyncio.sleep(2)
             url = _read_cover()
             if url:
                 return url
 
-        _LOGGER.debug(
-            "Gaming Status: cover art did not arrive in time for %s, sending without image",
-            player_name,
-        )
         return None
 
     # ------------------------------------------------------------------
@@ -313,12 +297,12 @@ class GamingNotifier:
                 except Exception: pass
 
         if is_start or is_switch:
-            if is_switch and duration_str:
-                msg = f"{target_player} switched to {new_game} after {duration_str}"
-            elif is_switch:
-                msg = f"{target_player} switched to {new_game}"
+            if is_switch:
+                msg = f"{target_player} switched games after {duration_str}" if duration_str else f"{target_player} switched games"
+                display_title = f"{old_game} > {new_game}"
             else:
-                msg = f"{target_player} started playing {new_game}"
+                msg = f"{target_player} started playing"
+                display_title = new_game
 
             image_url = await self._resolve_cover_art(
                 target_player, user_config, old_state, is_switch
@@ -328,20 +312,20 @@ class GamingNotifier:
                 dest = self._cached_endpoints.get(ep_id, {})
                 discord_safe_url = image_url if (image_url or "").startswith("https://") else None
                 effective_url = discord_safe_url if dest.get("type") == "Discord" else image_url
-                await self._send_to_endpoint(ep_id, message=msg, image_url=effective_url, game_title=new_game, event_type="start")
+                await self._send_to_endpoint(ep_id, message=msg, image_url=effective_url, game_title=display_title, event_type="start")
 
         elif is_end:
+            msg = f"{target_player} played for {duration_str}" if duration_str else f"{target_player} finished playing"
             image_url = old_state.attributes.get("game_cover_art") or old_state.attributes.get("cached_game_cover")
             for ep_id in end_dests:
-                await self._send_to_endpoint(ep_id, message=f"{target_player} finished playing {old_game}", image_url=image_url, game_title=old_game, duration_str=duration_str, event_type="stop")
+                await self._send_to_endpoint(ep_id, message=msg, image_url=image_url, game_title=old_game, event_type="stop")
 
     # ------------------------------------------------------------------
     # Parental controls
     # ------------------------------------------------------------------
 
     async def _check_parental_controls(self, now) -> None:
-        if not self._cached_parental: 
-            return
+        if not self._cached_parental: return
 
         now_dt = dt_util.now()
         is_weekend = now_dt.weekday() >= 5
@@ -350,10 +334,8 @@ class GamingNotifier:
             safe_player = player_name.lower().replace(" ", "_")
             master_entity = f"sensor.{safe_player}_gaming_status"
             master_state = self.hass.states.get(master_entity)
+            if not master_state: continue
             
-            if not master_state: 
-                continue
-                
             user_config = self._cached_players.get(player_name, {})
             fallback_dests = list(set(user_config.get("notify_start_destinations", []) + user_config.get("notify_end_destinations", [])))
 
@@ -371,16 +353,12 @@ class GamingNotifier:
                     else st_rule.get("weekday_minutes", 120)
                 )
                 
-                # Safely parse today_minutes to prevent silent float(None) crashes
                 try:
                     raw_hours = master_state.attributes.get("total_daily_hours", 0)
                     if raw_hours is None: raw_hours = 0
                     today_minutes = int(float(raw_hours) * 60)
-                except Exception as e:
-                    _LOGGER.warning("Gaming Status TRACE: [%s] Failed to parse today_minutes: %s", player_name, e)
+                except (ValueError, TypeError):
                     continue
-
-                _LOGGER.warning("Gaming Status TRACE: [%s] Screen Time Check -> Limit: %sm, Played: %sm, Playing: %s", player_name, limit, today_minutes, is_playing)
 
                 if today_minutes >= limit:
                     if is_playing:
@@ -390,12 +368,8 @@ class GamingNotifier:
                         should_notify = False
                         if last_notified_overage is None:
                             should_notify = True
-                            _LOGGER.warning("Gaming Status TRACE: [%s] Triggering FIRST notification. Overage: %s", player_name, overage)
                         elif st_repeat > 0 and (overage - last_notified_overage) >= st_repeat:
                             should_notify = True
-                            _LOGGER.warning("Gaming Status TRACE: [%s] Triggering REPEAT notification. Target repeat gap: %s", player_name, st_repeat)
-                        else:
-                            _LOGGER.warning("Gaming Status TRACE: [%s] Skipping notification. Overage (%s) hasn't passed repeat gap (%s) since last alert (%s).", player_name, overage, st_repeat, last_notified_overage)
 
                         if should_notify:
                             if overage > 0:
@@ -407,19 +381,9 @@ class GamingNotifier:
                             if not action or action == "none": 
                                 action = fallback_dests
                                 
-                            _LOGGER.warning("Gaming Status TRACE: [%s] Firing action to targets: %s", player_name, action)
-                                
                             if await self._fire_parental_action(player_name, action, msg):
-                                _LOGGER.warning("Gaming Status TRACE: [%s] Action SUCCESS. Recording event.", player_name)
                                 self._triggered_parental_events[st_key] = overage
-                            else:
-                                _LOGGER.warning("Gaming Status TRACE: [%s] Action FAILED to deliver.", player_name)
-                    else:
-                        _LOGGER.warning("Gaming Status TRACE: [%s] Over limit, but NOT playing. Silencing alert.", player_name)
-
                 else:
-                    if st_key in self._triggered_parental_events:
-                        _LOGGER.warning("Gaming Status TRACE: [%s] Time is under limit. Clearing memory.", player_name)
                     self._triggered_parental_events.pop(st_key, None)
 
             # --- CURFEW ---
@@ -460,7 +424,6 @@ class GamingNotifier:
 
     async def _fire_parental_action(self, player_name: str, action_data, message: str) -> bool:
         if not action_data or action_data == "none":
-            _LOGGER.warning("Gaming Status TRACE: _fire_parental_action received empty action_data.")
             return False
 
         targets = action_data if isinstance(action_data, list) else [action_data]
@@ -470,8 +433,6 @@ class GamingNotifier:
             if not isinstance(target, str): continue
             target = target.strip()
             if not target or target == "none": continue
-
-            _LOGGER.warning("Gaming Status TRACE: Attempting to send to target: %s", target)
 
             if target.startswith("endpoint_"):
                 sent = await self._send_to_endpoint(target.replace("endpoint_", "", 1), message, event_type="info")
@@ -484,13 +445,12 @@ class GamingNotifier:
                         await self.hass.services.async_call(domain, service, {"message": message})
                         sent = True
                     except Exception as exc:
-                        _LOGGER.warning("Gaming Status TRACE: native HA service call failed: %s", exc)
+                        _LOGGER.warning("Gaming Status: parental action failed: %s", exc)
                         sent = False
                 else:
-                    _LOGGER.warning("Gaming Status TRACE: native HA service %s.%s not found", domain, service)
+                    _LOGGER.warning("Gaming Status: parental action skipped, service %s.%s not found", domain, service)
                     sent = False
             else:
-                _LOGGER.warning("Gaming Status TRACE: Target %s did not match any known endpoints or services.", target)
                 sent = False
 
             if sent:
