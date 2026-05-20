@@ -134,7 +134,7 @@ class GamingNotifier:
         dest = self._cached_endpoints.get(ep_id)
         if not dest: return
 
-        service_str = dest.get("notifier", "")
+        service_str = dest.get("service", "")
         if not service_str or "." not in service_str: return
 
         domain, service = service_str.split(".", 1)
