@@ -247,24 +247,39 @@ class GamingNotifier:
         if not self._cached_parental: return
         now_dt = datetime.now()
         is_weekend = now_dt.weekday() >= 5
+
         for player_name, rules in self._cached_parental.items():
             safe_player = player_name.lower().replace(" ", "_")
             master_entity = f"sensor.{safe_player}_gaming_status"
             master_state = self.hass.states.get(master_entity)
             if not master_state: continue
+
+            # --- SCREEN TIME LIMIT (Syncs natively with Master Sensor) ---
             st_rule = rules.get("screen_time", {})
             if st_rule.get("enabled"):
-                limit = st_rule.get("weekend_minutes", 180) if is_weekend else st_rule.get("weekday_minutes", 120)
                 st_key = f"{safe_player}_screen_time"
                 st_repeat = int(st_rule.get("repeat", 0))
-                today_minutes = int(float(master_state.attributes.get("total_daily_hours", 0)) * 60)
-                if today_minutes >= limit:
-                    is_playing = master_state.state.lower() not in ("offline", "unavailable", "unknown")
-                    last_fired = self._triggered_parental_events.get(st_key)
-                    if is_playing and (last_fired is None or (st_repeat > 0 and (now_dt - last_fired).total_seconds() >= (st_repeat * 60))):
-                        self._triggered_parental_events[st_key] = now_dt
-                        await self._fire_parental_action(player_name, st_rule.get("action", ""), f"{player_name} has exceeded the {limit}-minute screen time limit by {today_minutes - limit} minutes ({today_minutes} minutes total)." if today_minutes - limit > 1 else f"{player_name} has reached the {limit}-minute screen time limit.")
-                elif today_minutes < limit: self._triggered_parental_events.pop(st_key, None)
+                
+                limit = master_state.attributes.get("daily_play_limit_minutes")
+                remaining = master_state.attributes.get("remaining_play_time_minutes")
+
+                if limit is not None and remaining is not None:
+                    if remaining <= 0:
+                        is_playing = master_state.state.lower() not in ("offline", "unavailable", "unknown")
+                        last_fired = self._triggered_parental_events.get(st_key)
+                        
+                        if is_playing and (last_fired is None or (st_repeat > 0 and (now_dt - last_fired).total_seconds() >= (st_repeat * 60))):
+                            self._triggered_parental_events[st_key] = now_dt
+                            
+                            today_minutes = int(float(master_state.attributes.get("total_daily_hours", 0)) * 60)
+                            overage = today_minutes - limit
+                            
+                            msg = f"{player_name} has exceeded the {limit}-minute screen time limit by {overage} minutes ({today_minutes} minutes total)." if overage > 1 else f"{player_name} has reached the {limit}-minute screen time limit."
+                            await self._fire_parental_action(player_name, st_rule.get("action", ""), msg)
+                    elif remaining > 0: 
+                        self._triggered_parental_events.pop(st_key, None)
+
+            # --- CURFEW LIMIT ---
             cf_rule = rules.get("curfew", {})
             if cf_rule.get("enabled"):
                 cf_key = f"{safe_player}_curfew"

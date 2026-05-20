@@ -668,29 +668,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if not platform_data: return
             self._check_daily_reset()
             now_dt = dt_util.now()
-            try:
-                if self._gaming_type == "steam" and platform_data.get("is_online") and str(current_state).lower() == "away":
-                    if self._away_start_timestamp is None:
-                        self._away_start_timestamp = now_dt
-                        self._away_timeout_deducted = False 
-                    time_away = (now_dt - self._away_start_timestamp).total_seconds()
-                    if time_away > 1800:
-                        platform_data["is_online"] = False
-                        platform_data["offline_reason"] = "away_timeout"
-                        if not self._away_timeout_deducted:
-                            current_daily = int(self._daily_play_time or 0)
-                            current_weekly = int(self._weekly_play_time or 0)
-                            deduction = min(int(time_away), current_daily)
-                            self._daily_play_time = max(0, current_daily - deduction)
-                            self._weekly_play_time = max(0, current_weekly - deduction)
-                            self._away_timeout_deducted = True 
-                else:
-                    self._away_start_timestamp = None
-                    self._away_timeout_deducted = False
-            except Exception: pass
+            
             is_offline_now = not platform_data.get("is_online")
             in_grace_period = False
+            
             current_grace_limit = self._active_settings["GRACE_PERIOD_SECONDS"]
+            if platform_data.get("offline_reason") == "away": 
+                current_grace_limit = self._active_settings["AWAY_GRACE_PERIOD_SECONDS"]
             if platform_data.get("offline_reason") == "away": current_grace_limit = self._active_settings["AWAY_GRACE_PERIOD_SECONDS"]
             if self._current_game and is_offline_now:
                 if self._temp_offline_start is None: 
@@ -746,8 +730,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     self._temp_game_lost_time = None
                 display_state = game_name_display
                 if normalized_new and not self._cover_fetch_attempted:
-                    fetched = await get_steamgriddb_game_cover(self.hass, game_name_display)
                     self._cover_fetch_attempted = True
+                    fetched = await get_steamgriddb_game_cover(self.hass, game_name_display)
                     if fetched: self._cached_game_cover = fetched
                     else: self._cached_game_cover = platform_data.get("game_cover_url")
                 elif not self._cached_game_cover and platform_data.get("game_cover_url"): self._cached_game_cover = platform_data.get("game_cover_url")
