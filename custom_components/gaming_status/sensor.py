@@ -392,6 +392,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._backup_last_game_stopped_timestamp = getattr(self, "_last_game_stopped_timestamp", None)
             self._last_session_play_time = 0
             self._cover_fetch_attempted = False
+            # Clear stale cover art so the notifier's poll sees None and waits
+            # for the new fetch rather than immediately returning the previous
+            # game's art. _cached_game_cover is repopulated once the new
+            # SteamGridDB fetch completes in the next _async_update_state call.
+            self._cached_game_cover = None
             self._store.async_delay_save(self._get_store_data, 5.0)
 
     def _get_session_info(self):

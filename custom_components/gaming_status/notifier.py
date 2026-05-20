@@ -369,24 +369,28 @@ class GamingNotifier:
                 st_key = f"{safe_player}_screen_time"
                 st_repeat = int(st_rule.get("repeat", 0))
 
-                # remaining_play_time_minutes is calculated fresh by MasterGamingSensor
-                # on every state update and is always accurate while the player is active.
-                # It may be None briefly after a restart before the sensor updates once —
-                # in that case we skip this tick and retry next minute rather than
-                # attempting a broken calculation.
-                remaining_raw = master_state.attributes.get("remaining_play_time_minutes")
-                limit_raw = master_state.attributes.get("daily_play_limit_minutes")
+                # Calculate entirely from _cached_parental (always current — updated
+                # on every integration reload) and total_daily_hours (a recorded
+                # attribute, always present on the live state object).
+                #
+                # We deliberately do NOT read remaining_play_time_minutes or
+                # daily_play_limit_minutes from the sensor attributes because:
+                # 1. Both are in _unrecorded_attributes so they are None after restart
+                #    until the sensor receives a platform state-change event.
+                # 2. The sensor only recalculates them when _update_master_state runs,
+                #    which only happens on platform state changes — so if the limit is
+                #    changed in config but the game state hasn't changed, the sensor
+                #    still carries the old limit value until the next state change fires.
+                is_weekend = now_dt.weekday() >= 5
+                limit = int(
+                    st_rule.get("weekend_minutes", 180)
+                    if is_weekend
+                    else st_rule.get("weekday_minutes", 120)
+                )
+                today_minutes = int(float(master_state.attributes.get("total_daily_hours", 0)) * 60)
 
-                if remaining_raw is None or limit_raw is None:
-                    # Sensor hasn't updated yet since restart — skip and retry next tick.
-                    continue
-
-                remaining = int(float(remaining_raw))
-                limit = int(float(limit_raw))
-
-                if remaining <= 0:
+                if today_minutes >= limit:
                     if is_playing:
-                        today_minutes = int(float(master_state.attributes.get("total_daily_hours", 0)) * 60)
                         overage = max(0, today_minutes - limit)
                         last_notified_overage = self._triggered_parental_events.get(st_key)
 
@@ -408,9 +412,9 @@ class GamingNotifier:
                                 self._triggered_parental_events[st_key] = overage
 
                 else:
-                    # Remaining time is positive — player is back under their limit
-                    # (e.g. after a daily reset). Clear the flag so the next breach
-                    # triggers a fresh notification.
+                    # today_minutes is below the limit — player is back under their
+                    # limit (e.g. after a daily reset). Clear the fired flag so the
+                    # next breach triggers a fresh notification.
                     self._triggered_parental_events.pop(st_key, None)
 
             # --- CURFEW ---
