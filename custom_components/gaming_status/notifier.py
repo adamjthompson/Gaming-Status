@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_change, async_track_time_interval
+from homeassistant.util import dt as dt_util
 
 from .const import (
     OPT_PLAYERS,
@@ -40,15 +41,15 @@ class GamingNotifier:
         self._unsub_parental = None
         self._startup_time: datetime | None = None
         self._triggered_parental_events: dict = {}
-        
+
         opts = self._entry.options
-        
+
         # Parse JSON exactly once at startup and cache in memory
         self._cached_players = _load_json(opts.get(OPT_PLAYERS), {})
         self._cached_endpoints = _load_json(opts.get(OPT_ENDPOINTS), {})
         self._cached_weekly = _load_json(opts.get(OPT_WEEKLY_REPORT), {})
         self._cached_parental = _load_json(opts.get(OPT_PARENTAL), {})
-        
+
         raw_exclusions = _load_json(opts.get(OPT_GLOBAL_EXCLUSIONS), [])
         self._cached_exclusions = [x.strip().lower() for x in raw_exclusions]
 
@@ -73,10 +74,10 @@ class GamingNotifier:
     # ------------------------------------------------------------------
 
     async def async_start(self) -> None:
-        self._startup_time = datetime.now()
+        self._startup_time = dt_util.now()
 
         master_entities = list(self._entity_player_map.keys())
-        
+
         if master_entities:
             self._unsub_listener = async_track_state_change_event(
                 self.hass, master_entities, self._handle_state_change
@@ -111,7 +112,7 @@ class GamingNotifier:
     # ------------------------------------------------------------------
     # Generic Notification Helpers
     # ------------------------------------------------------------------
-    
+
     def _format_duration(self, minutes: int) -> str:
         if minutes < 60:
             return f"{minutes} minute{'s' if minutes != 1 else ''}"
@@ -120,31 +121,31 @@ class GamingNotifier:
         hour_str = f"1 hour" if hours == 1 else f"{hours} hours"
         if mins == 0: return hour_str
         return f"{hour_str} and {mins} minute{'s' if mins != 1 else ''}"
-    
+
     async def _send_to_endpoint(
-        self, 
-        ep_id: str, 
-        message: str, 
-        image_url: str = None, 
-        game_title: str = None, 
-        duration_str: str = None, 
+        self,
+        ep_id: str,
+        message: str,
+        image_url: str = None,
+        game_title: str = None,
+        duration_str: str = None,
         event_type: str = "info"
     ) -> None:
         dest = self._cached_endpoints.get(ep_id)
         if not dest: return
-            
+
         service_str = dest.get("notifier", "")
         if not service_str or "." not in service_str: return
-            
+
         domain, service = service_str.split(".", 1)
-        
+
         if not self.hass.services.has_service(domain, service):
             _LOGGER.warning("Gaming Status: notification skipped, service %s.%s not found", domain, service)
             return
 
         target_id = dest.get("target_id", "").strip()
         ep_type = dest.get("type", "Mobile App")
-        
+
         service_data = {}
 
         if target_id and target_id.lower() != "n/a":
@@ -153,7 +154,7 @@ class GamingNotifier:
 
         if ep_type == "Discord":
             service_data["message"] = message
-            color = 65280 if event_type == "start" else (16711680 if event_type == "stop" else 3447003) 
+            color = 65280 if event_type == "start" else (16711680 if event_type == "stop" else 3447003)
             embed = {"color": color}
             if game_title: embed["title"] = game_title
             if duration_str: embed["description"] = f"Duration: {duration_str}"
@@ -164,7 +165,7 @@ class GamingNotifier:
             if duration_str: final_message += f"\nDuration: {duration_str}"
             service_data["message"] = final_message
             if image_url and ep_type != "SMS": service_data["data"] = {"image": image_url}
-            
+
         try: await self.hass.services.async_call(domain, service, service_data)
         except Exception as exc: _LOGGER.warning("Gaming Status: notification failed for endpoint '%s': %s", ep_id, exc)
 
@@ -173,7 +174,7 @@ class GamingNotifier:
     # ------------------------------------------------------------------
 
     async def _handle_state_change(self, event) -> None:
-        if self._startup_time and datetime.now() - self._startup_time < timedelta(seconds=30):
+        if self._startup_time and dt_util.now() - self._startup_time < timedelta(seconds=30):
             return
 
         entity_id = event.data.get("entity_id", "")
@@ -189,7 +190,7 @@ class GamingNotifier:
 
         old_game = " ".join(str(old_state.state).split())
         new_game = " ".join(str(new_state.state).split())
-        
+
         ignored = [STATE_UNAVAILABLE, STATE_UNKNOWN, "offline"]
         user_config = self._cached_players.get(target_player, {})
 
@@ -234,7 +235,7 @@ class GamingNotifier:
                         if is_switch and current_url == old_url: continue
                         image_url = current_url
                         break
-            
+
             # --- Format message based on event type ---
             if is_switch and duration_str:
                 msg = f"{target_player} switched to {new_game} after {duration_str}"
@@ -242,10 +243,10 @@ class GamingNotifier:
                 msg = f"{target_player} switched to {new_game}"
             else:
                 msg = f"{target_player} started playing {new_game}"
-                
+
             for ep_id in start_dests:
                 await self._send_to_endpoint(ep_id, message=msg, image_url=image_url, game_title=new_game, event_type="start")
-                
+
         elif is_end:
             image_url = old_state.attributes.get("game_cover_art") or old_state.attributes.get("cached_game_cover")
             for ep_id in end_dests:
@@ -257,7 +258,11 @@ class GamingNotifier:
 
     async def _check_parental_controls(self, now) -> None:
         if not self._cached_parental: return
-        now_dt = datetime.now()
+
+        # Use dt_util.now() for a timezone-aware datetime that respects HA's
+        # configured timezone and handles DST correctly. datetime.now() is
+        # naive and can produce wrong results at DST boundaries or after restart.
+        now_dt = dt_util.now()
         is_weekend = now_dt.weekday() >= 5
 
         for player_name, rules in self._cached_parental.items():
@@ -266,46 +271,53 @@ class GamingNotifier:
             master_state = self.hass.states.get(master_entity)
             if not master_state: continue
 
-            # --- SCREEN TIME LIMIT (Game-Time Based Repeats) ---
+            # --- SCREEN TIME LIMIT ---
+            # Read the limit directly from our cached config rather than from
+            # the sensor's state attributes. Those attributes are listed in
+            # _unrecorded_attributes on MasterGamingSensor, so HA does not
+            # persist them — they return None until the sensor next updates,
+            # which silently skipped the parental check on every HA restart
+            # and any minute where no state change had occurred yet.
             st_rule = rules.get("screen_time", {})
             if st_rule.get("enabled"):
                 st_key = f"{safe_player}_screen_time"
                 st_repeat = int(st_rule.get("repeat", 0))
-                
-                limit_raw = master_state.attributes.get("daily_play_limit_minutes")
-                remaining_raw = master_state.attributes.get("remaining_play_time_minutes")
+                limit = int(
+                    st_rule.get("weekend_minutes", 180)
+                    if is_weekend
+                    else st_rule.get("weekday_minutes", 120)
+                )
 
-                if limit_raw is not None and remaining_raw is not None:
-                    try:
-                        # Hard cast to prevent HA state restore strings from crashing the logic
-                        limit = int(float(limit_raw))
-                        remaining = int(float(remaining_raw))
-                    except (ValueError, TypeError):
-                        continue
+                # total_daily_hours IS recorded and always available.
+                today_minutes = int(float(master_state.attributes.get("total_daily_hours", 0)) * 60)
 
-                    if remaining <= 0:
-                        is_playing = master_state.state.lower() not in ("offline", "unavailable", "unknown")
-                        
-                        if is_playing:
-                            today_minutes = int(float(master_state.attributes.get("total_daily_hours", 0)) * 60)
-                            overage = today_minutes - limit
-                            
-                            last_notified_overage = self._triggered_parental_events.get(st_key)
-                            
-                            should_notify = False
-                            if last_notified_overage is None:
-                                should_notify = True 
-                            elif st_repeat > 0 and (overage - last_notified_overage) >= st_repeat:
-                                should_notify = True
-                                
-                            if should_notify:
-                                self._triggered_parental_events[st_key] = overage
-                                msg = f"{player_name} has exceeded the {limit}-minute screen time limit by {overage} minutes ({today_minutes} minutes total)." if overage > 0 else f"{player_name} has reached the {limit}-minute screen time limit."
-                                await self._fire_parental_action(player_name, st_rule.get("action", ""), msg)
-                    elif remaining > 0: 
-                        self._triggered_parental_events.pop(st_key, None)
+                if today_minutes >= limit:
+                    is_playing = master_state.state.lower() not in ("offline", "unavailable", "unknown")
 
-            # --- CURFEW LIMIT (Clock-Time Based Repeats) ---
+                    if is_playing:
+                        overage = today_minutes - limit
+                        last_notified_overage = self._triggered_parental_events.get(st_key)
+
+                        should_notify = False
+                        if last_notified_overage is None:
+                            should_notify = True
+                        elif st_repeat > 0 and (overage - last_notified_overage) >= st_repeat:
+                            should_notify = True
+
+                        if should_notify:
+                            self._triggered_parental_events[st_key] = overage
+                            if overage > 0:
+                                msg = f"{player_name} has exceeded the {limit}-minute screen time limit by {overage} minutes ({today_minutes} minutes total)."
+                            else:
+                                msg = f"{player_name} has reached the {limit}-minute screen time limit."
+                            await self._fire_parental_action(player_name, st_rule.get("action", ""), msg)
+
+                elif today_minutes < limit:
+                    # Player is back under the limit (e.g. after a daily reset) —
+                    # clear the fired flag so the next breach triggers fresh.
+                    self._triggered_parental_events.pop(st_key, None)
+
+            # --- CURFEW ---
             cf_rule = rules.get("curfew", {})
             if cf_rule.get("enabled"):
                 cf_key = f"{safe_player}_curfew"
@@ -313,29 +325,43 @@ class GamingNotifier:
                 cf_repeat = int(cf_rule.get("repeat", 0))
                 try:
                     c_hour, c_min = map(int, curfew_time.split(":"))
+                    # Build curfew_dt in the same tz-aware space as now_dt so
+                    # the comparison and subtraction are always consistent.
                     curfew_dt = now_dt.replace(hour=c_hour, minute=c_min, second=0, microsecond=0)
+
                     if now_dt >= curfew_dt:
                         is_playing = master_state.state.lower() not in ("offline", "unavailable", "unknown")
                         last_fired = self._triggered_parental_events.get(cf_key)
-                        
-                        if is_playing and (last_fired is None or (cf_repeat > 0 and (now_dt - last_fired).total_seconds() >= (cf_repeat * 60))):
+
+                        if is_playing and (
+                            last_fired is None or
+                            (cf_repeat > 0 and (now_dt - last_fired).total_seconds() >= (cf_repeat * 60))
+                        ):
                             self._triggered_parental_events[cf_key] = now_dt
                             overage_minutes = int((now_dt - curfew_dt).total_seconds() / 60)
-                            await self._fire_parental_action(player_name, cf_rule.get("action", ""), f"{player_name} has exceeded the {datetime.strptime(curfew_time, '%H:%M').strftime('%I:%M %p').lstrip('0')} curfew by {overage_minutes} minutes." if overage_minutes > 1 else f"{player_name} has reached the {datetime.strptime(curfew_time, '%H:%M').strftime('%I:%M %p').lstrip('0')} curfew.")
-                    elif now_dt < curfew_dt: 
+                            pretty_time = datetime.strptime(curfew_time, "%H:%M").strftime("%I:%M %p").lstrip("0")
+                            if overage_minutes > 1:
+                                msg = f"{player_name} has exceeded the {pretty_time} curfew by {overage_minutes} minutes."
+                            else:
+                                msg = f"{player_name} has reached the {pretty_time} curfew."
+                            await self._fire_parental_action(player_name, cf_rule.get("action", ""), msg)
+
+                    elif now_dt < curfew_dt:
+                        # Past midnight, new day — clear so curfew fires again tonight.
                         self._triggered_parental_events.pop(cf_key, None)
+
                 except (ValueError, AttributeError): pass
 
     async def _fire_parental_action(self, player_name: str, action_data, message: str) -> None:
         if not action_data or action_data == "none": return
-        
+
         targets = action_data if isinstance(action_data, list) else [action_data]
-        
+
         for target in targets:
             if not isinstance(target, str): continue
             target = target.strip()
             if not target or target == "none": continue
-            
+
             if target.startswith("endpoint_"):
                 await self._send_to_endpoint(target.replace("endpoint_", "", 1), message, event_type="info")
             elif target in self._cached_endpoints:
@@ -354,7 +380,7 @@ class GamingNotifier:
     async def _trigger_weekly_report(self, now) -> None:
         if now.weekday() != self._run_day or not self._cached_weekly.get("enabled"): return
         assigned = self._cached_weekly.get("destinations", [])
-        lines = [f"**Weekly Gaming Report** — {datetime.now().strftime('%B %d, %Y')}"]
+        lines = [f"**Weekly Gaming Report** — {dt_util.now().strftime('%B %d, %Y')}"]
         for player_name in self._cached_players:
             safe = player_name.lower().replace(" ", "_")
             state = self.hass.states.get(f"sensor.{safe}_gaming_status")

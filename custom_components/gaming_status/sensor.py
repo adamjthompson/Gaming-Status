@@ -673,8 +673,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             in_grace_period = False
             
             current_grace_limit = self._active_settings["GRACE_PERIOD_SECONDS"]
-            if platform_data.get("offline_reason") == "away": 
-                current_grace_limit = self._active_settings["AWAY_GRACE_PERIOD_SECONDS"]
             if platform_data.get("offline_reason") == "away": current_grace_limit = self._active_settings["AWAY_GRACE_PERIOD_SECONDS"]
             if self._current_game and is_offline_now:
                 if self._temp_offline_start is None: 
