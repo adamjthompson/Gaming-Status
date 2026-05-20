@@ -83,14 +83,14 @@ Add, edit, or delete the gamers in your household.
 #### 2. Notifications
 Manage where your [gaming alerts and weekly reports](docs/notifications.md) are sent.
 * **Add Notification:** Map a friendly name (e.g., "Dad's Phone") to an existing Home Assistant `notify.` service. It fully supports standard mobile app notifications, Discord, and SMS.
-* **Weekly Report:** Send a beautifully formatted summary of everyone's weekly playtime and top games to your selected endpoints on a specific day and time.
+* **Weekly Report:** Send a beautifully formatted summary of everyone's weekly playtime and top games to your selected notification methods on a specific day and time.
 
 #### 3. Parental Controls
 Set automated rules based on accumulated playtime or time of day.
 * **Screen Time:** Set distinct weekday and weekend daily minute limits.
 * **Curfew:** Set distinct weekday and weekend cutoff times (e.g., 22:00).
-* **Reminder Frequency:** Set how often to repeat the action.
-* **Actions:** When a limit is reached, you can automatically trigger a notification, run a Home Assistant script, or fire an automation (like turning off a smart plug or TV).
+* **Reminder Frequency:** Set how often to repeat the notification(s).
+* **Notifications:** When a limit is reached, you can automatically send a notification using any of your configured methods.
 
 #### 4. Advanced
 Fine-tune game names, covers, and exclusions using simple, comma-separated lists.
