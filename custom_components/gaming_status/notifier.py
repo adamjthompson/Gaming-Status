@@ -128,6 +128,7 @@ class GamingNotifier:
         message: str,
         image_url: str = None,
         game_title: str = None,
+        duration_str: str = None,
         event_type: str = "info"
     ) -> bool:
         """Dispatch a notification to a configured endpoint."""
@@ -206,6 +207,7 @@ class GamingNotifier:
         old_state,
         is_switch: bool,
     ) -> str | None:
+        """Wait for cover art to be available on the active platform sensor."""
         safe = player_name.lower().replace(" ", "_")
         old_url = old_state.attributes.get("game_cover_art") if old_state else None
 
@@ -216,6 +218,7 @@ class GamingNotifier:
         ]
 
         def _read_cover() -> str | None:
+            """Return the first valid cover URL found across platform sensors."""
             for pid in platform_entity_ids:
                 pstate = self.hass.states.get(pid)
                 if not pstate:
@@ -226,6 +229,8 @@ class GamingNotifier:
                 )
                 if not url:
                     continue
+                # For a game switch, ignore the previous game's art which may
+                # still be present on the sensor before it has been updated.
                 if is_switch and url == old_url:
                     continue
                 return url
@@ -235,12 +240,20 @@ class GamingNotifier:
         if url:
             return url
 
+        _LOGGER.debug(
+            "Gaming Status: cover art not yet ready for %s, waiting up to 30s",
+            player_name,
+        )
         for _ in range(15):
             await asyncio.sleep(2)
             url = _read_cover()
             if url:
                 return url
 
+        _LOGGER.debug(
+            "Gaming Status: cover art did not arrive in time for %s, sending without image",
+            player_name,
+        )
         return None
 
     # ------------------------------------------------------------------
