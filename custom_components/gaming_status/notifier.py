@@ -350,9 +350,8 @@ class GamingNotifier:
     async def _check_parental_controls(self, now) -> None:
         if not self._cached_parental: return
 
-        # Use dt_util.now() for a timezone-aware datetime that respects HA's
-        # configured timezone and handles DST correctly. datetime.now() is
-        # naive and can produce wrong results at DST boundaries or after restart.
+        # dt_util.now() is timezone-aware and respects HA's configured timezone,
+        # avoiding DST issues that datetime.now() (naive) can produce.
         now_dt = dt_util.now()
         is_weekend = now_dt.weekday() >= 5
 
@@ -362,31 +361,33 @@ class GamingNotifier:
             master_state = self.hass.states.get(master_entity)
             if not master_state: continue
 
+            is_playing = master_state.state.lower() not in ("offline", "unavailable", "unknown")
+
             # --- SCREEN TIME LIMIT ---
-            # Read the limit directly from our cached config rather than from
-            # the sensor's state attributes. Those attributes are listed in
-            # _unrecorded_attributes on MasterGamingSensor, so HA does not
-            # persist them — they return None until the sensor next updates,
-            # which silently skipped the parental check on every HA restart
-            # and any minute where no state change had occurred yet.
             st_rule = rules.get("screen_time", {})
             if st_rule.get("enabled"):
                 st_key = f"{safe_player}_screen_time"
                 st_repeat = int(st_rule.get("repeat", 0))
-                limit = int(
-                    st_rule.get("weekend_minutes", 180)
-                    if is_weekend
-                    else st_rule.get("weekday_minutes", 120)
-                )
 
-                # total_daily_hours IS recorded and always available.
-                today_minutes = int(float(master_state.attributes.get("total_daily_hours", 0)) * 60)
+                # remaining_play_time_minutes is calculated fresh by MasterGamingSensor
+                # on every state update and is always accurate while the player is active.
+                # It may be None briefly after a restart before the sensor updates once —
+                # in that case we skip this tick and retry next minute rather than
+                # attempting a broken calculation.
+                remaining_raw = master_state.attributes.get("remaining_play_time_minutes")
+                limit_raw = master_state.attributes.get("daily_play_limit_minutes")
 
-                if today_minutes >= limit:
-                    is_playing = master_state.state.lower() not in ("offline", "unavailable", "unknown")
+                if remaining_raw is None or limit_raw is None:
+                    # Sensor hasn't updated yet since restart — skip and retry next tick.
+                    continue
 
+                remaining = int(float(remaining_raw))
+                limit = int(float(limit_raw))
+
+                if remaining <= 0:
                     if is_playing:
-                        overage = today_minutes - limit
+                        today_minutes = int(float(master_state.attributes.get("total_daily_hours", 0)) * 60)
+                        overage = max(0, today_minutes - limit)
                         last_notified_overage = self._triggered_parental_events.get(st_key)
 
                         should_notify = False
@@ -400,16 +401,16 @@ class GamingNotifier:
                                 msg = f"{player_name} has exceeded the {limit}-minute screen time limit by {overage} minutes ({today_minutes} minutes total)."
                             else:
                                 msg = f"{player_name} has reached the {limit}-minute screen time limit."
-                            # Only record as notified if delivery actually succeeded.
-                            # If _fire_parental_action returns False (e.g. service
-                            # unavailable), we leave _triggered_parental_events alone
-                            # so the next tick retries rather than silently suppressing.
+                            # Only record as notified if delivery actually succeeded so
+                            # that a transient failure retries next tick rather than
+                            # permanently suppressing further notifications.
                             if await self._fire_parental_action(player_name, st_rule.get("action", ""), msg):
                                 self._triggered_parental_events[st_key] = overage
 
-                elif today_minutes < limit:
-                    # Player is back under the limit (e.g. after a daily reset) —
-                    # clear the fired flag so the next breach triggers fresh.
+                else:
+                    # Remaining time is positive — player is back under their limit
+                    # (e.g. after a daily reset). Clear the flag so the next breach
+                    # triggers a fresh notification.
                     self._triggered_parental_events.pop(st_key, None)
 
             # --- CURFEW ---
@@ -420,12 +421,9 @@ class GamingNotifier:
                 cf_repeat = int(cf_rule.get("repeat", 0))
                 try:
                     c_hour, c_min = map(int, curfew_time.split(":"))
-                    # Build curfew_dt in the same tz-aware space as now_dt so
-                    # the comparison and subtraction are always consistent.
                     curfew_dt = now_dt.replace(hour=c_hour, minute=c_min, second=0, microsecond=0)
 
                     if now_dt >= curfew_dt:
-                        is_playing = master_state.state.lower() not in ("offline", "unavailable", "unknown")
                         last_fired = self._triggered_parental_events.get(cf_key)
 
                         if is_playing and (
@@ -438,7 +436,6 @@ class GamingNotifier:
                                 msg = f"{player_name} has exceeded the {pretty_time} curfew by {overage_minutes} minutes."
                             else:
                                 msg = f"{player_name} has reached the {pretty_time} curfew."
-                            # Only record as fired if delivery actually succeeded.
                             if await self._fire_parental_action(player_name, cf_rule.get("action", ""), msg):
                                 self._triggered_parental_events[cf_key] = now_dt
 
