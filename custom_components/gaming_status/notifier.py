@@ -170,6 +170,83 @@ class GamingNotifier:
         except Exception as exc: _LOGGER.warning("Gaming Status: notification failed for endpoint '%s': %s", ep_id, exc)
 
     # ------------------------------------------------------------------
+    # Cover art resolution
+    # ------------------------------------------------------------------
+
+    async def _resolve_cover_art(
+        self,
+        player_name: str,
+        user_config: dict,
+        old_state,
+        is_switch: bool,
+    ) -> str | None:
+        """Wait for cover art to be available on the active platform sensor.
+
+        Strategy:
+        - Read the platform sensors directly (the source of truth) rather than
+          the master sensor, which only updates after a further state-change
+          propagation step and was the cause of the original timing race.
+        - If a /local/ URL is already present it is a user-defined custom cover
+          and is returned immediately — no waiting needed.
+        - For SteamGridDB URLs we wait up to 30 seconds (15 x 2s) for the
+          async fetch to complete before giving up and sending without art.
+        - For a game-switch event we skip any URL that matches the previous
+          game's art so we don't accidentally reuse stale cover art.
+        """
+        safe = player_name.lower().replace(" ", "_")
+        old_url = old_state.attributes.get("game_cover_art") if old_state else None
+
+        # Build the ordered list of platform sensor entity IDs for this player.
+        platform_entity_ids = [
+            f"sensor.{safe}_{platform}"
+            for platform in ("steam", "xbox", "playstation", "custom")
+            if user_config.get(platform)
+        ]
+
+        def _read_cover() -> str | None:
+            """Return the first valid cover URL found across platform sensors."""
+            for pid in platform_entity_ids:
+                pstate = self.hass.states.get(pid)
+                if not pstate:
+                    continue
+                url = (
+                    pstate.attributes.get("game_cover_art")
+                    or pstate.attributes.get("cached_game_cover")
+                )
+                if not url:
+                    continue
+                # For a game switch, ignore the previous game's art which may
+                # still be present on the sensor before it has been updated.
+                if is_switch and url == old_url:
+                    continue
+                return url
+            return None
+
+        # Check immediately — cached art from a previous session may already
+        # be present, or a /local/ custom cover is always ready to use now.
+        url = _read_cover()
+        if url:
+            return url
+
+        # Art not yet available — poll the platform sensors directly, waiting
+        # up to 30 seconds for the SteamGridDB fetch to complete.
+        _LOGGER.debug(
+            "Gaming Status: cover art not yet ready for %s, waiting up to 30s",
+            player_name,
+        )
+        for _ in range(15):
+            await asyncio.sleep(2)
+            url = _read_cover()
+            if url:
+                return url
+
+        _LOGGER.debug(
+            "Gaming Status: cover art did not arrive in time for %s, sending without image",
+            player_name,
+        )
+        return None
+
+    # ------------------------------------------------------------------
     # State change handler
     # ------------------------------------------------------------------
 
@@ -224,19 +301,7 @@ class GamingNotifier:
                 except Exception: pass
 
         if is_start or is_switch:
-            image_url = None
-            old_url = old_state.attributes.get("game_cover_art") if old_state else None
-            for _ in range(8):
-                await asyncio.sleep(2)
-                current_state = self.hass.states.get(entity_id)
-                if current_state:
-                    current_url = current_state.attributes.get("game_cover_art") or current_state.attributes.get("cached_game_cover")
-                    if current_url:
-                        if is_switch and current_url == old_url: continue
-                        image_url = current_url
-                        break
-
-            # --- Format message based on event type ---
+            # Build the message now — it doesn't depend on cover art.
             if is_switch and duration_str:
                 msg = f"{target_player} switched to {new_game} after {duration_str}"
             elif is_switch:
@@ -244,8 +309,18 @@ class GamingNotifier:
             else:
                 msg = f"{target_player} started playing {new_game}"
 
+            image_url = await self._resolve_cover_art(
+                target_player, user_config, old_state, is_switch
+            )
+
             for ep_id in start_dests:
-                await self._send_to_endpoint(ep_id, message=msg, image_url=image_url, game_title=new_game, event_type="start")
+                # Discord can only display publicly reachable URLs.
+                # /local/ paths are LAN-only, so strip them for Discord endpoints
+                # rather than sending an embed whose image silently fails to load.
+                dest = self._cached_endpoints.get(ep_id, {})
+                discord_safe_url = image_url if (image_url or "").startswith("https://") else None
+                effective_url = discord_safe_url if dest.get("type") == "Discord" else image_url
+                await self._send_to_endpoint(ep_id, message=msg, image_url=effective_url, game_title=new_game, event_type="start")
 
         elif is_end:
             image_url = old_state.attributes.get("game_cover_art") or old_state.attributes.get("cached_game_cover")
