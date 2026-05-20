@@ -207,6 +207,21 @@ class GamingNotifier:
         start_dests = user_config.get("notify_start_destinations", [])
         end_dests = user_config.get("notify_end_destinations", [])
 
+        # --- Calculate duration for the previous session ---
+        duration_str = None
+        if is_switch or is_end:
+            start_time_str = old_state.attributes.get("play_start_time")
+            if start_time_str:
+                try:
+                    start_dt = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
+                    now_dt = datetime.now(start_dt.tzinfo) if start_dt.tzinfo else datetime.now()
+                    diff = now_dt - start_dt
+                    total_minutes = int(diff.total_seconds() / 60)
+                    if total_minutes > 0:
+                        hours, minutes = total_minutes // 60, total_minutes % 60
+                        duration_str = f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m"
+                except Exception: pass
+
         if is_start or is_switch:
             image_url = None
             old_url = old_state.attributes.get("game_cover_art") if old_state else None
@@ -219,23 +234,20 @@ class GamingNotifier:
                         if is_switch and current_url == old_url: continue
                         image_url = current_url
                         break
-            event_verb = "started playing" if is_start else "switched to"
+            
+            # --- Format message based on event type ---
+            if is_switch and duration_str:
+                msg = f"{target_player} switched to {new_game} after {duration_str}"
+            elif is_switch:
+                msg = f"{target_player} switched to {new_game}"
+            else:
+                msg = f"{target_player} started playing {new_game}"
+                
             for ep_id in start_dests:
-                await self._send_to_endpoint(ep_id, message=f"{target_player} {event_verb} {new_game}", image_url=image_url, game_title=new_game, event_type="start")
+                await self._send_to_endpoint(ep_id, message=msg, image_url=image_url, game_title=new_game, event_type="start")
                 
         elif is_end:
             image_url = old_state.attributes.get("game_cover_art") or old_state.attributes.get("cached_game_cover")
-            duration_str = None
-            start_time_str = old_state.attributes.get("play_start_time")
-            if start_time_str:
-                try:
-                    start_dt = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
-                    now_dt = datetime.now(start_dt.tzinfo) if start_dt.tzinfo else datetime.now()
-                    diff = now_dt - start_dt
-                    total_minutes = int(diff.total_seconds() / 60)
-                    hours, minutes = total_minutes // 60, total_minutes % 60
-                    duration_str = f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m"
-                except Exception: pass
             for ep_id in end_dests:
                 await self._send_to_endpoint(ep_id, message=f"{target_player} finished playing {old_game}", image_url=image_url, game_title=old_game, duration_str=duration_str, event_type="stop")
 
