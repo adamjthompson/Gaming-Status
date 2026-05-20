@@ -131,6 +131,7 @@ class GamingNotifier:
         duration_str: str = None,
         event_type: str = "info"
     ) -> bool:
+        """Dispatch a notification to a configured endpoint."""
         dest = self._cached_endpoints.get(ep_id)
         if not dest:
             _LOGGER.warning("Gaming Status: endpoint '%s' not found in config", ep_id)
@@ -160,18 +161,40 @@ class GamingNotifier:
             else: service_data["target"] = target_id
 
         if ep_type == "Discord":
-            service_data["message"] = message
             color = 65280 if event_type == "start" else (16711680 if event_type == "stop" else 3447003)
             embed = {"color": color}
-            if game_title: embed["title"] = game_title
-            if duration_str: embed["description"] = f"Duration: {duration_str}"
+            
+            # --- Format specifically for Parental Alerts vs Standard Alerts ---
+            if event_type == "info":
+                embed["title"] = "Parental Control Alert"
+                embed["description"] = message
+                service_data["message"] = "" 
+            else:
+                service_data["message"] = message
+                # Discord still requires title for embed structure
+                if game_title: embed["title"] = game_title
+                if duration_str: embed["description"] = f"Duration: {duration_str}"
+                
             if image_url: embed["image"] = {"url": image_url}
-            service_data["data"] = {"embed": embed}
-        else:
+            
+            # PREVENT SILENT FAILURES: Discord API rejects embeds that only have a color.
+            if len(embed) > 1: 
+                service_data["data"] = {"embed": embed}
+            else:
+                service_data["message"] = message
+                
+        else: # Standard Mobile App / SMS
             final_message = message
             if duration_str: final_message += f"\nDuration: {duration_str}"
             service_data["message"] = final_message
-            if image_url and ep_type != "SMS": service_data["data"] = {"image": image_url}
+            
+            # Inject a custom title strictly for Parental Alerts.
+            # Start and Stop events remain untouched to preserve original formatting.
+            if event_type == "info":
+                service_data["title"] = "Parental Control Alert"
+                
+            if image_url and ep_type != "SMS": 
+                service_data["data"] = {"image": image_url}
 
         try:
             await self.hass.services.async_call(domain, service, service_data)
