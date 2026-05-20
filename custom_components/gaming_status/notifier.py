@@ -317,7 +317,8 @@ class GamingNotifier:
     # ------------------------------------------------------------------
 
     async def _check_parental_controls(self, now) -> None:
-        if not self._cached_parental: return
+        if not self._cached_parental: 
+            return
 
         now_dt = dt_util.now()
         is_weekend = now_dt.weekday() >= 5
@@ -326,9 +327,10 @@ class GamingNotifier:
             safe_player = player_name.lower().replace(" ", "_")
             master_entity = f"sensor.{safe_player}_gaming_status"
             master_state = self.hass.states.get(master_entity)
-            if not master_state: continue
             
-            # --- Create a foolproof fallback in case the Parental UI dropdown is blank ---
+            if not master_state: 
+                continue
+                
             user_config = self._cached_players.get(player_name, {})
             fallback_dests = list(set(user_config.get("notify_start_destinations", []) + user_config.get("notify_end_destinations", [])))
 
@@ -345,7 +347,17 @@ class GamingNotifier:
                     if is_weekend
                     else st_rule.get("weekday_minutes", 120)
                 )
-                today_minutes = int(float(master_state.attributes.get("total_daily_hours", 0)) * 60)
+                
+                # Safely parse today_minutes to prevent silent float(None) crashes
+                try:
+                    raw_hours = master_state.attributes.get("total_daily_hours", 0)
+                    if raw_hours is None: raw_hours = 0
+                    today_minutes = int(float(raw_hours) * 60)
+                except Exception as e:
+                    _LOGGER.warning("Gaming Status TRACE: [%s] Failed to parse today_minutes: %s", player_name, e)
+                    continue
+
+                _LOGGER.warning("Gaming Status TRACE: [%s] Screen Time Check -> Limit: %sm, Played: %sm, Playing: %s", player_name, limit, today_minutes, is_playing)
 
                 if today_minutes >= limit:
                     if is_playing:
@@ -355,8 +367,12 @@ class GamingNotifier:
                         should_notify = False
                         if last_notified_overage is None:
                             should_notify = True
+                            _LOGGER.warning("Gaming Status TRACE: [%s] Triggering FIRST notification. Overage: %s", player_name, overage)
                         elif st_repeat > 0 and (overage - last_notified_overage) >= st_repeat:
                             should_notify = True
+                            _LOGGER.warning("Gaming Status TRACE: [%s] Triggering REPEAT notification. Target repeat gap: %s", player_name, st_repeat)
+                        else:
+                            _LOGGER.warning("Gaming Status TRACE: [%s] Skipping notification. Overage (%s) hasn't passed repeat gap (%s) since last alert (%s).", player_name, overage, st_repeat, last_notified_overage)
 
                         if should_notify:
                             if overage > 0:
@@ -364,15 +380,23 @@ class GamingNotifier:
                             else:
                                 msg = f"{player_name} has reached the {limit}-minute screen time limit."
                                 
-                            # Safety routing check
                             action = st_rule.get("action", "none")
                             if not action or action == "none": 
                                 action = fallback_dests
                                 
+                            _LOGGER.warning("Gaming Status TRACE: [%s] Firing action to targets: %s", player_name, action)
+                                
                             if await self._fire_parental_action(player_name, action, msg):
+                                _LOGGER.warning("Gaming Status TRACE: [%s] Action SUCCESS. Recording event.", player_name)
                                 self._triggered_parental_events[st_key] = overage
+                            else:
+                                _LOGGER.warning("Gaming Status TRACE: [%s] Action FAILED to deliver.", player_name)
+                    else:
+                        _LOGGER.warning("Gaming Status TRACE: [%s] Over limit, but NOT playing. Silencing alert.", player_name)
 
                 else:
+                    if st_key in self._triggered_parental_events:
+                        _LOGGER.warning("Gaming Status TRACE: [%s] Time is under limit. Clearing memory.", player_name)
                     self._triggered_parental_events.pop(st_key, None)
 
             # --- CURFEW ---
@@ -399,7 +423,6 @@ class GamingNotifier:
                             else:
                                 msg = f"{player_name} has reached the {pretty_time} curfew."
                                 
-                            # Safety routing check
                             action = cf_rule.get("action", "none")
                             if not action or action == "none": 
                                 action = fallback_dests
@@ -414,6 +437,7 @@ class GamingNotifier:
 
     async def _fire_parental_action(self, player_name: str, action_data, message: str) -> bool:
         if not action_data or action_data == "none":
+            _LOGGER.warning("Gaming Status TRACE: _fire_parental_action received empty action_data.")
             return False
 
         targets = action_data if isinstance(action_data, list) else [action_data]
@@ -423,6 +447,8 @@ class GamingNotifier:
             if not isinstance(target, str): continue
             target = target.strip()
             if not target or target == "none": continue
+
+            _LOGGER.warning("Gaming Status TRACE: Attempting to send to target: %s", target)
 
             if target.startswith("endpoint_"):
                 sent = await self._send_to_endpoint(target.replace("endpoint_", "", 1), message, event_type="info")
@@ -435,12 +461,13 @@ class GamingNotifier:
                         await self.hass.services.async_call(domain, service, {"message": message})
                         sent = True
                     except Exception as exc:
-                        _LOGGER.warning("Gaming Status: parental action failed: %s", exc)
+                        _LOGGER.warning("Gaming Status TRACE: native HA service call failed: %s", exc)
                         sent = False
                 else:
-                    _LOGGER.warning("Gaming Status: parental action skipped, service %s.%s not found", domain, service)
+                    _LOGGER.warning("Gaming Status TRACE: native HA service %s.%s not found", domain, service)
                     sent = False
             else:
+                _LOGGER.warning("Gaming Status TRACE: Target %s did not match any known endpoints or services.", target)
                 sent = False
 
             if sent:
