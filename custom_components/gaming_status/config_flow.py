@@ -608,8 +608,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 raw = user_input.get(field, "")
                 parsed_dict = {}
                 for item in raw.split(','):
-                    if ':' in item:
-                        k, v = item.split(':', 1)
+                    if '=' in item:
+                        k, v = item.split('=', 1)
                         parsed_dict[k.strip()] = v.strip()
                 opts[key] = _dump_json(parsed_dict)
 
@@ -641,8 +641,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             raw = opts.get(key)
             if raw:
                 parsed = _load_json(raw, fallback)
-                return ", ".join([f"{k}: {v}" for k, v in parsed.items()])
-            return ", ".join([f"{k}: {v}" for k, v in fallback.items()])
+                # Universally reconstruct using '=' for the UI with clean spacing
+                return ", ".join([f"{k} = {v}" for k, v in parsed.items()])
+            return ", ".join([f"{k} = {v}" for k, v in fallback.items()])
 
         return self.async_show_form(
             step_id=MENU_ADVANCED,

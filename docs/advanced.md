@@ -23,23 +23,23 @@ This section maps a friendly display name to the underlying Home Assistant senso
 This acts as a strict dictionary. If the integration detects an exact match with the key (the name on the left), it will permanently replace it with the value (the name on the right) before doing any API lookups or dashboard updates. This is perfect for shortening obnoxiously long official titles or for when cover art lookup fails due to a name mismatch.
 
 ```
-Minecraft Launcher: Minecraft, Minecraft Preview for Windows: Minecraft, Minecraft: Java Edition: Minecraft, Minecraft for Windows: Minecraft, Minecraft for PlayStation®: Minecraft
+RaceTheSun = Race The Sun, Call of Duty = Call of Duty: Black Ops 7, Army of TWO: TFD = Army of Two: The 40th Day
 ```
 
 ## Custom Cover Map
 This allows you to bypass the SteamGridDB API entirely. If a game title matches a key in this list, the integration will immediately use the provided URL for the artwork. This is great for obscure games, custom emulators, or simply when you prefer a specific piece of fan art over the official hero artwork.
 
-*Note: URLs must point directly to an image file (e.g., .png, .jpg).*
+*Note: URLs must point directly to an image file (e.g., .png, .jpg). Any URL can be used, including local files, but if the file is not publicly available, it will not display in notifications.*
 
 ```
-Marvel Rivals: https://cdn2.steamgriddb.com/hero/a31d2779e08530d0b5fdbed368c735b4.png, Halo: /local/halo.png
+Marvel Rivals = https://cdn2.steamgriddb.com/hero/a31d2779e08530d0b5fdbed368c735b4.png, Halo = /local/halo.png
 ```
 
 ## Title Cleanup Strings
 This is a universal "scrubber." It takes a list of phrases and automatically deletes them from any game title it encounters. This is evaluated case-insensitively. It is the best way to handle dynamic "Rich Presence" statuses that console integrations append to games or to remove unnecessary word from game titles.
 
 ```
-Tom Clancy's, Sid Meier's, Marvel's, Director's Cut, Steam Edition, Java Edition, Open Network Test
+Tom Clancy's, Sid Meier's, Marvel's, Director's Cut, Steam Edition, : Java Edition, Open Network Test
 ```
 
 ## Global Exclusion List

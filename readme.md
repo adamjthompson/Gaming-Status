@@ -95,9 +95,9 @@ Set automated rules based on accumulated playtime or time of day.
 #### 4. Advanced
 Fine-tune game names, covers, and exclusions using simple, comma-separated lists.
 * **Game Title Overrides:** Clean up messy or lengthy names. Format as `raw name: display name`.
-  * *Example:* `Minecraft Launcher: Minecraft, Grand Theft Auto V: GTA V`
+  * *Example:* `Minecraft Launcher = Minecraft, Grand Theft Auto V = GTA V`
 * **Custom Cover Map:** Manually assign cover art for custom games or unrecognized titles. Fully supports web URLs and Home Assistant `/local/` paths.
-  * *Example:* `Marvel Rivals: /local/covers/marvel.png, Halo: https://...`
+  * *Example:* `Marvel Rivals = /local/covers/marvel.png, Halo = https://...`
 * **Title Cleanups:** A list of strings to automatically strip from game names.
   * *Example:* `Tom Clancy's, Sid Meier's`
 * **Global Exclusions:** Games or apps that should be universally ignored by the tracker. 
