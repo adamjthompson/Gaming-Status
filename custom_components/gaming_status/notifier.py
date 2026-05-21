@@ -223,6 +223,12 @@ class GamingNotifier:
                 pstate = self.hass.states.get(pid)
                 if not pstate:
                     continue
+                
+                # THE FIX: Explicitly ignore dormant platform sensors so we 
+                # don't accidentally grab stale artwork from a previous session!
+                if str(pstate.state).lower() in ("offline", "unavailable", "unknown", "idle"):
+                    continue
+
                 url = (
                     pstate.attributes.get("game_cover_art")
                     or pstate.attributes.get("cached_game_cover")
