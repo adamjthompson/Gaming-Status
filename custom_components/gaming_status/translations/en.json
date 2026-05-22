@@ -3,9 +3,13 @@
     "step": {
       "user": {
         "title": "Gaming Status Setup",
-        "description": "Enter your SteamGridDB API Key to automatically fetch game cover art. You can get a free key at [SteamGridDB]({api_url}).\n\n**Optional:** You can leave this blank and add a key later via the Configure button.",
+        "description": "Enter your SteamGridDB API Key to automatically fetch game cover art. You can get a free key at [SteamGridDB]({api_url}).\n\n**Optional:** You can leave this blank and add a key later via the Configure menu.",
         "data": {
-          "steamgriddb_api_key": "SteamGridDB API Key"
+          "steamgriddb_api_key": "SteamGridDB API Key",
+          "use_local_cache": "Enable Local Image Caching - Recommended if you have an external URL."
+        },
+        "data_description": {
+          "use_local_cache": "Downloads artwork directly to your Home Assistant storage. Makes dashboard load times instant, allows for offline artwork access, and prevents broken images during Internet outages. *This setting will break Discord notification images if you do NOT have an external Home Assistant URL.*"
         }
       }
     },
@@ -16,12 +20,14 @@
   "options": {
     "step": {
       "init": {
-        "title": "Gaming Status",
+        "title": "Gaming Status Configuration",
+        "description": "Select a category to configure.",
         "menu_options": {
           "manage_players": "Manage Players",
-          "notifications": "Notifications",
+          "notifications": "Notifications & Reporting",
           "parental_controls": "Parental Controls",
-          "advanced": "Advanced",
+          "custom_artwork": "Custom Artwork",
+          "advanced": "Advanced Settings",
           "global_settings": "Global Settings"
         }
       },
@@ -82,10 +88,12 @@
         }
       },
       "notifications": {
-        "title": "Notifications",
-        "description": "Manage your notifications and weekly report.",
+        "title": "Notifications & Reporting",
+        "description": "Configure where and how notifications are sent.",
         "data": {
-          "endpoint_choice": "Action"
+          "endpoints": "Notification Methods",
+          "notify_artwork": "Notification Artwork Style",
+          "weekly_report": "Weekly Report Settings"
         }
       },
       "add_endpoint": {
@@ -145,26 +153,22 @@
         }
       },
       "advanced": {
-        "title": "Advanced",
-        "description": "Game title overrides, custom cover art, title cleanup strings, and global exclusions. Use simple comma-separated lists!",
+        "title": "Advanced Settings",
+        "description": "Configure advanced integration behavior and API keys.",
         "data": {
           "steamgriddb_api_key": "SteamGridDB API Key",
-          "title_overrides": "Game Title Overrides",
-          "custom_covers": "Custom Cover Map",
-          "title_cleanups": "Title Cleanup Strings",
-          "global_exclusions": "Global Exclusion List"
-        },
-        "data_description": {
-          "title_overrides": "Comma-separated key:value pairs mapping raw names to display names. e.g. Minecraft Launcher: Minecraft, Grand Theft Auto V: GTA V",
-          "custom_covers": "Comma-separated key:value pairs mapping display names to URLs. e.g. Marvel Rivals: https://..., Minecraft: /local/...",
-          "title_cleanups": "Comma-separated strings to strip from game names. e.g. Tom Clancy's, Sid Meier's",
-          "global_exclusions": "Comma-separated list of games to ignore across all players. e.g. Home, YouTube, Netflix"
+          "title_overrides": "Title Overrides (e.g., Destiny 2: Lightfall = Destiny 2)",
+          "title_cleanups": "Title Cleanups (Regex/Text to strip from titles)",
+          "global_exclusions": "Global Exclusions (Ignored apps/games)"
         }
       },
       "global_settings": {
         "title": "Global Settings",
         "description": "Timing and behavior settings that apply to all players. **Only change these if you understand exactly what they do!**",
         "data": {
+          "use_local_cache": "Enable Local Image Caching",
+          "cache_max_files": "Maximum Cached Images",
+          "cache_max_days": "Image Retention (Days)",
           "grace_period_seconds": "Offline grace period (seconds)",
           "away_grace_period_seconds": "Away grace period (seconds)",
           "game_transition_grace_seconds": "Game transition grace period (seconds)",
@@ -172,11 +176,24 @@
           "reset_history": "Reset play history on restart"
         },
         "data_description": {
+          "use_local_cache": "Downloads artwork to your local storage. Disable this to use raw web URLs (recommended if you use Discord notifications without remote HA access).",
+          "cache_max_files": "The maximum number of images to keep on your drive. Set to 0 for unlimited. Default: 200",
+          "cache_max_days": "Delete images that have not been played in this many days. Set to 0 to disable. Default: 30",
           "grace_period_seconds": "How long to wait before marking a player offline. Default: 300 (5 min)",
           "away_grace_period_seconds": "How long to wait before marking a Steam Away player offline. Default: 600 (10 min)",
           "game_transition_grace_seconds": "Bridges small gaps between game launches so sessions stay continuous. Default: 120 (2 min)",
           "min_session_duration": "Sessions shorter than this are not counted in history. Default: 300 (5 min)",
           "reset_history": "Clear all accumulated session history when Home Assistant restarts."
+        }
+      },
+      "custom_artwork": {
+        "title": "Custom Artwork",
+        "description": "Override SteamGridDB by providing direct URLs to custom images. Format as a comma-separated list of key=value pairs. \n\ne.g., `Minecraft = https://link-to-image.png`",
+        "data": {
+          "custom_grid": "Custom Cover/Grid (Vertical)",
+          "custom_hero": "Custom Hero (Horizontal)",
+          "custom_logo": "Custom Logo (Transparent Title)",
+          "custom_icon": "Custom Icon (Small Square)"
         }
       }
     },

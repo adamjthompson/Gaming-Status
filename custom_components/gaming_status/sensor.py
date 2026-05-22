@@ -9,7 +9,7 @@ import json
 from datetime import datetime, timezone, timedelta
 from dateutil import parser
 
-from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.components.sensor import RestoreSensor, SensorEntity, SensorStateClass
 from homeassistant.const import STATE_UNKNOWN, STATE_UNAVAILABLE
 from homeassistant.core import callback
 from homeassistant.util import dt as dt_util
@@ -27,16 +27,18 @@ from .const import (
     DEFAULT_MIN_SESSION_DURATION, OPT_TITLE_CLEANUPS,
     CONF_STEAMGRIDDB_API_KEY, OPT_PLAYERS, OPT_GRACE_PERIOD,
     OPT_AWAY_GRACE_PERIOD, OPT_TRANSITION_GRACE, OPT_MIN_SESSION,
-    OPT_RESET_HISTORY, OPT_TITLE_OVERRIDES, OPT_CUSTOM_COVERS,
-    OPT_GLOBAL_EXCLUSIONS, OPT_PARENTAL, PLAYER_PLATFORMS
+    OPT_RESET_HISTORY, OPT_TITLE_OVERRIDES, OPT_CUSTOM_GRID,
+    OPT_CUSTOM_HERO, OPT_CUSTOM_LOGO, OPT_CUSTOM_ICON,
+    OPT_GLOBAL_EXCLUSIONS, OPT_PARENTAL, PLAYER_PLATFORMS,
+    OPT_USE_CACHE, DEFAULT_USE_CACHE, OPT_CACHE_MAX_FILES,
+    DEFAULT_CACHE_MAX_FILES, OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS,
 )
 
 from . import utils
 from .utils import (
     _get_gamertag_from_entity, _format_time, _format_game_name_for_display,
     _normalize_game_name, _safe_parse_datetime, _parse_relative_time_from_status,
-    _calculate_time_ago_v2, get_steamgriddb_game_cover, get_base_game_name,
-    safe_url
+    _calculate_time_ago_v2, get_base_game_name, safe_url
 )
 
 XBOX_IDLE_STATES = frozenset(s.lower() for s in PLATFORM_CONFIG["xbox"]["idle_states"])
@@ -50,7 +52,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
     
     _unrecorded_attributes = frozenset({
         "secondary", "daily_play_time_formatted", "weekly_play_time_formatted",
-        "game_cover_art", "entity_picture", "cached_game_cover", 
+        "game_cover_art", "game_hero_art", "game_logo_art", "game_icon_art",
+        "entity_picture", "cached_game_cover", 
         "last_online_valid_timestamp", "current_game", "timer_status"
     })
 
@@ -84,7 +87,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._ha_offline_timestamp = None
         self._last_online_valid_timestamp = None
         self._last_game_stopped_timestamp = None
+        
+        # New Artwork Caches
         self._cached_game_cover = None
+        self._cached_game_hero = None
+        self._cached_game_logo = None
+        self._cached_game_icon = None
+        
         self._current_game = None
         self._play_start_time = None
         self._last_played_game = None
@@ -226,10 +235,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         if self._gaming_type == "custom":
             if normalized_state in ["0", "off", "offline", "false", "unavailable", "unknown", "0.0", "none", ""]:
                 data["is_online"] = False
-            elif self._source_entity_id in utils.CUSTOM_COVER_MAP:
-                if normalized_state in ["1", "on", "playing", "true", "1.0"]:
-                    data["is_online"] = True
-                    data["current_game"] = utils.CUSTOM_COVER_MAP.get(self._source_entity_id)
             else:
                 data["is_online"] = True
                 if normalized_state in ["1", "on", "playing", "true", "1.0"]:
@@ -284,7 +289,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         g_name = parts[1]
                         if "(" in g_name and g_name.endswith(")"): g_name = g_name.rsplit(" (", 1)[0]
                         data["xbox_last_seen_game"] = self._apply_title_override(g_name)
-            elif is_basic_offline: data["is_online"] = False
+            # --- HARDCODED XBOX IDLE STATES ADDED HERE ---
+            elif is_basic_offline or state_clean in ["online", "home"]: data["is_online"] = False
             else:
                 potential_game = state
                 if attrs.get("game_queue_games"): potential_game = attrs.get("game_queue_games")[0]
@@ -392,11 +398,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._backup_last_game_stopped_timestamp = getattr(self, "_last_game_stopped_timestamp", None)
             self._last_session_play_time = 0
             self._cover_fetch_attempted = False
-            # Clear stale cover art so the notifier's poll sees None and waits
-            # for the new fetch rather than immediately returning the previous
-            # game's art. _cached_game_cover is repopulated once the new
-            # SteamGridDB fetch completes in the next _async_update_state call.
+            
+            # Clear all stale art
             self._cached_game_cover = None
+            self._cached_game_hero = None
+            self._cached_game_logo = None
+            self._cached_game_icon = None
             self._store.async_delay_save(self._get_store_data, 5.0)
 
     def _get_session_info(self):
@@ -427,7 +434,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
     def _write_common_attributes(self, secondary="", timer_status=None, game_cover=None):
         if timer_status: self._attr_extra_state_attributes["timer_status"] = timer_status
         self._attr_extra_state_attributes["current_game"] = self._current_game
+        
+        # Core Artwork Attributes
         self._attr_extra_state_attributes["game_cover_art"] = game_cover or self._cached_game_cover
+        self._attr_extra_state_attributes["game_hero_art"] = self._cached_game_hero
+        self._attr_extra_state_attributes["game_logo_art"] = self._cached_game_logo
+        self._attr_extra_state_attributes["game_icon_art"] = self._cached_game_icon
+        
         self._attr_extra_state_attributes["daily_play_time"] = self._daily_play_time
         self._attr_extra_state_attributes["daily_play_time_formatted"] = _format_time(self._daily_play_time)
         self._attr_extra_state_attributes["weekly_play_time"] = self._weekly_play_time
@@ -514,7 +527,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._last_state_change_ts = last_state.last_changed
             restored_last_game = attrs.get("last_played_game")
             self._last_played_game = self._clean_restored_game_name(restored_last_game)
+            
+            # Restore new caches
             self._cached_game_cover = attrs.get("cached_game_cover")
+            self._cached_game_hero = attrs.get("game_hero_art")
+            self._cached_game_logo = attrs.get("game_logo_art")
+            self._cached_game_icon = attrs.get("game_icon_art")
+            
             if not stored_data or "internal_state" not in stored_data:
                 self._temp_offline_start = _safe_parse_datetime(attrs.get("temp_offline_start"))
                 self._last_session_play_time = int(attrs.get("last_session_play_time") or 0)
@@ -732,13 +751,23 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     self._current_game = game_name_display
                     self._temp_game_lost_time = None
                 display_state = game_name_display
+                
+                # --- The New Artwork Fetch Engine ---
                 if normalized_new and not self._cover_fetch_attempted:
                     self._cover_fetch_attempted = True
-                    fetched = await get_steamgriddb_game_cover(self.hass, game_name_display)
-                    if fetched: self._cached_game_cover = fetched
-                    else: self._cached_game_cover = platform_data.get("game_cover_url")
-                elif not self._cached_game_cover and platform_data.get("game_cover_url"): self._cached_game_cover = platform_data.get("game_cover_url")
+                    fetched = await utils.fetch_game_assets(self.hass, game_name_display)
+                    if fetched and any(fetched.values()):
+                        self._cached_game_cover = fetched.get("grid") or platform_data.get("game_cover_url")
+                        self._cached_game_hero = fetched.get("hero")
+                        self._cached_game_logo = fetched.get("logo")
+                        self._cached_game_icon = fetched.get("icon")
+                    else: 
+                        self._cached_game_cover = platform_data.get("game_cover_url")
+                elif not self._cached_game_cover and platform_data.get("game_cover_url"): 
+                    self._cached_game_cover = platform_data.get("game_cover_url")
+                
                 game_cover = self._cached_game_cover
+                
                 session_seconds, play_time_text = self._get_session_info()
                 if session_seconds > self._active_settings["MIN_SESSION_DURATION"]:
                     if not self._is_game_active_elsewhere(game_name_display) and not self._is_ghost_session(game_name_display): self._last_played_game = game_name_display
@@ -799,9 +828,22 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 # 2. MASTER SENSOR CLASS
 # ------------------------------------------------------------------
 
-class MasterGamingSensor(RestoreEntity, SensorEntity):
+class MasterGamingSensor(RestoreSensor):
     _attr_should_poll = False
-    _unrecorded_attributes = frozenset({"secondary", "game_cover_art", "entity_picture", "last_online_valid_timestamp", "current_game", "daily_play_limit_minutes", "remaining_play_time_minutes"})
+    
+    # Exclude from database
+    _unrecorded_attributes = frozenset({
+        "secondary", 
+        "game_cover_art", 
+        "game_hero_art", 
+        "game_logo_art", 
+        "game_icon_art", 
+        "entity_picture", 
+        "last_online_valid_timestamp", 
+        "current_game", 
+        "daily_play_limit_minutes", 
+        "remaining_play_time_minutes"
+    })
     
     def __init__(self, hass, name, profiles, parental_rules=None):
         self.hass = hass
@@ -823,19 +865,25 @@ class MasterGamingSensor(RestoreEntity, SensorEntity):
     def available(self): return True
 
     async def async_added_to_hass(self):
+        """Run when the entity is added to Home Assistant to restore state."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
+        
         if last_state and last_state.state not in [STATE_UNKNOWN, STATE_UNAVAILABLE]:
             self._attr_native_value = last_state.state
             self._attr_extra_state_attributes = dict(last_state.attributes)
             self._attr_entity_picture = last_state.attributes.get("entity_picture")
             lp = self._attr_extra_state_attributes.get("last_played_game")
-            if lp and str(lp).lower() == "offline": self._attr_extra_state_attributes["last_played_game"] = None
-        if self._platform_sensors: self.async_on_remove(async_track_state_change_event(self.hass, list(self._platform_sensors.keys()), self._async_platform_changed))
+            if lp and str(lp).lower() == "offline": 
+                self._attr_extra_state_attributes["last_played_game"] = None
+                
+        if self._platform_sensors: 
+            self.async_on_remove(async_track_state_change_event(self.hass, list(self._platform_sensors.keys()), self._async_platform_changed))
         await self._update_master_state()
     
     @callback
-    def _async_platform_changed(self, event): self.hass.async_create_task(self._update_master_state())
+    def _async_platform_changed(self, event): 
+        self.hass.async_create_task(self._update_master_state())
     
     async def _update_master_state(self):
         active_sensor_id = None
@@ -851,14 +899,17 @@ class MasterGamingSensor(RestoreEntity, SensorEntity):
         for platform_sensor_id, p_key in self._platform_sensors.items():
             platform_state = self.hass.states.get(platform_sensor_id)
             if not platform_state: continue
+            
             d_time = platform_state.attributes.get("daily_play_time")
             w_time = platform_state.attributes.get("weekly_play_time")
             r_time = platform_state.attributes.get("rolling_weekly_hours")
             wl_time = platform_state.attributes.get("weekly_play_time_last_week") 
+            
             if d_time: total_daily_seconds += int(d_time)
             if w_time: total_weekly_seconds += int(w_time)
             if r_time: total_rolling_weekly_hours += float(r_time)
             if wl_time: total_weekly_seconds_last_week += int(wl_time)
+            
             ts_str = platform_state.attributes.get("last_online_valid_timestamp")
             if ts_str:
                 try:
@@ -869,6 +920,7 @@ class MasterGamingSensor(RestoreEntity, SensorEntity):
                         most_recent_sensor = platform_state
                         most_recent_key = p_key
                 except Exception: pass
+                
             if active_state: continue 
             state_value = platform_state.state
             if state_value.lower() not in ["offline", "source missing", "unavailable", "unknown"]:
@@ -904,6 +956,9 @@ class MasterGamingSensor(RestoreEntity, SensorEntity):
                 "secondary": active_state.attributes.get("secondary", ""),
                 "active_platform": pretty_platform_name, 
                 "game_cover_art": active_state.attributes.get("game_cover_art"),
+                "game_hero_art": active_state.attributes.get("game_hero_art"),
+                "game_logo_art": active_state.attributes.get("game_logo_art"),
+                "game_icon_art": active_state.attributes.get("game_icon_art"),
                 "current_game": active_state.attributes.get("current_game"),
                 "play_start_time": active_state.attributes.get("play_start_time"),
                 "last_online_valid_timestamp": active_state.attributes.get("last_online_valid_timestamp"),
@@ -925,6 +980,9 @@ class MasterGamingSensor(RestoreEntity, SensorEntity):
                     "secondary": most_recent_sensor.attributes.get("secondary", "Offline"),
                     "active_platform": pretty_name,
                     "game_cover_art": most_recent_sensor.attributes.get("game_cover_art"),
+                    "game_hero_art": most_recent_sensor.attributes.get("game_hero_art"),
+                    "game_logo_art": most_recent_sensor.attributes.get("game_logo_art"),
+                    "game_icon_art": most_recent_sensor.attributes.get("game_icon_art"),
                     "last_played_game": most_recent_sensor.attributes.get("last_played_game"),
                     "last_online_valid_timestamp": most_recent_sensor.attributes.get("last_online_valid_timestamp"),
                     "total_daily_hours": total_daily_hours,
@@ -939,13 +997,21 @@ class MasterGamingSensor(RestoreEntity, SensorEntity):
                 if lp and str(lp).lower() == "offline": new_attrs["last_played_game"] = None
                 if most_recent_key in PLATFORM_CONFIG: new_icon = PLATFORM_CONFIG[most_recent_key]["icon"]
             else:
+                # If everything is offline AND no recent sensor is found,
+                # we must preserve the restored artwork so it isn't wiped on reboot!
                 new_attrs = {
                     "secondary": "Offline",
+                    "game_cover_art": self._attr_extra_state_attributes.get("game_cover_art"),
+                    "game_hero_art": self._attr_extra_state_attributes.get("game_hero_art"),
+                    "game_logo_art": self._attr_extra_state_attributes.get("game_logo_art"),
+                    "game_icon_art": self._attr_extra_state_attributes.get("game_icon_art"),
+                    "last_played_game": self._attr_extra_state_attributes.get("last_played_game"),
+                    "last_online_valid_timestamp": self._attr_extra_state_attributes.get("last_online_valid_timestamp"),
                     "total_daily_hours": total_daily_hours,
                     "total_weekly_hours": total_weekly_hours,
                     "rolling_weekly_hours": total_rolling_weekly_hours,
                     "total_weekly_hours_last_week": total_weekly_hours_last_week,
-                    "entity_picture": None,
+                    "entity_picture": self._attr_extra_state_attributes.get("entity_picture"),
                     "daily_play_limit_minutes": daily_play_limit_minutes,
                     "remaining_play_time_minutes": remaining_play_time_minutes
                 }
@@ -1060,12 +1126,21 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     }
     raw_overrides = _load_opt_json(opts, OPT_TITLE_OVERRIDES, {})
     utils.GAME_TITLE_OVERRIDES = {k.strip().lower(): v for k, v in raw_overrides.items()}
-    raw_covers = _load_opt_json(opts, OPT_CUSTOM_COVERS, {})
-    utils.CUSTOM_COVER_MAP = {k: safe_url(v) for k, v in raw_covers.items() if safe_url(v)}
+    raw_grid = _load_opt_json(opts, OPT_CUSTOM_GRID, {})
+    utils.CUSTOM_GRID_MAP = {k: safe_url(v) for k, v in raw_grid.items() if safe_url(v)}
+    raw_hero = _load_opt_json(opts, OPT_CUSTOM_HERO, {})
+    utils.CUSTOM_HERO_MAP = {k: safe_url(v) for k, v in raw_hero.items() if safe_url(v)}
+    raw_logo = _load_opt_json(opts, OPT_CUSTOM_LOGO, {})
+    utils.CUSTOM_LOGO_MAP = {k: safe_url(v) for k, v in raw_logo.items() if safe_url(v)}
+    raw_icon = _load_opt_json(opts, OPT_CUSTOM_ICON, {})
+    utils.CUSTOM_ICON_MAP = {k: safe_url(v) for k, v in raw_icon.items() if safe_url(v)}
     raw_cleanups = _load_opt_json(opts, OPT_TITLE_CLEANUPS, [])
     utils.TITLE_CLEANUPS = raw_cleanups
     utils.compile_title_cleanups()
     utils.STEAMGRIDDB_API_KEY = config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, "")
+    utils.USE_LOCAL_CACHE = opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
+    utils.CACHE_MAX_FILES = opts.get(OPT_CACHE_MAX_FILES, DEFAULT_CACHE_MAX_FILES)
+    utils.CACHE_MAX_DAYS = opts.get(OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS)
     global_exclusions = _load_opt_json(opts, OPT_GLOBAL_EXCLUSIONS, [])
     players = _load_opt_json(opts, OPT_PLAYERS, {})
     parental_rules = _load_opt_json(opts, OPT_PARENTAL, {})

@@ -18,6 +18,7 @@ from .const import (
     OPT_WEEKLY_REPORT,
     OPT_PARENTAL,
     OPT_GLOBAL_EXCLUSIONS,
+    OPT_NOTIFY_ARTWORK,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -49,6 +50,9 @@ class GamingNotifier:
         self._cached_endpoints = _load_json(opts.get(OPT_ENDPOINTS), {})
         self._cached_weekly = _load_json(opts.get(OPT_WEEKLY_REPORT), {})
         self._cached_parental = _load_json(opts.get(OPT_PARENTAL), {})
+        
+        # Cache the user's preferred notification artwork style
+        self._cached_notify_artwork = opts.get(OPT_NOTIFY_ARTWORK, "game_cover_art")
 
         raw_exclusions = _load_json(opts.get(OPT_GLOBAL_EXCLUSIONS), [])
         self._cached_exclusions = [x.strip().lower() for x in raw_exclusions]
@@ -207,9 +211,12 @@ class GamingNotifier:
         old_state,
         is_switch: bool,
     ) -> str | None:
-        """Wait for cover art to be available on the active platform sensor."""
+        """Wait for the user's preferred artwork to be available on the active platform sensor."""
+        if self._cached_notify_artwork == "none":
+            return None
+
         safe = player_name.lower().replace(" ", "_")
-        old_url = old_state.attributes.get("game_cover_art") if old_state else None
+        old_url = old_state.attributes.get(self._cached_notify_artwork) if old_state else None
 
         platform_entity_ids = [
             f"sensor.{safe}_{platform}"
@@ -218,25 +225,25 @@ class GamingNotifier:
         ]
 
         def _read_cover() -> str | None:
-            """Return the first valid cover URL found across platform sensors."""
+            """Return the preferred artwork URL found across platform sensors."""
             for pid in platform_entity_ids:
                 pstate = self.hass.states.get(pid)
                 if not pstate:
                     continue
                 
-                # THE FIX: Explicitly ignore dormant platform sensors so we 
-                # don't accidentally grab stale artwork from a previous session!
                 if str(pstate.state).lower() in ("offline", "unavailable", "unknown", "idle"):
                     continue
 
-                url = (
-                    pstate.attributes.get("game_cover_art")
-                    or pstate.attributes.get("cached_game_cover")
-                )
+                # Grab the preferred art style
+                url = pstate.attributes.get(self._cached_notify_artwork)
+                
+                # Resilient fallback if the preferred art is missing for this specific game
+                if not url:
+                    url = pstate.attributes.get("game_cover_art") or pstate.attributes.get("cached_game_cover")
+                
                 if not url:
                     continue
-                # For a game switch, ignore the previous game's art which may
-                # still be present on the sensor before it has been updated.
+
                 if is_switch and url == old_url:
                     continue
                 return url
@@ -247,7 +254,7 @@ class GamingNotifier:
             return url
 
         _LOGGER.debug(
-            "Gaming Status: cover art not yet ready for %s, waiting up to 30s",
+            "Gaming Status: artwork not yet ready for %s, waiting up to 30s",
             player_name,
         )
         for _ in range(15):
@@ -257,7 +264,7 @@ class GamingNotifier:
                 return url
 
         _LOGGER.debug(
-            "Gaming Status: cover art did not arrive in time for %s, sending without image",
+            "Gaming Status: artwork did not arrive in time for %s, sending without image",
             player_name,
         )
         return None
@@ -335,7 +342,14 @@ class GamingNotifier:
 
         elif is_end:
             msg = f"{target_player} played for {duration_str}" if duration_str else f"{target_player} finished playing"
-            image_url = old_state.attributes.get("game_cover_art") or old_state.attributes.get("cached_game_cover")
+            
+            if self._cached_notify_artwork == "none":
+                image_url = None
+            else:
+                image_url = old_state.attributes.get(self._cached_notify_artwork)
+                if not image_url:
+                    image_url = old_state.attributes.get("game_cover_art") or old_state.attributes.get("cached_game_cover")
+            
             for ep_id in end_dests:
                 await self._send_to_endpoint(ep_id, message=msg, image_url=image_url, game_title=old_game, event_type="stop")
 

@@ -9,6 +9,7 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.network import get_url, NoURLAvailableError
 
 from .const import (
     DOMAIN,
@@ -23,7 +24,12 @@ from .const import (
     OPT_WEEKLY_REPORT,
     OPT_PARENTAL,
     OPT_TITLE_OVERRIDES,
-    OPT_CUSTOM_COVERS,
+    OPT_CUSTOM_GRID,
+    OPT_CUSTOM_HERO,
+    OPT_CUSTOM_LOGO,
+    OPT_CUSTOM_ICON,
+    MENU_CUSTOM_ARTWORK,
+    OPT_NOTIFY_ARTWORK,
     OPT_TITLE_CLEANUPS,
     OPT_GLOBAL_EXCLUSIONS,
     DEFAULT_RESET_HISTORY,
@@ -37,6 +43,12 @@ from .const import (
     MENU_PARENTAL,
     MENU_ADVANCED,
     PLAYER_PLATFORMS,
+    OPT_USE_CACHE,
+    DEFAULT_USE_CACHE,
+    OPT_CACHE_MAX_FILES,
+    DEFAULT_CACHE_MAX_FILES,
+    OPT_CACHE_MAX_DAYS,
+    DEFAULT_CACHE_MAX_DAYS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -82,24 +94,40 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             api_key = user_input.get(CONF_STEAMGRIDDB_API_KEY, "").strip()
+            use_cache = user_input.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
+            
             return self.async_create_entry(
                 title="Gaming Status",
                 data={CONF_STEAMGRIDDB_API_KEY: api_key},
-                options={},
+                # Seed the user's choice (or the smart default) into options!
+                options={OPT_USE_CACHE: use_cache},
             )
+
+        # --- SMART DEFAULT LOGIC ---
+        # Probe HA to see if they have a public URL configured
+        smart_cache_default = DEFAULT_USE_CACHE
+        try:
+            # allow_internal=False forces HA to look specifically for a remote URL
+            public_url = get_url(self.hass, prefer_external=True, allow_internal=False)
+            if public_url and public_url.startswith("https"):
+                smart_cache_default = True
+            else:
+                smart_cache_default = False
+        except NoURLAvailableError:
+            # If they have no external URL configured at all, default to False
+            smart_cache_default = False
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
-                {vol.Optional(CONF_STEAMGRIDDB_API_KEY, default=""): str}
+                {
+                    vol.Optional(CONF_STEAMGRIDDB_API_KEY, default=""): str,
+                    # Pass the smartly detected boolean into the checkbox!
+                    vol.Optional(OPT_USE_CACHE, default=smart_cache_default): bool,
+                }
             ),
             description_placeholders={"api_url": "https://www.steamgriddb.com/profile/api"},
         )
-
-    @staticmethod
-    @callback
-    def async_get_options_flow(config_entry):
-        return GamingStatusOptionsFlow(config_entry)
 
 # ---------------------------------------------------------------------------
 # Options flow
@@ -128,6 +156,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 MENU_MANAGE_PLAYERS,
                 MENU_NOTIFICATIONS,
                 MENU_PARENTAL,
+                MENU_CUSTOM_ARTWORK,
                 MENU_ADVANCED,
                 MENU_GLOBAL_SETTINGS,
             ],
@@ -141,6 +170,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         opts = self._options
 
         if user_input is not None:
+            opts[OPT_USE_CACHE] = user_input[OPT_USE_CACHE]
+            opts[OPT_CACHE_MAX_FILES] = user_input[OPT_CACHE_MAX_FILES]
+            opts[OPT_CACHE_MAX_DAYS] = user_input[OPT_CACHE_MAX_DAYS]
             opts[OPT_RESET_HISTORY] = user_input[OPT_RESET_HISTORY]
             opts[OPT_GRACE_PERIOD] = user_input[OPT_GRACE_PERIOD]
             opts[OPT_AWAY_GRACE_PERIOD] = user_input[OPT_AWAY_GRACE_PERIOD]
@@ -153,6 +185,18 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             step_id=MENU_GLOBAL_SETTINGS,
             data_schema=vol.Schema(
                 {
+                    vol.Optional(
+                        OPT_USE_CACHE,
+                        default=opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE),
+                    ): bool,
+                    vol.Optional(
+                        OPT_CACHE_MAX_FILES,
+                        default=opts.get(OPT_CACHE_MAX_FILES, DEFAULT_CACHE_MAX_FILES),
+                    ): vol.All(int, vol.Range(min=0)),
+                    vol.Optional(
+                        OPT_CACHE_MAX_DAYS,
+                        default=opts.get(OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS),
+                    ): vol.All(int, vol.Range(min=0)),
                     vol.Optional(
                         OPT_GRACE_PERIOD,
                         default=opts.get(OPT_GRACE_PERIOD, DEFAULT_GRACE_PERIOD_SECONDS),
@@ -340,11 +384,19 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     # -----------------------------------------------------------------------
 
     async def async_step_notifications(self, user_input=None):
-        endpoints = _endpoints(self._options)
+        opts = self._options
+        endpoints = _endpoints(opts)
         
         if user_input is not None:
+            # 1. Save the new artwork selection FIRST
+            opts[OPT_NOTIFY_ARTWORK] = user_input.get(OPT_NOTIFY_ARTWORK, "game_cover_art")
+            self._options = opts
+
+            # 2. Then handle the routing
             selection = user_input.get("endpoint_choice")
-            if selection == "__add_new__":
+            if selection == "__save_settings__":
+                return await self._update_and_return()
+            elif selection == "__add_new__":
                 self._editing_endpoint = None
                 return await self.async_step_add_endpoint()
             elif selection == "__weekly_report__":
@@ -352,22 +404,36 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             elif selection in endpoints:
                 self._editing_endpoint = selection
                 return await self.async_step_edit_endpoint()
-            return await self.async_step_init()
+            
+            return await self._update_and_return()
 
+        # Build the new dropdown choices with a dedicated Save option
         choices = [
-            selector.SelectOptionDict(value=k, label=v["name"]) for k, v in endpoints.items()
+            selector.SelectOptionDict(value="__save_settings__", label="Save Artwork Setting"),
+            selector.SelectOptionDict(value="__add_new__", label="➕ Add new notification"),
+            selector.SelectOptionDict(value="__weekly_report__", label="Weekly report settings"),
         ]
         
-        choices.append(selector.SelectOptionDict(value="__add_new__", label="➕ Add new notification"))
-        choices.append(selector.SelectOptionDict(value="__weekly_report__", label="📅 Weekly report settings"))
+        for k, v in endpoints.items():
+            choices.append(selector.SelectOptionDict(value=k, label=f"Edit: {v['name']}"))
 
         return self.async_show_form(
             step_id=MENU_NOTIFICATIONS,
             data_schema=vol.Schema(
                 {
-                    vol.Required("endpoint_choice", default="__add_new__"): selector.SelectSelector(
+                    vol.Required("endpoint_choice", default="__save_settings__"): selector.SelectSelector(
                         selector.SelectSelectorConfig(options=choices, mode=selector.SelectSelectorMode.DROPDOWN)
                     ),
+                    vol.Optional(
+                        OPT_NOTIFY_ARTWORK, 
+                        default=opts.get(OPT_NOTIFY_ARTWORK, "game_cover_art")
+                    ): vol.In({
+                        "game_cover_art": "Cover/Grid (Vertical)",
+                        "game_hero_art": "Hero (Horizontal)",
+                        "game_logo_art": "Logo (Transparent Title)",
+                        "game_icon_art": "Icon (Small Square)",
+                        "none": "No Artwork"
+                    }),
                 }
             ),
         )
@@ -593,6 +659,53 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         )
 
     # -----------------------------------------------------------------------
+    # Custom Artwork
+    # -----------------------------------------------------------------------
+
+    async def async_step_custom_artwork(self, user_input=None):
+        opts = self._options
+        errors = {}
+
+        if user_input is not None:
+            for key, field in [
+                (OPT_CUSTOM_GRID, "custom_grid"),
+                (OPT_CUSTOM_HERO, "custom_hero"),
+                (OPT_CUSTOM_LOGO, "custom_logo"),
+                (OPT_CUSTOM_ICON, "custom_icon"),
+            ]:
+                raw = user_input.get(field, "")
+                parsed_dict = {}
+                for item in raw.split(','):
+                    if '=' in item:
+                        k, v = item.split('=', 1)
+                        parsed_dict[k.strip()] = v.strip()
+                opts[key] = _dump_json(parsed_dict)
+
+            if not errors:
+                self._options = opts
+                return await self._update_and_return()
+
+        def _get_dict_default(key, fallback):
+            raw = opts.get(key)
+            if raw:
+                parsed = _load_json(raw, fallback)
+                return ", ".join([f"{k} = {v}" for k, v in parsed.items()])
+            return ", ".join([f"{k} = {v}" for k, v in fallback.items()])
+
+        return self.async_show_form(
+            step_id=MENU_CUSTOM_ARTWORK,
+            data_schema=vol.Schema(
+                {
+                    vol.Optional("custom_grid", default=_get_dict_default(OPT_CUSTOM_GRID, {})): str,
+                    vol.Optional("custom_hero", default=_get_dict_default(OPT_CUSTOM_HERO, {})): str,
+                    vol.Optional("custom_logo", default=_get_dict_default(OPT_CUSTOM_LOGO, {})): str,
+                    vol.Optional("custom_icon", default=_get_dict_default(OPT_CUSTOM_ICON, {})): str,
+                }
+            ),
+            errors=errors,
+        )
+
+    # -----------------------------------------------------------------------
     # Advanced
     # -----------------------------------------------------------------------
 
@@ -603,7 +716,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             for key, field in [
                 (OPT_TITLE_OVERRIDES, "title_overrides"),
-                (OPT_CUSTOM_COVERS, "custom_covers"),
             ]:
                 raw = user_input.get(field, "")
                 parsed_dict = {}
@@ -656,10 +768,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional(
                         "title_overrides",
                         default=_get_dict_default(OPT_TITLE_OVERRIDES, {}),
-                    ): str,
-                    vol.Optional(
-                        "custom_covers",
-                        default=_get_dict_default(OPT_CUSTOM_COVERS, {}),
                     ): str,
                     vol.Optional(
                         "title_cleanups",

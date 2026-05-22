@@ -19,7 +19,6 @@ from .const import (
     OPT_WEEKLY_REPORT,
     OPT_PARENTAL,
     OPT_TITLE_OVERRIDES,
-    OPT_CUSTOM_COVERS,
     OPT_TITLE_CLEANUPS,
     OPT_GLOBAL_EXCLUSIONS,
 )
@@ -71,7 +70,6 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry):
             _migrate_complex("weekly_report", OPT_WEEKLY_REPORT)
             _migrate_complex("parental_controls", OPT_PARENTAL)
             _migrate_complex("game_title_overrides", OPT_TITLE_OVERRIDES)
-            _migrate_complex("custom_cover_map", OPT_CUSTOM_COVERS)
             _migrate_complex("title_cleanups", OPT_TITLE_CLEANUPS)
             _migrate_complex("global_exclusions", OPT_GLOBAL_EXCLUSIONS)
 

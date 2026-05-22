@@ -52,7 +52,12 @@ Home, Online, Xbox App, YouTube, Netflix, Hulu, Amazon Prime Video, Spotify, Mic
 ```
 
 ## Global Settings
-These settings allow you to override the default grace periods (measured in seconds) or reset all of the playtime data.
+These settings allow you to adjust caching, override the default grace periods (measured in seconds), or reset all of the playtime data.
+
+**Enable Local Caching** Default: On. Downloads artwork to your local storage. 
+
+- With this *enabled*, artwork is downloaded directly to your Home Assistant storage, making dashboard load times instant, allowing for offline artwork access, and preventing broken images during internet outages. *If you use Discord notifications but do NOT have an external Home Assistant URL, image attachments will fail.*
+- With this *disabled*, artwork is pulled directly from SteamGridDB each time a game is loaded. Turn this off to use raw web URLs instead. *If you have an external Home Assistant URL, it is recommended that you enable caching.*
 
 **Offline Grace Period:** Default: 300. This handles total connection loss. It triggers when the console or platform suddenly reports the player is completely "Offline" (or the network connection drops). Example: A player is in the middle of a game, and their PlayStation loses its WiFi connection, or the Steam API temporarily goes down. The integration pauses and says, "Did they actually turn off the console, or is this just a network hiccup?" It keeps the dashboard showing them as "Playing" and keeps counting their playtime for those 5 minutes (300 seconds). If they reconnect before the timer ends, it is as if nothing happened. If the timer runs out, it retroactively subtracts those 5 minutes from their daily total and marks them "Offline". *Note: This setting will also factor into how long it takes to notify you that a user has ended their session.*
 
