@@ -26,7 +26,7 @@ This acts as a strict dictionary. If the integration detects an exact match with
 RaceTheSun = Race The Sun, Call of Duty = Call of Duty: Black Ops 7, Army of TWO: TFD = Army of Two: The 40th Day
 ```
 
-## Custom Cover Map
+## Custom Artwork
 This allows you to bypass the SteamGridDB API entirely. If a game title matches a key in this list, the integration will immediately use the provided URL for the artwork. This is great for obscure games, custom emulators, or simply when you prefer a specific piece of fan art over the official hero artwork.
 
 *Note: URLs must point directly to an image file (e.g., .png, .jpg). Any URL can be used, including local files, but if the file is not publicly available, it will not display in notifications.*
@@ -48,7 +48,7 @@ This is a universal "ignore list." While **Games to exclude** inside a user prof
 *Note: This list is completely case-insensitive.*
 
 ```
-Home, Online, Xbox App, YouTube, Netflix, Hulu, Amazon Prime Video, Spotify, Microsoft Store, Store, Xbox 360 Dashboard, Setting up..., Wallpaper Engine
+Xbox App, YouTube, Netflix, Hulu, Amazon Prime Video, Spotify, Microsoft Store, Store, Xbox 360 Dashboard, Setting up..., Wallpaper Engine
 ```
 
 ## Global Settings
@@ -83,8 +83,8 @@ To track these, the easiest method is using **HASS.Agent** (a free Windows compa
 ### Install HASS.Agent
 1. Install the HASS.Agent software on your gaming PC and the Home Assistant Integration by following the installation steps [here](https://www.hass-agent.io/2.2/getting-started/installation/#installing-hassagent).
 2. Open the HASS.Agent configuration app on the gaming PC.
-3. Go to **Local Sensors** and click **Add New**.
-4. In the "Type" dropdown, select **Process**.
+3. Go to **Sensors** and click **Add New**.
+4. In the "Type" dropdown, select **ProcessActive**.
 5. In the "Process Name" box, type the exact name of the game's executable file without the `.exe` extension (e.g., type `Wonderlands` instead of `Wonderlands.exe`).
 6. Set the Update Interval to something responsive (e.g., `10` seconds).
 7. Click **Store** and then **Store and Activate** to push the new sensor to Home Assistant.

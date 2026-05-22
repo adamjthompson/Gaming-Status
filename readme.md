@@ -4,7 +4,7 @@
 
 This is a powerful, unified custom integration for Home Assistant that tracks and consolidates gaming presence across Steam, Xbox Live, PlayStation Network, and custom PC clients into a single, clean dashboard sensor for each person in your household. It's super useful if you want to be able to track who is online, what they're playing, and for how long. 
 
-I started developing this as a way to have persistent sensors since I was annoyed that the Xbox and Steam sesnors would regularly flutter between online/offline status, making notifications and my gaming dashboard unreliable. This evolved into making master sensors instead of simply tracking each platform independently. Over time, this has grown into a much more complex integration that now tracks game time, last game played, provides cover art, allows for rich notifications through Discord and much, much more.
+I started developing this as a way to have persistent sensors since I was annoyed that the Xbox and Steam sensors would regularly flutter between online/offline status, making notifications and my gaming dashboard unreliable. This evolved into making master sensors instead of simply tracking each platform independently. Over time, this has grown into a much more complex integration that now tracks game time, records the last game played, provides cover art, allows for rich notifications through Discord and much, much more.
 
 Some of the key features are listed below.
 
@@ -18,7 +18,7 @@ Some of the key features are listed below.
 * **Playtime Analytics:** Automatically calculates session time, daily hours, and a rolling 7-day total for easy dashboard charting.
 * **Clean Dashboards:** Automatically sanitizes messy game titles (e.g., changes "Minecraft Launcher" to "Minecraft") and pulls high-quality cover art from SteamGridDB.
 * **Advanced Exclusion Filtering:** Prevent media apps (Netflix, YouTube, Spotify) or background processes from triggering gaming statuses using a global exclusions list.
-* **Zero-Bloat Cover Art:** Automatically fetches gorgeous, clean game hero images from SteamGridDB and passes them to your dashboard via URL, ensuring your local HA storage never gets bloated with downloaded images.
+* **Customizable Cover Art:** Automatically fetches gorgeous images from SteamGridDB and passes them to your dashboard via URL and/or caches them locally for fast updates.
 * **"Last Seen" Memory:** When gamers go offline, the sensor retains their last played game and calculates exactly how long ago they were active (e.g., *Last seen 3h ago: Genshin Impact (1h 37m)*).
 * **Custom Avatars:** Automatically pulls live gamer pictures from platform APIs, with the option to easily override missing or incorrect images with your own local images.
 
@@ -139,6 +139,10 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | entity_picture |   | URL of the player's avatar fetched from the active platform |
 | icon | mdi:steam | Dynamic icon to match the active platform |
 | friendly_name | Adam Gaming Status | Display name for this player's entity |
+| game_cover_art |   | URL of cover art, either local or SteamGridDB |
+| game_hero_art |   | URL of hero art, either local or SteamGridDB |
+| game_logo_art |   | URL of logo art, either local or SteamGridDB |
+| game_icon_art |   | URL of icon art, either local or SteamGridDB |
 
 ### Attributes for Platform Sensors
 Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The `*_steam`, `*_xbox`, and `*_playstation` sensors provide the following attibutes
@@ -161,6 +165,10 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | timer_status | Stopped (Offline) | Current state of the internal playtime stopwatch (Running, Paused, or Stopped) |
 | last_online_valid_timestamp |    | ISO 8601 timestamp of the last time detected online
 | rolling_weekly_hours | 2.49 | Accumulated playtime in hours calculated over a dynamic, trailing 7-day window |
+| game_cover_art |   | URL of cover art, either local or SteamGridDB |
+| game_hero_art |   | URL of hero art, either local or SteamGridDB |
+| game_logo_art |   | URL of logo art, either local or SteamGridDB |
+| game_icon_art |   | URL of icon art, either local or SteamGridDB |
 
 ### Attributes for Players Online Sensor
 | Attribute | Example | Description |

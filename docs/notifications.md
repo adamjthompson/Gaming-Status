@@ -23,7 +23,7 @@ With Gaming Status, you can set up global notification destinations (like a spec
 1. In Home Assistant, navigate to **Settings** > **Devices & Services**.
 2. Click the **Configure** button on the Gaming Status card.
 3. Select **Notifications** from the main menu and click Submit.
-4. Select **➕ Add new notification** and click Submit. 
+4. Select **➕ Add New Notification** and click Submit. 
 5. Fill out the notification settings (see below) and submit to save. You can add as many methods as you need.
 
 **Step 2: Assign to a Player**
@@ -35,8 +35,8 @@ With Gaming Status, you can set up global notification destinations (like a spec
 ### Destination Settings
 
 * **Name:** A friendly identifier for this notification method (e.g., "Adam's iPhone" or "Family Discord").
-* **Notification Type:** * `Discord`: Sends a rich embed message complete with the game's title, session duration, and the horizontal hero banner.
-    * `Mobile App`: Sends a Rich Notification directly to your iOS/Android Home Assistant app, featuring the game's hero art directly on your lock screen!
+* **Notification Type:** * `Discord`: Sends a rich embed message complete with the game's title, session duration, and the selected artwork.
+    * `Mobile App`: Sends a Rich Notification directly to your iOS/Android Home Assistant app, featuring the game's art directly on your lock screen!
     * `SMS`: Sends a clean, text-only alert suitable for standard mobile text messages.
 * **Notifier:** A dynamic dropdown containing all available Home Assistant notify services (e.g., `notify.mobile_app_adams_iphone`, `notify.discord_bot`, or `notify.twilio`).
 * **Target ID:** The routing ID for the message. 
