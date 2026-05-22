@@ -188,7 +188,7 @@
       },
       "custom_artwork": {
         "title": "Custom Artwork",
-        "description": "Override SteamGridDB by providing direct URLs to custom images. Format as a comma-separated list of key=value pairs. \n\ne.g., `Minecraft = https://link-to-image.png`",
+        "description": "Override SteamGridDB by providing direct URLs to custom images. Format as a comma-separated list of key=value pairs. \n\ne.g., `Minecraft = {example_url}`",
         "data": {
           "custom_grid": "Custom Cover/Grid (Vertical)",
           "custom_hero": "Custom Hero (Horizontal)",

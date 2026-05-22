@@ -702,6 +702,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional("custom_icon", default=_get_dict_default(OPT_CUSTOM_ICON, {})): str,
                 }
             ),
+            description_placeholders={"example_url": "https://link-to-image.png"},
             errors=errors,
         )
 
