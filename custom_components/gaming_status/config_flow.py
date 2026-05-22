@@ -67,16 +67,22 @@ def _dump_json(obj) -> str:
     return json.dumps(obj, indent=2, ensure_ascii=False)
 
 def _players(options: dict) -> dict:
-    return _load_json(options.get(OPT_PLAYERS, ""), {})
+    data = _load_json(options.get(OPT_PLAYERS, ""), {})
+    # Sort players alphabetically by their name (the dictionary key)
+    return dict(sorted(data.items(), key=lambda item: str(item[0]).lower()))
 
 def _endpoints(options: dict) -> dict:
-    return _load_json(options.get(OPT_ENDPOINTS, ""), {})
+    data = _load_json(options.get(OPT_ENDPOINTS, ""), {})
+    # Sort endpoints alphabetically by their displayed "name" value
+    return dict(sorted(data.items(), key=lambda item: str(item[1].get("name", "")).lower()))
 
 def _weekly_report(options: dict) -> dict:
     return _load_json(options.get(OPT_WEEKLY_REPORT, ""), {})
 
 def _parental(options: dict) -> dict:
-    return _load_json(options.get(OPT_PARENTAL, ""), {})
+    data = _load_json(options.get(OPT_PARENTAL, ""), {})
+    # Sort parental rules alphabetically by the player's name
+    return dict(sorted(data.items(), key=lambda item: str(item[0]).lower()))
 
 def _safe_id(name: str) -> str:
     return re.sub(r"[^a-z0-9_]", "_", name.lower())
@@ -247,7 +253,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         choices = [
             selector.SelectOptionDict(value=p, label=p) for p in player_names
         ]
-        choices.append(selector.SelectOptionDict(value="__add_new__", label="➕ Add new player"))
+        choices.insert(0, selector.SelectOptionDict(value="__add_new__", label="➕ Add New Player"))
 
         return self.async_show_form(
             step_id=MENU_MANAGE_PLAYERS,
@@ -415,8 +421,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         # Build the new dropdown choices with a dedicated Save option
         choices = [
             selector.SelectOptionDict(value="__save_settings__", label="Save Artwork Setting"),
-            selector.SelectOptionDict(value="__add_new__", label="➕ Add new notification"),
-            selector.SelectOptionDict(value="__weekly_report__", label="Weekly report settings"),
+            selector.SelectOptionDict(value="__add_new__", label="➕ Add New Notification"),
+            selector.SelectOptionDict(value="__weekly_report__", label="Weekly Report Settings"),
         ]
         
         for k, v in endpoints.items():
@@ -793,9 +799,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             errors=errors,
         )
 
-    # -----------------------------------------------------------------------
-    # Shared helpers
-    # -----------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
+    # Shared Helpers
+    # ---------------------------------------------------------------------------
 
     def _player_schema(self, existing: dict | None = None, is_new: bool = False) -> vol.Schema:
         existing = existing or {}
