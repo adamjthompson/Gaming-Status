@@ -128,6 +128,11 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
             description_placeholders={"api_url": "https://www.steamgriddb.com/profile/api"},
         )
+    
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        return GamingStatusOptionsFlow(config_entry)
 
 # ---------------------------------------------------------------------------
 # Options flow
