@@ -1127,13 +1127,13 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     raw_overrides = _load_opt_json(opts, OPT_TITLE_OVERRIDES, {})
     utils.GAME_TITLE_OVERRIDES = {k.strip().lower(): v for k, v in raw_overrides.items()}
     raw_grid = _load_opt_json(opts, OPT_CUSTOM_GRID, {})
-    utils.CUSTOM_GRID_MAP = {k: safe_url(v) for k, v in raw_grid.items() if safe_url(v)}
+    utils.CUSTOM_GRID_MAP = {k.strip().lower(): safe_url(v) for k, v in raw_grid.items() if safe_url(v)}
     raw_hero = _load_opt_json(opts, OPT_CUSTOM_HERO, {})
-    utils.CUSTOM_HERO_MAP = {k: safe_url(v) for k, v in raw_hero.items() if safe_url(v)}
+    utils.CUSTOM_HERO_MAP = {k.strip().lower(): safe_url(v) for k, v in raw_hero.items() if safe_url(v)}
     raw_logo = _load_opt_json(opts, OPT_CUSTOM_LOGO, {})
-    utils.CUSTOM_LOGO_MAP = {k: safe_url(v) for k, v in raw_logo.items() if safe_url(v)}
+    utils.CUSTOM_LOGO_MAP = {k.strip().lower(): safe_url(v) for k, v in raw_logo.items() if safe_url(v)}
     raw_icon = _load_opt_json(opts, OPT_CUSTOM_ICON, {})
-    utils.CUSTOM_ICON_MAP = {k: safe_url(v) for k, v in raw_icon.items() if safe_url(v)}
+    utils.CUSTOM_ICON_MAP = {k.strip().lower(): safe_url(v) for k, v in raw_icon.items() if safe_url(v)}
     raw_cleanups = _load_opt_json(opts, OPT_TITLE_CLEANUPS, [])
     utils.TITLE_CLEANUPS = raw_cleanups
     utils.compile_title_cleanups()
