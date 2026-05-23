@@ -125,55 +125,83 @@ Upon restart, the integration will instantly read your settings and generate the
 
 ### Attributes for Master Sensors
 Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The `*_gaming_status` sensors provide the following attibutes
-| Attribute | Example | Description |
-| --- | --- | --- |
-| secondary | Last seen 12h ago: Marvel Rivals (58m) | Current state or the time elapsed and session duration of the last played game |
-| active_platform | Steam | Platform that is currently active or most recently used
-| game_cover_art |   | Hero image URL for currently active game |
-| last_played_game | Marvel Rivals | Title of the most recent game detected across all tracked platforms | 
-| last_online_valid_timestamp |   | ISO 8601 timestamp of the last time detected online |
-| total_daily_hours | 1.0 | Hours for the current calendar day |
-| total_weekly_hours | 8.54 | Hours for the current calendar week | 
-| rolling_weekly_hours | 3.69 | Hours over a dynamic, trailing 7-day window | 
-| total_weekly_hours_last_week | 16.94 | Hours recorded during the previous calendar week | 
-| entity_picture |   | URL of the player's avatar fetched from the active platform |
-| icon | mdi:steam | Dynamic icon to match the active platform |
-| friendly_name | Adam Gaming Status | Display name for this player's entity |
-| game_cover_art |   | URL of cover art, either local or SteamGridDB |
-| game_hero_art |   | URL of hero art, either local or SteamGridDB |
-| game_logo_art |   | URL of logo art, either local or SteamGridDB |
-| game_icon_art |   | URL of icon art, either local or SteamGridDB |
+
+**Aggregate Analytics**
+| Attribute | Description |
+| --- | --- |
+| friendly_name | Display name for this player's entity |
+| total_daily_hours | Sum of daily hours across all platforms (float) |
+| total_weekly_hours | Sum of weekly hours across all platforms (float) |
+| rolling_weekly_hours | Sum of rolling hours across all platforms |
+| total_weekly_hours_last_week | Sum of last week's hours |
+| weekly_breakdown | Consolidated dictionary of all games played across all platforms, formatted as human-readable strings (e.g., "5h 30m") |
+| platform_split | A dictionary showing the percentage of total weekly hours spent on each platform (e.g., {"Steam": "55%"}) |
+| longest_session | A formatted string showing the game title and duration of the longest session across all platforms |
+
+**Parental/Limit Controls**
+| Attribute | Description |
+| --- | --- |
+| daily_play_limit_minutes | The configured daily limit |
+| remaining_play_time_minutes |Calculated remaining time based on current usage |
+
+
+**Active Status**
+| Attribute | Description |
+| --- | --- |
+| secondary | Current state or the time elapsed and session duration of the last played game |
+| active_platform | The name of the platform currently driving the status (e.g., "Steam") |
+| entity_picture | URL of the player's avatar fetched from the active platform |
+| icon | Dynamic icon to match the active platform |
+| game_cover_art | URL of cover art, either local or SteamGridDB |
+| game_hero_art | URL of hero art, either local or SteamGridDB |
+| game_logo_art | URL of logo art, either local or SteamGridDB |
+| game_icon_art | URL of icon art, either local or SteamGridDB |
+| current_game | Inherited from the most active underlying platform tracker |
+| play_start_time | Inherited from the most active underlying platform tracker |
+| last_played_game | Title of the most recent game detected across all tracked platforms |
+| last_online_valid_timestamp | Timestamp of the last time detected online |
 
 ### Attributes for Platform Sensors
 Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The `*_steam`, `*_xbox`, and `*_playstation` sensors provide the following attibutes
-| Attribute | Example | Description |
-| --- | --- | --- |
-| secondary | Last seen 5h ago: Halo 3 (58m) | Current state or the time elapsed and session duration of the last played game
-| daily_play_time | 8345 | Playtime for the current calendar day (raw seconds) |
-| daily_play_time_formatted | 2h19m  | Current day's total playtime (human-readable string) |
-| weekly_play_time | 22040 | Playtime across the current calendar week (raw seconds) |
-| weekly_play_time_formatted | 6h 7m | Current week's total playtime (human-readable string) |
-| weekly_play_time_last_week | 21310 | Playtime during the previous calendar week (raw seconds) |
-| last_played_game | Halo 3 | Title of the most recently closed game detected on this specific platform
-| current_game | Genshin Impact | Title of the game actively being played right now, or null if the user is offline
-| game_cover_art |   | URL of the hero image for the actively played game, used for UI display
-| cached_game_cover |   | Internal backup URL for the last known game cover art, used during grace periods or offline states
-| entity_picture |   | URL of the player's official profile avatar fetched from the platform's network |
-| icon | mdi:microsoft-xbox | Icon to match the current platform
-| friendly_name | Adam Xbox | Display name for this player's entity
-| play_start_time |   | The exact timestamp when the current, active gaming session began |
-| timer_status | Stopped (Offline) | Current state of the internal playtime stopwatch (Running, Paused, or Stopped) |
-| last_online_valid_timestamp |    | ISO 8601 timestamp of the last time detected online
-| rolling_weekly_hours | 2.49 | Accumulated playtime in hours calculated over a dynamic, trailing 7-day window |
-| game_cover_art |   | URL of cover art, either local or SteamGridDB |
-| game_hero_art |   | URL of hero art, either local or SteamGridDB |
-| game_logo_art |   | URL of logo art, either local or SteamGridDB |
-| game_icon_art |   | URL of icon art, either local or SteamGridDB |
+
+**Core State Attributes**
+| Attribute | Description |
+| --- | --- |
+| friendly_name | Display name for this player's entity |
+| secondary | Current state or the time elapsed and session duration of the last played game |
+| current_game | Title of the game actively being played right now, or null if the user is offline |
+| entity_picture | The local path to the cached avatar image |
+| last_online_valid_timestamp | Timestamp of the last time detected online |
+| play_start_time | Timestamp when the current, active gaming session began |
+| timer_status | Current state of the internal playtime stopwatch (Running, Paused, or Stopped) |
+| cached_game_cover | Backup URL for the last known game cover art, used during grace periods or offline states |
+| game_cover_art | URL of cover art, either local or SteamGridDB |
+| game_hero_art | URL of hero art, either local or SteamGridDB |
+| game_logo_art | URL of logo art, either local or SteamGridDB |
+| game_icon_art | URL of icon art, either local or SteamGridDB |
+
+**Rich Tracking & Analytics**
+| Attribute | Description |
+| --- | --- |
+| icon | Icon to match the current platform |
+| daily_play_time | Total seconds played today |
+| daily_play_time_formatted | Human-readable daily time (e.g., "1h 13m") |
+| weekly_play_time | Total seconds played this week |
+| weekly_play_time_formatted | Human-readable weekly time |
+| weekly_play_time_last_week | Total seconds played in the previous week |
+| last_played_game | Title of the most recently closed game detected on this specific platform |
+| rolling_weekly_hours | Calculated rolling weekly hours (seconds / 3600) |
+| weekly_game_breakdown | A dictionary mapping game names to their playtime durations |
+| longest_session_details | A dictionary containing the game title and duration (in seconds) of the longest session recorded |
+
 
 ### Attributes for Players Online Sensor
-| Attribute | Example | Description |
-| --- | --- | --- |
-| active_games | Marvel Rivals, NBA 2K26 (or "None") | A comma-separated string of the games currently being played by online players |
+| Attribute | Description |
+| --- | --- |
+| active_games | A comma-separated string of the games currently being played by online players |
+
+### Note
+Several of these attributes (e.g., the artwork URLs, weekly_breakdown, longest_session_details) are explicitly added to `_unrecorded_attributes` in the classes. This is a deliberate performance optimization to prevent Home Assistant from saving these frequently changing values into the long-term database (recorder), which keeps your `home-assistant_v2.db` file from growing excessively large.
 
 ## ❓ What Next?
 Once everything is up and running (with sensors showing up from the integration), try playing a game for at least 5 minutes to make sure the online status is reflected in the master "_gaming_status" sensors. *Note that, by default, sessions shorter than 300 seconds (5 minutes) are discarded and do not count toward the total playtime hours.* If the sensors are working correctly, try some of the following! If not, see the [troubleshooting](docs/troubleshooting.md) documentation.
