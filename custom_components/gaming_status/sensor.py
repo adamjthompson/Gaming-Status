@@ -448,6 +448,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._attr_extra_state_attributes["weekly_play_time_last_week"] = self._weekly_play_time_last_week
         
         live_avatar = self._local_avatar_path
+        remote_avatar = None
+        
         if not live_avatar:
             if self._gaming_type == "xbox":
                 gamertag = _get_gamertag_from_entity(self._source_entity_id, "xbox")
@@ -455,7 +457,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     safe_tag = gamertag.lower().replace(" ", "_")
                     xbox_img = self.hass.states.get(f"image.{safe_tag}_gamerpic")
                     if xbox_img and xbox_img.attributes.get("entity_picture"):
-                        live_avatar = xbox_img.attributes.get("entity_picture")
+                        remote_avatar = xbox_img.attributes.get("entity_picture")
             elif self._gaming_type == "playstation":
                 try:
                     object_id = self._source_entity_id.split('.')[1]
@@ -463,8 +465,30 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         gamertag = object_id[:-14]
                         ps_img = self.hass.states.get(f"image.{gamertag}_avatar")
                         if ps_img and ps_img.attributes.get("entity_picture"):
-                            live_avatar = ps_img.attributes.get("entity_picture")
+                            remote_avatar = ps_img.attributes.get("entity_picture")
                 except Exception: pass
+            elif self._gaming_type == "steam":
+                state = self.hass.states.get(self._source_entity_id)
+                if state:
+                    remote_avatar = state.attributes.get("entity_picture")
+
+            # Trigger background caching
+            # Trigger background caching
+            if remote_avatar and remote_avatar.startswith("http"):
+                safe_name = re.sub(r'[^a-z0-9_]', '', self._owner_name.lower().replace(" ", "_"))
+                
+                # Dynamically grab the real extension from the URL (Steam usually uses .jpg)
+                ext = remote_avatar.split('.')[-1].split('?')[0]
+                if len(ext) > 4 or not ext.isalnum(): 
+                    ext = "jpg"
+                
+                cache_name = f"{self._gaming_type}_{safe_name}_avatar.{ext}"
+                self.hass.async_create_task(self._process_avatar_cache(remote_avatar, cache_name))
+                live_avatar = f"/local/gaming_status_cache/{cache_name}"
+            elif remote_avatar:
+                # If it's an internal /api/ URL, just use it directly without caching
+                live_avatar = remote_avatar
+
         if live_avatar: self._attr_entity_picture = live_avatar
         self._attr_extra_state_attributes["entity_picture"] = self._attr_entity_picture
         if self._last_online_valid_timestamp: self._attr_extra_state_attributes["last_online_valid_timestamp"] = str(self._last_online_valid_timestamp)
@@ -823,6 +847,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._write_common_attributes(secondary, game_cover=game_cover)
             self.async_write_ha_state()
         except Exception as e: _LOGGER.error("Error in _unified_update for %s: %s", self.entity_id, e)
+
+    async def _process_avatar_cache(self, url, filename):
+        """Background helper to cache the avatar."""
+        await utils.fetch_and_cache_image(self.hass, url, filename)
 
 # ------------------------------------------------------------------
 # 2. MASTER SENSOR CLASS

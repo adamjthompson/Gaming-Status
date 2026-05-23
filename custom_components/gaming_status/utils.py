@@ -230,6 +230,41 @@ async def get_steamgriddb_game_cover(hass, game_name):
     assets = await fetch_game_assets(hass, game_name)
     return assets.get("hero") or assets.get("grid")
 
+async def fetch_and_cache_image(hass, remote_url, file_name):
+    """Generic helper to cache any remote image locally."""
+    cache_dir = Path(hass.config.path("www/gaming_status_cache"))
+    
+    # 1. Safely wrap the mkdir command to avoid kwarg TypeErrors
+    def _ensure_dir():
+        if not cache_dir.exists():
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            
+    await hass.async_add_executor_job(_ensure_dir)
+    
+    file_path = cache_dir / file_name
+    
+    # 2. Return immediately if already cached
+    if file_path.exists():
+        return f"/local/gaming_status_cache/{file_name}"
+        
+    # 3. Download and save
+    try:
+        session = async_get_clientsession(hass)
+        async with session.get(remote_url, timeout=10) as resp:
+            if resp.status == 200:
+                img_bytes = await resp.read()
+                
+                # Safely wrap the file writing command
+                def _write_img():
+                    file_path.write_bytes(img_bytes)
+                    
+                await hass.async_add_executor_job(_write_img)
+                return f"/local/gaming_status_cache/{file_name}"
+    except Exception as e:
+        _LOGGER.error("Failed to cache avatar %s: %s", remote_url, e)
+        
+    return remote_url # Fallback to remote if download fails
+
 def get_base_game_name(full_name):
     if not full_name: return full_name
     full_name_str = str(full_name)
