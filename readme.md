@@ -32,7 +32,7 @@ This integration acts as a "wrapper" that intelligently processes data from your
 ## Recommended
 While not required for functionality, I recommend installing the following HACS integrations for the most robust dashboard cards:
 * [Gaming Status Cards](https://github.com/adamjthompson/Gaming-Status-Cards) - Companion dashboard cards, so you don't have to make your own
-* [ApexCharts Card](https://github.com/RomRider/apexcharts-card) - For the stats graph
+* [ApexCharts Card](https://github.com/RomRider/apexcharts-card) - For the stats and donut graphs
 * [HASS.Agent](https://www.hass-agent.io/2.2/getting-started/installation/#installing-hassagent) - Install both the PC app and the integration for Custom PC sensors
 
 ### Obtaining a SteamGridDB API Key
