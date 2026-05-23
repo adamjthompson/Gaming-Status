@@ -54,7 +54,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         "secondary", "daily_play_time_formatted", "weekly_play_time_formatted",
         "game_cover_art", "game_hero_art", "game_logo_art", "game_icon_art",
         "entity_picture", "cached_game_cover", 
-        "last_online_valid_timestamp", "current_game", "timer_status"
+        "last_online_valid_timestamp", "current_game", "timer_status",
+        "weekly_game_breakdown", "longest_session_details"
     })
 
     def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None, active_settings=None, global_exclusions=None, available_avatars=None):
@@ -88,7 +89,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._last_online_valid_timestamp = None
         self._last_game_stopped_timestamp = None
         
-        # New Artwork Caches
+        # Artwork Caches
         self._cached_game_cover = None
         self._cached_game_hero = None
         self._cached_game_logo = None
@@ -97,6 +98,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._current_game = None
         self._play_start_time = None
         self._last_played_game = None
+        
+        # New Rich Tracking Data
+        self._weekly_game_breakdown = {}
+        self._longest_session_details = {"game": None, "duration": 0}
         
         self._daily_play_time = 0
         self._weekly_play_time = 0
@@ -152,7 +157,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 "daily_play_time_yesterday": self._daily_play_time_yesterday,
                 "last_reset_date": self._last_reset_date,
                 "last_weekly_reset": self._last_weekly_reset,
-                "last_session_play_time": self._last_session_play_time
+                "last_session_play_time": self._last_session_play_time,
+                "weekly_game_breakdown": self._weekly_game_breakdown,
+                "longest_session_details": self._longest_session_details
             }
         }
 
@@ -187,6 +194,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._weekly_play_time_last_week = self._weekly_play_time
             self._weekly_play_time = 0
             self._last_weekly_reset = current_week_str
+            
+            # Reset Rich Tracking Data
+            self._weekly_game_breakdown = {}
+            self._longest_session_details = {"game": None, "duration": 0}
 
         if history_changed:
             self._cached_history_seconds = sum(self._play_history.values())
@@ -289,7 +300,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         g_name = parts[1]
                         if "(" in g_name and g_name.endswith(")"): g_name = g_name.rsplit(" (", 1)[0]
                         data["xbox_last_seen_game"] = self._apply_title_override(g_name)
-            # --- HARDCODED XBOX IDLE STATES ADDED HERE ---
             elif is_basic_offline or state_clean in ["online", "home"]: data["is_online"] = False
             else:
                 potential_game = state
@@ -362,6 +372,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     discarded_session = True
                     self._daily_play_time = max(0, int((self._daily_play_time or 0) - session_seconds))
                     self._weekly_play_time = max(0, int((self._weekly_play_time or 0) - session_seconds))
+                    
+                    # Deduct from rich tracking if discarded
+                    if self._current_game in self._weekly_game_breakdown:
+                        self._weekly_game_breakdown[self._current_game] = max(0, self._weekly_game_breakdown[self._current_game] - int(session_seconds))
+                        if self._weekly_game_breakdown[self._current_game] == 0:
+                            del self._weekly_game_breakdown[self._current_game]
+                            
                     if getattr(self, "_backup_last_session_time", None) is not None and self._backup_last_session_time > 0:
                         self._last_session_play_time = self._backup_last_session_time
                     if getattr(self, "_backup_last_online_timestamp", None) is not None:
@@ -441,6 +458,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._attr_extra_state_attributes["game_logo_art"] = self._cached_game_logo
         self._attr_extra_state_attributes["game_icon_art"] = self._cached_game_icon
         
+        # Rich Tracking Attributes
+        self._attr_extra_state_attributes["weekly_game_breakdown"] = self._weekly_game_breakdown
+        self._attr_extra_state_attributes["longest_session_details"] = self._longest_session_details
+        
         self._attr_extra_state_attributes["daily_play_time"] = self._daily_play_time
         self._attr_extra_state_attributes["daily_play_time_formatted"] = _format_time(self._daily_play_time)
         self._attr_extra_state_attributes["weekly_play_time"] = self._weekly_play_time
@@ -473,15 +494,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     remote_avatar = state.attributes.get("entity_picture")
 
             # Trigger background caching
-            # Trigger background caching
             if remote_avatar and remote_avatar.startswith("http"):
                 safe_name = re.sub(r'[^a-z0-9_]', '', self._owner_name.lower().replace(" ", "_"))
-                
-                # Dynamically grab the real extension from the URL (Steam usually uses .jpg)
                 ext = remote_avatar.split('.')[-1].split('?')[0]
                 if len(ext) > 4 or not ext.isalnum(): 
                     ext = "jpg"
-                
                 cache_name = f"{self._gaming_type}_{safe_name}_avatar.{ext}"
                 self.hass.async_create_task(self._process_avatar_cache(remote_avatar, cache_name))
                 live_avatar = f"/local/gaming_status_cache/{cache_name}"
@@ -518,6 +535,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._last_reset_date = internal.get("last_reset_date")
             self._last_weekly_reset = internal.get("last_weekly_reset")
             self._last_session_play_time = int(internal.get("last_session_play_time", 0))
+            self._weekly_game_breakdown = internal.get("weekly_game_breakdown", {})
+            self._longest_session_details = internal.get("longest_session_details", {"game": None, "duration": 0})
         else:
             self._play_history = {}
             self._backup_last_session_time = 0
@@ -529,6 +548,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._last_reset_date = None
             self._last_weekly_reset = None
             self._last_session_play_time = 0
+            self._weekly_game_breakdown = {}
+            self._longest_session_details = {"game": None, "duration": 0}
+            
         self._cached_history_seconds = sum(self._play_history.values())
 
         def _check_local_avatar():
@@ -684,9 +706,18 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     self._last_online_valid_timestamp = now_dt.isoformat()
                     self._daily_play_time = int((self._daily_play_time or 0) + delta_seconds)
                     self._weekly_play_time = int((self._weekly_play_time or 0) + delta_seconds)
+                    
+                    # Update Rich Tracking
+                    self._weekly_game_breakdown[self._current_game] = self._weekly_game_breakdown.get(self._current_game, 0) + delta_seconds
+                    
                     timer_status = "Running"
                 else: timer_status = f"Paused ({block_reason})"
                 session_seconds, play_time_text = self._get_session_info()
+                
+                # Check for longest session record
+                if session_seconds > self._longest_session_details.get("duration", 0) and not is_blocked:
+                    self._longest_session_details = {"game": self._current_game, "duration": int(session_seconds)}
+                    
                 if play_time_text: secondary = f"({play_time_text})"
                 else: secondary = "Playing now"
                 if session_seconds > self._active_settings["MIN_SESSION_DURATION"] and not is_blocked: self._last_played_game = self._current_game
@@ -742,6 +773,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     if missed_seconds > 0:
                         self._daily_play_time = int((self._daily_play_time or 0) + missed_seconds)
                         self._weekly_play_time = int((self._weekly_play_time or 0) + missed_seconds)
+                        self._weekly_game_breakdown[self._current_game] = self._weekly_game_breakdown.get(self._current_game, 0) + missed_seconds
                 if self._temp_offline_start is not None:
                     self._temp_offline_start = None
                     self._store.async_delay_save(self._get_store_data, 5.0)
@@ -859,7 +891,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 class MasterGamingSensor(RestoreSensor):
     _attr_should_poll = False
     
-    # Exclude from database
+    # Exclude from database to completely prevent bloat
     _unrecorded_attributes = frozenset({
         "secondary", 
         "game_cover_art", 
@@ -870,7 +902,8 @@ class MasterGamingSensor(RestoreSensor):
         "last_online_valid_timestamp", 
         "current_game", 
         "daily_play_limit_minutes", 
-        "remaining_play_time_minutes"
+        "remaining_play_time_minutes",
+        "weekly_breakdown", "platform_split", "longest_session"
     })
     
     def __init__(self, hass, name, profiles, parental_rules=None):
@@ -924,6 +957,12 @@ class MasterGamingSensor(RestoreSensor):
         most_recent_sensor = None
         most_recent_key = None
         
+        # Trackers for the new Rich Data attributes
+        master_breakdown = {}
+        platform_totals = {}
+        max_session_duration = 0
+        max_session_game = None
+        
         for platform_sensor_id, p_key in self._platform_sensors.items():
             platform_state = self.hass.states.get(platform_sensor_id)
             if not platform_state: continue
@@ -934,9 +973,25 @@ class MasterGamingSensor(RestoreSensor):
             wl_time = platform_state.attributes.get("weekly_play_time_last_week") 
             
             if d_time: total_daily_seconds += int(d_time)
-            if w_time: total_weekly_seconds += int(w_time)
             if r_time: total_rolling_weekly_hours += float(r_time)
             if wl_time: total_weekly_seconds_last_week += int(wl_time)
+            
+            # Platform Total Tracking
+            if w_time: 
+                total_weekly_seconds += int(w_time)
+                platform_totals[p_key] = platform_totals.get(p_key, 0) + int(w_time)
+                
+            # Aggregate Game Breakdowns
+            p_breakdown = platform_state.attributes.get("weekly_game_breakdown", {})
+            for game, duration in p_breakdown.items():
+                master_breakdown[game] = master_breakdown.get(game, 0) + duration
+                
+            # Find Longest Session
+            p_longest = platform_state.attributes.get("longest_session_details", {})
+            p_dur = p_longest.get("duration", 0)
+            if p_dur > max_session_duration:
+                max_session_duration = p_dur
+                max_session_game = p_longest.get("game")
             
             ts_str = platform_state.attributes.get("last_online_valid_timestamp")
             if ts_str:
@@ -954,6 +1009,25 @@ class MasterGamingSensor(RestoreSensor):
             if state_value.lower() not in ["offline", "source missing", "unavailable", "unknown"]:
                 active_sensor_id = platform_sensor_id
                 active_state = platform_state
+        
+        # --- Generate Formatted Rich Data Attributes ---
+        # 1. Top Games Breakdown (Format: {"Minecraft": "5h 30m"})
+        sorted_breakdown = dict(sorted(master_breakdown.items(), key=lambda item: item[1], reverse=True))
+        formatted_breakdown = {k: utils._format_time(v) for k, v in sorted_breakdown.items() if v >= 60}
+        
+        # 2. Platform Split (Percentages)
+        platform_split = {}
+        if total_weekly_seconds > 0:
+            for plat, plat_secs in platform_totals.items():
+                if plat_secs > 0:
+                    pretty_plat = PLATFORM_CONFIG.get(plat, {}).get("name_suffix", plat.title())
+                    pct = round((plat_secs / total_weekly_seconds) * 100)
+                    platform_split[pretty_plat] = f"{pct}%"
+                    
+        # 3. Longest Session Output
+        longest_session_text = "None"
+        if max_session_game and max_session_duration >= 60:
+            longest_session_text = f"{max_session_game} ({utils._format_time(max_session_duration)})"
         
         # --- Parental Calculation Logic ---
         daily_play_limit_minutes = 0
@@ -997,7 +1071,10 @@ class MasterGamingSensor(RestoreSensor):
                 "last_played_game": active_state.attributes.get("last_played_game"),
                 "entity_picture": new_entity_picture,
                 "daily_play_limit_minutes": daily_play_limit_minutes,
-                "remaining_play_time_minutes": remaining_play_time_minutes
+                "remaining_play_time_minutes": remaining_play_time_minutes,
+                "weekly_breakdown": formatted_breakdown,
+                "platform_split": platform_split,
+                "longest_session": longest_session_text
             }
             if platform_key in PLATFORM_CONFIG: new_icon = PLATFORM_CONFIG[platform_key]["icon"]
         else:
@@ -1019,14 +1096,15 @@ class MasterGamingSensor(RestoreSensor):
                     "total_weekly_hours_last_week": total_weekly_hours_last_week,
                     "entity_picture": new_entity_picture,
                     "daily_play_limit_minutes": daily_play_limit_minutes,
-                    "remaining_play_time_minutes": remaining_play_time_minutes
+                    "remaining_play_time_minutes": remaining_play_time_minutes,
+                    "weekly_breakdown": formatted_breakdown,
+                    "platform_split": platform_split,
+                    "longest_session": longest_session_text
                 }
                 lp = new_attrs.get("last_played_game")
                 if lp and str(lp).lower() == "offline": new_attrs["last_played_game"] = None
                 if most_recent_key in PLATFORM_CONFIG: new_icon = PLATFORM_CONFIG[most_recent_key]["icon"]
             else:
-                # If everything is offline AND no recent sensor is found,
-                # we must preserve the restored artwork so it isn't wiped on reboot!
                 new_attrs = {
                     "secondary": "Offline",
                     "game_cover_art": self._attr_extra_state_attributes.get("game_cover_art"),
@@ -1041,7 +1119,10 @@ class MasterGamingSensor(RestoreSensor):
                     "total_weekly_hours_last_week": total_weekly_hours_last_week,
                     "entity_picture": self._attr_extra_state_attributes.get("entity_picture"),
                     "daily_play_limit_minutes": daily_play_limit_minutes,
-                    "remaining_play_time_minutes": remaining_play_time_minutes
+                    "remaining_play_time_minutes": remaining_play_time_minutes,
+                    "weekly_breakdown": formatted_breakdown,
+                    "platform_split": platform_split,
+                    "longest_session": longest_session_text
                 }
 
         if (self._attr_native_value == new_state_value and 
