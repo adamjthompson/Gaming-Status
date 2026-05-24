@@ -71,3 +71,13 @@ OPT_CUSTOM_HERO = "custom_hero"
 OPT_CUSTOM_LOGO = "custom_logo"
 OPT_CUSTOM_ICON = "custom_icon"
 OPT_CUSTOM_COLORS = "custom_colors"
+
+OPT_DISCORD_COLOR_MODE = "discord_color_mode"
+OPT_COLOR_START = "color_start"
+OPT_COLOR_END = "color_end"
+OPT_COLOR_PARENTAL = "color_parental"
+
+DISCORD_COLOR_DEFAULT = "default"
+DISCORD_COLOR_PLATFORM = "platform"
+DISCORD_COLOR_GAME = "game"
+DISCORD_COLOR_CUSTOM = "custom"
