@@ -10,6 +10,7 @@ from datetime import datetime, timezone, timedelta
 from dateutil import parser
 from collections import OrderedDict
 from pathlib import Path
+from PIL import Image
 
 from homeassistant.util import dt as dt_util
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -369,3 +370,44 @@ def safe_url(url):
 
 async def check_steam_url_validity(hass, url): return True
 async def get_steam_game_cover(hass, game_name, game_id=None): return await get_steamgriddb_game_cover(hass, game_name)
+
+def extract_vibrant_color(image_path):
+    """Extracts the most dominant vibrant color from an image, with a safe fallback."""
+    try:
+        from PIL import Image
+        img = Image.open(image_path).convert('RGB')
+        img = img.resize((50, 50))
+        pixels = img.getdata()
+        
+        color_counts = {}
+        fallback_r, fallback_g, fallback_b = 0, 0, 0
+        total_pixels = 0
+        
+        for r, g, b in pixels:
+            # Keep a running total for the fallback average
+            fallback_r += r
+            fallback_g += g
+            fallback_b += b
+            total_pixels += 1
+            
+            # Masking: Ignore pixels that are too muddy or bright
+            if max(r, g, b) > 50 and min(r, g, b) < 200:
+                color = (round(r/10)*10, round(g/10)*10, round(b/10)*10)
+                color_counts[color] = color_counts.get(color, 0) + 1
+                
+        if not color_counts:
+            # Fallback: If all pixels were filtered out, calculate the true average
+            if total_pixels > 0:
+                avg_r = int(fallback_r / total_pixels)
+                avg_g = int(fallback_g / total_pixels)
+                avg_b = int(fallback_b / total_pixels)
+                return f"#{avg_r:02x}{avg_g:02x}{avg_b:02x}"
+            return "#333333" # Absolute fallback for completely broken images
+            
+        dominant_rgb = max(color_counts, key=color_counts.get)
+        return f"#{dominant_rgb[0]:02x}{dominant_rgb[1]:02x}{dominant_rgb[2]:02x}"
+        
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to extract vibrant color from {image_path}: {e}")
+        return None

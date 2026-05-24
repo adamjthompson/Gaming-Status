@@ -94,6 +94,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._cached_game_hero = None
         self._cached_game_logo = None
         self._cached_game_icon = None
+        self._cached_game_color = None
         
         self._current_game = None
         self._play_start_time = None
@@ -160,7 +161,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 "last_session_play_time": self._last_session_play_time,
                 "weekly_game_breakdown": self._weekly_game_breakdown,
                 "longest_session_details": self._longest_session_details
-            }
+            },
+            "cached_game_cover": getattr(self, "_cached_game_cover", None),
+            "game_hero_art": getattr(self, "_cached_game_hero", None),
+            "game_logo_art": getattr(self, "_cached_game_logo", None),
+            "game_icon_art": getattr(self, "_cached_game_icon", None),
+            "game_dominant_color": getattr(self, "_cached_game_color", None)
         }
 
     def _check_daily_reset(self):
@@ -421,6 +427,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._cached_game_hero = None
             self._cached_game_logo = None
             self._cached_game_icon = None
+            self._cached_game_color = None
             self._store.async_delay_save(self._get_store_data, 5.0)
 
     def _get_session_info(self):
@@ -457,6 +464,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._attr_extra_state_attributes["game_hero_art"] = self._cached_game_hero
         self._attr_extra_state_attributes["game_logo_art"] = self._cached_game_logo
         self._attr_extra_state_attributes["game_icon_art"] = self._cached_game_icon
+        
+        # Color & Overrides
+        self._attr_extra_state_attributes["game_dominant_color"] = self._cached_game_color
+        if self._current_game:
+            # Check utils.py for manual color overrides
+            override = getattr(utils, "GAME_COLOR_OVERRIDES", {}).get(str(self._current_game).lower())
+            if override:
+                self._attr_extra_state_attributes["game_dominant_color"] = override
         
         # Rich Tracking Attributes
         self._attr_extra_state_attributes["weekly_game_breakdown"] = self._weekly_game_breakdown
@@ -579,6 +594,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._cached_game_hero = attrs.get("game_hero_art")
             self._cached_game_logo = attrs.get("game_logo_art")
             self._cached_game_icon = attrs.get("game_icon_art")
+            self._cached_game_color = attrs.get("game_dominant_color")
             
             if not stored_data or "internal_state" not in stored_data:
                 self._temp_offline_start = _safe_parse_datetime(attrs.get("temp_offline_start"))
@@ -808,7 +824,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     self._temp_game_lost_time = None
                 display_state = game_name_display
                 
-                # --- The New Artwork Fetch Engine ---
                 if normalized_new and not self._cover_fetch_attempted:
                     self._cover_fetch_attempted = True
                     fetched = await utils.fetch_game_assets(self.hass, game_name_display)
@@ -819,6 +834,16 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         self._cached_game_icon = fetched.get("icon")
                     else: 
                         self._cached_game_cover = platform_data.get("game_cover_url")
+                        
+                # --- Vibrant Color Extraction ---
+                art_to_use = self._cached_game_hero or self._cached_game_cover
+                if not self._cached_game_color and art_to_use and "/local/" in art_to_use:
+                    local_suffix = art_to_use.split("/local/")[-1]
+                    local_path = self.hass.config.path("www", local_suffix)
+                    self._cached_game_color = await self.hass.async_add_executor_job(
+                        utils.extract_vibrant_color, local_path
+                    )
+                    
                 elif not self._cached_game_cover and platform_data.get("game_cover_url"): 
                     self._cached_game_cover = platform_data.get("game_cover_url")
                 
@@ -1061,6 +1086,7 @@ class MasterGamingSensor(RestoreSensor):
                 "game_hero_art": active_state.attributes.get("game_hero_art"),
                 "game_logo_art": active_state.attributes.get("game_logo_art"),
                 "game_icon_art": active_state.attributes.get("game_icon_art"),
+                "game_dominant_color": active_state.attributes.get("game_dominant_color"),
                 "current_game": active_state.attributes.get("current_game"),
                 "play_start_time": active_state.attributes.get("play_start_time"),
                 "last_online_valid_timestamp": active_state.attributes.get("last_online_valid_timestamp"),
@@ -1088,6 +1114,7 @@ class MasterGamingSensor(RestoreSensor):
                     "game_hero_art": most_recent_sensor.attributes.get("game_hero_art"),
                     "game_logo_art": most_recent_sensor.attributes.get("game_logo_art"),
                     "game_icon_art": most_recent_sensor.attributes.get("game_icon_art"),
+                    "game_dominant_color": most_recent_sensor.attributes.get("game_dominant_color"),
                     "last_played_game": most_recent_sensor.attributes.get("last_played_game"),
                     "last_online_valid_timestamp": most_recent_sensor.attributes.get("last_online_valid_timestamp"),
                     "total_daily_hours": total_daily_hours,
@@ -1111,6 +1138,7 @@ class MasterGamingSensor(RestoreSensor):
                     "game_hero_art": self._attr_extra_state_attributes.get("game_hero_art"),
                     "game_logo_art": self._attr_extra_state_attributes.get("game_logo_art"),
                     "game_icon_art": self._attr_extra_state_attributes.get("game_icon_art"),
+                    "game_dominant_color": self._attr_extra_state_attributes.get("game_dominant_color"),
                     "last_played_game": self._attr_extra_state_attributes.get("last_played_game"),
                     "last_online_valid_timestamp": self._attr_extra_state_attributes.get("last_online_valid_timestamp"),
                     "total_daily_hours": total_daily_hours,
