@@ -475,6 +475,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     "type": user_input.get("notification_type", "Mobile App"),
                     "notifier": user_input.get("notifier", "").strip(),
                     "target_id": user_input.get("target_id", "").strip(),
+                    "discord_color_mode": user_input.get("discord_color_mode", "default"),
+                    "color_start": user_input.get("color_start", "#00FF00").strip(),
+                    "color_end": user_input.get("color_end", "#FF0000").strip(),
+                    "color_parental": user_input.get("color_parental", "#0000FF").strip(),
                 }
                 self._options[OPT_ENDPOINTS] = _dump_json(endpoints)
                 return await self._update_and_return()
@@ -503,6 +507,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 existing["type"] = user_input.get("notification_type", "Mobile App")
                 existing["notifier"] = user_input.get("notifier", "").strip()
                 existing["target_id"] = user_input.get("target_id", "").strip()
+                existing["discord_color_mode"] = user_input.get("discord_color_mode", "default")
+                existing["color_start"] = user_input.get("color_start", "#00FF00").strip()
+                existing["color_end"] = user_input.get("color_end", "#FF0000").strip()
+                existing["color_parental"] = user_input.get("color_parental", "#0000FF").strip()
                 endpoints[ep_id] = existing
                 self._options[OPT_ENDPOINTS] = _dump_json(endpoints)
                 return await self._update_and_return()
@@ -915,10 +923,26 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         )
         
         schema[vol.Optional("target_id", default=existing.get("target_id", ""))] = str
-        
+
+        schema[vol.Optional("discord_color_mode", default=existing.get("discord_color_mode", "default"))] = selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[
+                    selector.SelectOptionDict(value="default", label="Default (Green / Red / Blue)"),
+                    selector.SelectOptionDict(value="platform", label="Platform Colors"),
+                    selector.SelectOptionDict(value="game", label="Game Color"),
+                    selector.SelectOptionDict(value="custom", label="Custom Colors"),
+                ],
+                mode=selector.SelectSelectorMode.DROPDOWN
+            )
+        )
+
+        schema[vol.Optional("color_start", default=existing.get("color_start", "#00FF00"))] = str
+        schema[vol.Optional("color_end", default=existing.get("color_end", "#FF0000"))] = str
+        schema[vol.Optional("color_parental", default=existing.get("color_parental", "#0000FF"))] = str
+
         if include_delete:
             schema[vol.Optional("delete_endpoint", default=False)] = bool
-            
+
         return vol.Schema(schema)
 
     def _cleanup_endpoint_refs(self, ep_id: str) -> None:

@@ -117,6 +117,75 @@ class GamingNotifier:
     # Generic Notification Helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _hex_to_int(hex_color: str, fallback: int) -> int:
+        """Convert a hex string like '#FF5500' or 'FF5500' to a Discord integer."""
+        try:
+            return int(hex_color.lstrip("#"), 16)
+        except (ValueError, AttributeError):
+            return fallback
+
+    def _resolve_discord_color(
+        self,
+        dest: dict,
+        event_type: str,
+        entity_id: str | None,
+    ) -> int:
+        """Return the Discord embed color integer for this endpoint and event type.
+
+        Modes:
+          default  — hardcoded green / red / blue (original behaviour)
+          platform — color for the active platform (Steam / Xbox / PlayStation / Custom)
+          game     — dominant color extracted from cover art, read from sensor attribute
+          custom   — user-supplied hex values per event type
+        """
+        DEFAULT_START = 65280      # green
+        DEFAULT_STOP  = 16711680   # red
+        DEFAULT_INFO  = 3447003    # blue
+
+        PLATFORM_COLORS = {
+            "steam":       175599,   # rgb(2, 173, 239)
+            "xbox":        752656,   # rgb(11, 124, 16)
+            "playstation": 12423,    # rgb(0, 48, 135)
+            "custom":      6566500,  # rgb(100, 50, 100)
+        }
+
+        default_for_type = (
+            DEFAULT_START if event_type == "start"
+            else DEFAULT_STOP if event_type == "stop"
+            else DEFAULT_INFO
+        )
+
+        mode = dest.get("discord_color_mode", "default")
+
+        if mode == "platform" and entity_id:
+            master_state = self.hass.states.get(entity_id)
+            if master_state:
+                active_platform = master_state.attributes.get("active_platform", "").lower()
+                for key in PLATFORM_COLORS:
+                    if key in active_platform:
+                        return PLATFORM_COLORS[key]
+            return default_for_type
+
+        if mode == "game" and entity_id:
+            master_state = self.hass.states.get(entity_id)
+            if master_state:
+                hex_color = master_state.attributes.get("game_dominant_color", "")
+                if hex_color:
+                    return self._hex_to_int(hex_color, default_for_type)
+            return default_for_type
+
+        if mode == "custom":
+            if event_type == "start":
+                return self._hex_to_int(dest.get("color_start", ""), DEFAULT_START)
+            elif event_type == "stop":
+                return self._hex_to_int(dest.get("color_end", ""), DEFAULT_STOP)
+            else:
+                return self._hex_to_int(dest.get("color_parental", ""), DEFAULT_INFO)
+
+        # "default" or unrecognised mode
+        return default_for_type
+
     def _format_duration(self, minutes: int) -> str:
         if minutes < 60:
             return f"{minutes} minute{'s' if minutes != 1 else ''}"
@@ -133,7 +202,8 @@ class GamingNotifier:
         image_url: str = None,
         game_title: str = None,
         duration_str: str = None,
-        event_type: str = "info"
+        event_type: str = "info",
+        entity_id: str = None,
     ) -> bool:
         """Dispatch a notification to a configured endpoint."""
         dest = self._cached_endpoints.get(ep_id)
@@ -164,7 +234,7 @@ class GamingNotifier:
             else: service_data["target"] = target_id
 
         if ep_type == "Discord":
-            color = 65280 if event_type == "start" else (16711680 if event_type == "stop" else 3447003)
+            color = self._resolve_discord_color(dest, event_type, entity_id)
             embed = {"color": color}
             
             # Placing text in "description" puts it INSIDE the colored bar
@@ -338,7 +408,7 @@ class GamingNotifier:
                 dest = self._cached_endpoints.get(ep_id, {})
                 discord_safe_url = image_url if (image_url or "").startswith("https://") else None
                 effective_url = discord_safe_url if dest.get("type") == "Discord" else image_url
-                await self._send_to_endpoint(ep_id, message=msg, image_url=effective_url, game_title=display_title, event_type="start")
+                await self._send_to_endpoint(ep_id, message=msg, image_url=effective_url, game_title=display_title, event_type="start", entity_id=entity_id)
 
         elif is_end:
             msg = f"{target_player} played for {duration_str}" if duration_str else f"{target_player} finished playing"
@@ -351,7 +421,7 @@ class GamingNotifier:
                     image_url = old_state.attributes.get("game_cover_art") or old_state.attributes.get("cached_game_cover")
             
             for ep_id in end_dests:
-                await self._send_to_endpoint(ep_id, message=msg, image_url=image_url, game_title=old_game, event_type="stop")
+                await self._send_to_endpoint(ep_id, message=msg, image_url=image_url, game_title=old_game, event_type="stop", entity_id=entity_id)
 
     # ------------------------------------------------------------------
     # Parental controls
@@ -468,9 +538,9 @@ class GamingNotifier:
             if not target or target == "none": continue
 
             if target.startswith("endpoint_"):
-                sent = await self._send_to_endpoint(target.replace("endpoint_", "", 1), message, event_type="info")
+                sent = await self._send_to_endpoint(target.replace("endpoint_", "", 1), message, event_type="parental")
             elif target in self._cached_endpoints:
-                sent = await self._send_to_endpoint(target, message, event_type="info")
+                sent = await self._send_to_endpoint(target, message, event_type="parental")
             elif "." in target:
                 domain, service = target.split(".", 1)
                 if self.hass.services.has_service(domain, service):

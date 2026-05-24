@@ -103,11 +103,19 @@
           "endpoint_name": "Name",
           "notification_type": "Notification Type",
           "notifier": "Notifier",
-          "target_id": "Target ID"
+          "target_id": "Target ID",
+          "discord_color_mode": "Discord Embed Color",
+          "color_start": "Custom Start Color (Hex)",
+          "color_end": "Custom End Color (Hex)",
+          "color_parental": "Custom Parental Color (Hex)"
         },
         "data_description": {
           "endpoint_name": "A friendly name, e.g. Dad's Phone",
-          "target_id": "Required for Discord (Channel ID) or SMS (Phone Number)."
+          "target_id": "Required for Discord (Channel ID) or SMS (Phone Number).",
+          "discord_color_mode": "Controls the color of the Discord embed sidebar. Only applies to Discord notification types.",
+          "color_start": "Used when Discord color is set to Custom. Color for session start notifications. e.g. #00FF00",
+          "color_end": "Used when Discord color is set to Custom. Color for session end notifications. e.g. #FF0000",
+          "color_parental": "Used when Discord color is set to Custom. Color for parental control notifications. e.g. #0000FF"
         }
       },
       "edit_endpoint": {
@@ -117,7 +125,17 @@
           "notification_type": "Notification Type",
           "notifier": "Notifier",
           "target_id": "Target ID",
+          "discord_color_mode": "Discord Embed Color",
+          "color_start": "Custom Start Color (Hex)",
+          "color_end": "Custom End Color (Hex)",
+          "color_parental": "Custom Parental Color (Hex)",
           "delete_endpoint": "Delete this notification"
+        },
+        "data_description": {
+          "discord_color_mode": "Controls the color of the Discord embed sidebar. Only applies to Discord notification types.",
+          "color_start": "Used when Discord color is set to Custom. Color for session start notifications. e.g. #00FF00",
+          "color_end": "Used when Discord color is set to Custom. Color for session end notifications. e.g. #FF0000",
+          "color_parental": "Used when Discord color is set to Custom. Color for parental control notifications. e.g. #0000FF"
         }
       },
       "weekly_report": {
