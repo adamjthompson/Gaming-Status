@@ -11,5 +11,5 @@
     "python-dateutil>=2.8.2",
     "Pillow"
   ],
-  "version": "2.2.7"
+  "version": "2.2.8-b"
 }

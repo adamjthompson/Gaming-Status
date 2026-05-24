@@ -20,12 +20,14 @@ _LOGGER = logging.getLogger(__name__)
 
 # Initialize empty globals (Populated securely by setup)
 GAME_TITLE_OVERRIDES = {}
+GAME_COLOR_OVERRIDES = {}
 TITLE_CLEANUPS = []
 COMPILED_TITLE_CLEANUPS = []
 STEAMGRIDDB_API_KEY = None
 
 # Cache Settings
 USE_LOCAL_CACHE = True
+ENABLE_VIBRANT_COLOR = True
 CACHE_MAX_FILES = 200
 CACHE_MAX_DAYS = 30
 

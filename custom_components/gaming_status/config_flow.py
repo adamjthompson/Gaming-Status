@@ -32,6 +32,7 @@ from .const import (
     OPT_NOTIFY_ARTWORK,
     OPT_TITLE_CLEANUPS,
     OPT_GLOBAL_EXCLUSIONS,
+    OPT_CUSTOM_COLORS,
     DEFAULT_RESET_HISTORY,
     DEFAULT_GRACE_PERIOD_SECONDS,
     DEFAULT_AWAY_GRACE_PERIOD_SECONDS,
@@ -45,6 +46,8 @@ from .const import (
     PLAYER_PLATFORMS,
     OPT_USE_CACHE,
     DEFAULT_USE_CACHE,
+    OPT_EXTRACT_COLOR,
+    DEFAULT_EXTRACT_COLOR,
     OPT_CACHE_MAX_FILES,
     DEFAULT_CACHE_MAX_FILES,
     OPT_CACHE_MAX_DAYS,
@@ -182,6 +185,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
         if user_input is not None:
             opts[OPT_USE_CACHE] = user_input[OPT_USE_CACHE]
+            # Auto-disable color extraction if local cache is disabled
+            opts[OPT_EXTRACT_COLOR] = user_input[OPT_EXTRACT_COLOR] if user_input[OPT_USE_CACHE] else False
             opts[OPT_CACHE_MAX_FILES] = user_input[OPT_CACHE_MAX_FILES]
             opts[OPT_CACHE_MAX_DAYS] = user_input[OPT_CACHE_MAX_DAYS]
             opts[OPT_RESET_HISTORY] = user_input[OPT_RESET_HISTORY]
@@ -199,6 +204,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional(
                         OPT_USE_CACHE,
                         default=opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE),
+                    ): bool,
+                    vol.Optional(
+                        OPT_EXTRACT_COLOR,
+                        default=opts.get(OPT_EXTRACT_COLOR, DEFAULT_EXTRACT_COLOR),
                     ): bool,
                     vol.Optional(
                         OPT_CACHE_MAX_FILES,
@@ -683,6 +692,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 (OPT_CUSTOM_HERO, "custom_hero"),
                 (OPT_CUSTOM_LOGO, "custom_logo"),
                 (OPT_CUSTOM_ICON, "custom_icon"),
+                (OPT_CUSTOM_COLORS, "custom_colors"),
             ]:
                 raw = user_input.get(field, "")
                 parsed_dict = {}
@@ -711,6 +721,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional("custom_hero", default=_get_dict_default(OPT_CUSTOM_HERO, {})): str,
                     vol.Optional("custom_logo", default=_get_dict_default(OPT_CUSTOM_LOGO, {})): str,
                     vol.Optional("custom_icon", default=_get_dict_default(OPT_CUSTOM_ICON, {})): str,
+                    vol.Optional("custom_colors", default=_get_dict_default(OPT_CUSTOM_COLORS, {})): str,
                 }
             ),
             description_placeholders={"example_url": "https://link-to-image.png"},

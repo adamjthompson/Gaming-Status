@@ -26,7 +26,7 @@
           "manage_players": "Manage Players",
           "notifications": "Notifications & Reporting",
           "parental_controls": "Parental Controls",
-          "custom_artwork": "Custom Artwork",
+          "custom_artwork": "Custom Artwork & Colors",
           "advanced": "Advanced Settings",
           "global_settings": "Global Settings"
         }
@@ -167,6 +167,7 @@
         "description": "Timing and behavior settings that apply to all players. **Only change these if you understand exactly what they do!**",
         "data": {
           "use_local_cache": "Enable Local Image Caching",
+          "extract_colors": "Enable Game Color Extraction",
           "cache_max_files": "Maximum Cached Images",
           "cache_max_days": "Image Retention (Days)",
           "grace_period_seconds": "Offline grace period (seconds)",
@@ -177,6 +178,7 @@
         },
         "data_description": {
           "use_local_cache": "Downloads artwork to your local storage. Disable this to use raw web URLs (recommended if you use Discord notifications without remote HA access).",
+          "extract_colors": "Automatically calculates the dominant vibrant color of game artwork for use in dashboard cards. *Note: This will be automatically ignored if Local Caching is disabled.*",
           "cache_max_files": "The maximum number of images to keep on your drive. Set to 0 for unlimited. Default: 200",
           "cache_max_days": "Delete images that have not been played in this many days. Set to 0 to disable. Default: 30",
           "grace_period_seconds": "How long to wait before marking a player offline. Default: 300 (5 min)",
@@ -187,13 +189,14 @@
         }
       },
       "custom_artwork": {
-        "title": "Custom Artwork",
-        "description": "Override SteamGridDB by providing direct URLs to custom images. Format as a comma-separated list of key=value pairs. \n\ne.g., `Minecraft = {example_url}`",
+        "title": "Custom Artwork & Colors",
+        "description": "Override SteamGridDB by providing direct URLs to custom images, or set a custom dominant hex color for specific games. Format as a comma-separated list of key=value pairs. \n\ne.g., `Minecraft = {example_url}` or `Halo 3 = #F2AB0A`",
         "data": {
           "custom_grid": "Custom Cover/Grid (Vertical)",
           "custom_hero": "Custom Hero (Horizontal)",
           "custom_logo": "Custom Logo (Transparent Title)",
-          "custom_icon": "Custom Icon (Small Square)"
+          "custom_icon": "Custom Icon (Small Square)",
+          "custom_colors": "Custom Dominant Colors (Hex Codes)"
         }
       }
     },

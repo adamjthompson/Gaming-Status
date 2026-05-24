@@ -29,8 +29,9 @@ from .const import (
     OPT_AWAY_GRACE_PERIOD, OPT_TRANSITION_GRACE, OPT_MIN_SESSION,
     OPT_RESET_HISTORY, OPT_TITLE_OVERRIDES, OPT_CUSTOM_GRID,
     OPT_CUSTOM_HERO, OPT_CUSTOM_LOGO, OPT_CUSTOM_ICON,
-    OPT_GLOBAL_EXCLUSIONS, OPT_PARENTAL, PLAYER_PLATFORMS,
-    OPT_USE_CACHE, DEFAULT_USE_CACHE, OPT_CACHE_MAX_FILES,
+    OPT_CUSTOM_COLORS, OPT_GLOBAL_EXCLUSIONS, OPT_PARENTAL, 
+    PLAYER_PLATFORMS, OPT_USE_CACHE, DEFAULT_USE_CACHE, 
+    OPT_EXTRACT_COLOR, DEFAULT_EXTRACT_COLOR, OPT_CACHE_MAX_FILES,
     DEFAULT_CACHE_MAX_FILES, OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS,
 )
 
@@ -95,6 +96,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._cached_game_logo = None
         self._cached_game_icon = None
         self._cached_game_color = None
+        self._color_history_cache = {}
         
         self._current_game = None
         self._play_start_time = None
@@ -166,7 +168,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             "game_hero_art": getattr(self, "_cached_game_hero", None),
             "game_logo_art": getattr(self, "_cached_game_logo", None),
             "game_icon_art": getattr(self, "_cached_game_icon", None),
-            "game_dominant_color": getattr(self, "_cached_game_color", None)
+            "game_dominant_color": getattr(self, "_cached_game_color", None),
+            "color_history_cache": getattr(self, "_color_history_cache", {})
         }
 
     def _check_daily_reset(self):
@@ -552,8 +555,17 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._last_session_play_time = int(internal.get("last_session_play_time", 0))
             self._weekly_game_breakdown = internal.get("weekly_game_breakdown", {})
             self._longest_session_details = internal.get("longest_session_details", {"game": None, "duration": 0})
+            
+            # Restore pure caches from hard drive (bypassing UI overrides)
+            self._cached_game_cover = stored_data.get("cached_game_cover")
+            self._cached_game_hero = stored_data.get("game_hero_art")
+            self._cached_game_logo = stored_data.get("game_logo_art")
+            self._cached_game_icon = stored_data.get("game_icon_art")
+            self._cached_game_color = stored_data.get("game_dominant_color")
+            self._color_history_cache = stored_data.get("color_history_cache", {})
         else:
             self._play_history = {}
+            self._color_history_cache = {}
             self._backup_last_session_time = 0
             self._backup_last_online_timestamp = None
             self._backup_last_played_game = None
@@ -589,12 +601,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             restored_last_game = attrs.get("last_played_game")
             self._last_played_game = self._clean_restored_game_name(restored_last_game)
             
-            # Restore new caches
-            self._cached_game_cover = attrs.get("cached_game_cover")
-            self._cached_game_hero = attrs.get("game_hero_art")
-            self._cached_game_logo = attrs.get("game_logo_art")
-            self._cached_game_icon = attrs.get("game_icon_art")
-            self._cached_game_color = attrs.get("game_dominant_color")
+            # Fallback for caches if they weren't in the hard drive save file
+            if not getattr(self, "_cached_game_cover", None): self._cached_game_cover = attrs.get("cached_game_cover")
+            if not getattr(self, "_cached_game_hero", None): self._cached_game_hero = attrs.get("game_hero_art")
+            if not getattr(self, "_cached_game_logo", None): self._cached_game_logo = attrs.get("game_logo_art")
+            if not getattr(self, "_cached_game_icon", None): self._cached_game_icon = attrs.get("game_icon_art")
+            # We intentionally do NOT fallback _cached_game_color from attrs to prevent restoring old overrides!
             
             if not stored_data or "internal_state" not in stored_data:
                 self._temp_offline_start = _safe_parse_datetime(attrs.get("temp_offline_start"))
@@ -836,15 +848,30 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         self._cached_game_cover = platform_data.get("game_cover_url")
                         
                 # --- Vibrant Color Extraction ---
-                art_to_use = self._cached_game_hero or self._cached_game_cover
-                if not self._cached_game_color and art_to_use and "/local/" in art_to_use:
-                    local_suffix = art_to_use.split("/local/")[-1]
-                    local_path = self.hass.config.path("www", local_suffix)
-                    self._cached_game_color = await self.hass.async_add_executor_job(
-                        utils.extract_vibrant_color, local_path
-                    )
-                    
-                elif not self._cached_game_cover and platform_data.get("game_cover_url"): 
+                if utils.ENABLE_VIBRANT_COLOR:
+                    # 1. Check our permanent memory bank first!
+                    if not self._cached_game_color and game_name_display in self._color_history_cache:
+                        self._cached_game_color = self._color_history_cache[game_name_display]
+                        
+                    # 2. If it's not in the memory bank, run the math
+                    art_to_use = self._cached_game_hero or self._cached_game_cover
+                    if not self._cached_game_color and art_to_use and "/local/" in art_to_use:
+                        local_suffix = art_to_use.split("/local/")[-1]
+                        local_path = self.hass.config.path("www", local_suffix)
+                        self._cached_game_color = await self.hass.async_add_executor_job(
+                            utils.extract_vibrant_color, local_path
+                        )
+                        
+                        # 3. Save the newly calculated color to our permanent memory bank
+                        if self._cached_game_color:
+                            self._color_history_cache[game_name_display] = self._cached_game_color
+                            # Cap the database at 50 games so it stays incredibly lightweight
+                            if len(self._color_history_cache) > 50:
+                                oldest_game = next(iter(self._color_history_cache))
+                                del self._color_history_cache[oldest_game]
+                            self._store.async_delay_save(self._get_store_data, 5.0)
+                        
+                if not self._cached_game_cover and platform_data.get("game_cover_url"): 
                     self._cached_game_cover = platform_data.get("game_cover_url")
                 
                 game_cover = self._cached_game_cover
@@ -1271,11 +1298,14 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     utils.CUSTOM_LOGO_MAP = {k.strip().lower(): safe_url(v) for k, v in raw_logo.items() if safe_url(v)}
     raw_icon = _load_opt_json(opts, OPT_CUSTOM_ICON, {})
     utils.CUSTOM_ICON_MAP = {k.strip().lower(): safe_url(v) for k, v in raw_icon.items() if safe_url(v)}
+    raw_colors = _load_opt_json(opts, OPT_CUSTOM_COLORS, {})
+    utils.GAME_COLOR_OVERRIDES = {k.strip().lower(): v.strip() for k, v in raw_colors.items()}
     raw_cleanups = _load_opt_json(opts, OPT_TITLE_CLEANUPS, [])
     utils.TITLE_CLEANUPS = raw_cleanups
     utils.compile_title_cleanups()
     utils.STEAMGRIDDB_API_KEY = config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, "")
     utils.USE_LOCAL_CACHE = opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
+    utils.ENABLE_VIBRANT_COLOR = opts.get(OPT_EXTRACT_COLOR, DEFAULT_EXTRACT_COLOR)
     utils.CACHE_MAX_FILES = opts.get(OPT_CACHE_MAX_FILES, DEFAULT_CACHE_MAX_FILES)
     utils.CACHE_MAX_DAYS = opts.get(OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS)
     global_exclusions = _load_opt_json(opts, OPT_GLOBAL_EXCLUSIONS, [])
