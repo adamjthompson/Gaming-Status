@@ -19,6 +19,7 @@ from .const import (
     OPT_PARENTAL,
     OPT_GLOBAL_EXCLUSIONS,
     OPT_NOTIFY_ARTWORK,
+    OPT_DISCORD_COLORS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ class GamingNotifier:
         self._cached_endpoints = _load_json(opts.get(OPT_ENDPOINTS), {})
         self._cached_weekly = _load_json(opts.get(OPT_WEEKLY_REPORT), {})
         self._cached_parental = _load_json(opts.get(OPT_PARENTAL), {})
+        self._cached_discord_colors = _load_json(opts.get(OPT_DISCORD_COLORS), {})
         
         # Cache the user's preferred notification artwork style
         self._cached_notify_artwork = opts.get(OPT_NOTIFY_ARTWORK, "game_cover_art")
@@ -127,7 +129,6 @@ class GamingNotifier:
 
     def _resolve_discord_color(
         self,
-        dest: dict,
         event_type: str,
         entity_id: str | None,
     ) -> int:
@@ -156,7 +157,8 @@ class GamingNotifier:
             else DEFAULT_INFO
         )
 
-        mode = dest.get("discord_color_mode", "default")
+        colors_config = self._cached_discord_colors
+        mode = colors_config.get("mode", "default")
 
         if mode == "platform" and entity_id:
             master_state = self.hass.states.get(entity_id)
@@ -177,11 +179,11 @@ class GamingNotifier:
 
         if mode == "custom":
             if event_type == "start":
-                return self._hex_to_int(dest.get("color_start", ""), DEFAULT_START)
+                return self._hex_to_int(colors_config.get("color_start", ""), DEFAULT_START)
             elif event_type == "stop":
-                return self._hex_to_int(dest.get("color_end", ""), DEFAULT_STOP)
+                return self._hex_to_int(colors_config.get("color_end", ""), DEFAULT_STOP)
             else:
-                return self._hex_to_int(dest.get("color_parental", ""), DEFAULT_INFO)
+                return self._hex_to_int(colors_config.get("color_parental", ""), DEFAULT_INFO)
 
         # "default" or unrecognised mode
         return default_for_type
@@ -234,7 +236,7 @@ class GamingNotifier:
             else: service_data["target"] = target_id
 
         if ep_type == "Discord":
-            color = self._resolve_discord_color(dest, event_type, entity_id)
+            color = self._resolve_discord_color(event_type, entity_id)
             embed = {"color": color}
             
             # Placing text in "description" puts it INSIDE the colored bar

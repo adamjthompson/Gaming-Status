@@ -33,6 +33,7 @@ from .const import (
     OPT_TITLE_CLEANUPS,
     OPT_GLOBAL_EXCLUSIONS,
     OPT_CUSTOM_COLORS,
+    OPT_DISCORD_COLORS,
     DEFAULT_RESET_HISTORY,
     DEFAULT_GRACE_PERIOD_SECONDS,
     DEFAULT_AWAY_GRACE_PERIOD_SECONDS,
@@ -419,6 +420,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             elif selection == "__add_new__":
                 self._editing_endpoint = None
                 return await self.async_step_add_endpoint()
+            elif selection == "__discord_colors__":
+                return await self.async_step_discord_colors()
             elif selection == "__weekly_report__":
                 return await self.async_step_weekly_report()
             elif selection in endpoints:
@@ -431,6 +434,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         choices = [
             selector.SelectOptionDict(value="__save_settings__", label="Save Artwork Setting"),
             selector.SelectOptionDict(value="__add_new__", label="➕ Add New Notification"),
+            selector.SelectOptionDict(value="__discord_colors__", label="Discord Notification Colors"),
             selector.SelectOptionDict(value="__weekly_report__", label="Weekly Report Settings"),
         ]
         
@@ -475,10 +479,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     "type": user_input.get("notification_type", "Mobile App"),
                     "notifier": user_input.get("notifier", "").strip(),
                     "target_id": user_input.get("target_id", "").strip(),
-                    "discord_color_mode": user_input.get("discord_color_mode", "default"),
-                    "color_start": user_input.get("color_start", "#00FF00").strip(),
-                    "color_end": user_input.get("color_end", "#FF0000").strip(),
-                    "color_parental": user_input.get("color_parental", "#0000FF").strip(),
                 }
                 self._options[OPT_ENDPOINTS] = _dump_json(endpoints)
                 return await self._update_and_return()
@@ -507,10 +507,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 existing["type"] = user_input.get("notification_type", "Mobile App")
                 existing["notifier"] = user_input.get("notifier", "").strip()
                 existing["target_id"] = user_input.get("target_id", "").strip()
-                existing["discord_color_mode"] = user_input.get("discord_color_mode", "default")
-                existing["color_start"] = user_input.get("color_start", "#00FF00").strip()
-                existing["color_end"] = user_input.get("color_end", "#FF0000").strip()
-                existing["color_parental"] = user_input.get("color_parental", "#0000FF").strip()
                 endpoints[ep_id] = existing
                 self._options[OPT_ENDPOINTS] = _dump_json(endpoints)
                 return await self._update_and_return()
@@ -520,6 +516,38 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             data_schema=self._endpoint_schema(existing, include_delete=True),
             errors=errors,
             description_placeholders={"endpoint_name": existing.get("name", ep_id)},
+        )
+
+    async def async_step_discord_colors(self, user_input=None):
+        colors = _load_json(self._options.get(OPT_DISCORD_COLORS, ""), {})
+        
+        if user_input is not None:
+            self._options[OPT_DISCORD_COLORS] = _dump_json({
+                "mode": user_input.get("discord_color_mode", "default"),
+                "color_start": user_input.get("color_start", "#00FF00").strip(),
+                "color_end": user_input.get("color_end", "#FF0000").strip(),
+                "color_parental": user_input.get("color_parental", "#0000FF").strip(),
+            })
+            return await self._update_and_return()
+
+        return self.async_show_form(
+            step_id="discord_colors",
+            data_schema=vol.Schema({
+                vol.Optional("discord_color_mode", default=colors.get("mode", "default")): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value="default", label="Default (Green / Red / Blue)"),
+                            selector.SelectOptionDict(value="platform", label="Platform Colors"),
+                            selector.SelectOptionDict(value="game", label="Game Color"),
+                            selector.SelectOptionDict(value="custom", label="Custom Colors"),
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+                vol.Optional("color_start", default=colors.get("color_start", "#00FF00")): str,
+                vol.Optional("color_end", default=colors.get("color_end", "#FF0000")): str,
+                vol.Optional("color_parental", default=colors.get("color_parental", "#0000FF")): str,
+            }),
         )
 
     async def async_step_weekly_report(self, user_input=None):
@@ -923,22 +951,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         )
         
         schema[vol.Optional("target_id", default=existing.get("target_id", ""))] = str
-
-        schema[vol.Optional("discord_color_mode", default=existing.get("discord_color_mode", "default"))] = selector.SelectSelector(
-            selector.SelectSelectorConfig(
-                options=[
-                    selector.SelectOptionDict(value="default", label="Default (Green / Red / Blue)"),
-                    selector.SelectOptionDict(value="platform", label="Platform Colors"),
-                    selector.SelectOptionDict(value="game", label="Game Color"),
-                    selector.SelectOptionDict(value="custom", label="Custom Colors"),
-                ],
-                mode=selector.SelectSelectorMode.DROPDOWN
-            )
-        )
-
-        schema[vol.Optional("color_start", default=existing.get("color_start", "#00FF00"))] = str
-        schema[vol.Optional("color_end", default=existing.get("color_end", "#FF0000"))] = str
-        schema[vol.Optional("color_parental", default=existing.get("color_parental", "#0000FF"))] = str
 
         if include_delete:
             schema[vol.Optional("delete_endpoint", default=False)] = bool

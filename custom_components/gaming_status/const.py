@@ -72,10 +72,7 @@ OPT_CUSTOM_LOGO = "custom_logo"
 OPT_CUSTOM_ICON = "custom_icon"
 OPT_CUSTOM_COLORS = "custom_colors"
 
-OPT_DISCORD_COLOR_MODE = "discord_color_mode"
-OPT_COLOR_START = "color_start"
-OPT_COLOR_END = "color_end"
-OPT_COLOR_PARENTAL = "color_parental"
+OPT_DISCORD_COLORS = "discord_colors"
 
 DISCORD_COLOR_DEFAULT = "default"
 DISCORD_COLOR_PLATFORM = "platform"
