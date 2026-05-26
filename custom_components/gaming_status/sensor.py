@@ -566,7 +566,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 _LOGGER.debug("Gaming Status: discarding invalid stored color '%s' for %s", _raw_color, self._owner_name)
                 _raw_color = None
             self._cached_game_color = _raw_color
-            self._color_history_cache = stored_data.get("color_history_cache", {})
+            raw_color_history = stored_data.get("color_history_cache", {})
+            self._color_history_cache = {
+                k: v for k, v in raw_color_history.items()
+                if v and re.match(r'^#[0-9A-Fa-f]{6}$', str(v))
+            }
         else:
             self._play_history = {}
             self._color_history_cache = {}
