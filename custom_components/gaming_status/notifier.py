@@ -242,12 +242,14 @@ class GamingNotifier:
         else: # Standard Mobile App / SMS
             service_data["message"] = message
             
-            if event_type == "info":
-                service_data["title"] = "Gaming Status"
-            elif event_type == "start":
+            if event_type == "start":
                 service_data["title"] = game_title if game_title else "Gaming Status"
             elif event_type == "stop":
                 service_data["title"] = f"Finished {game_title}" if game_title else "Gaming Session Ended"
+            elif event_type == "parental":
+                service_data["title"] = game_title if game_title else "Parental Controls"
+            else:
+                service_data["title"] = "Gaming Status"
                 
             if image_url and ep_type != "SMS": 
                 service_data["data"] = {"image": image_url}
@@ -485,12 +487,31 @@ class GamingNotifier:
                                 msg = f"{player_name} has exceeded the {limit}-minute screen time limit by {overage} minutes ({today_minutes} minutes total)."
                             else:
                                 msg = f"{player_name} has reached the {limit}-minute screen time limit."
-                                
+
+                            current_game = master_state.state if is_playing else None
+                            parental_image = None
+                            if current_game and self._cached_notify_artwork != "none":
+                                parental_image = master_state.attributes.get(self._cached_notify_artwork)
+                                if not parental_image:
+                                    parental_image = master_state.attributes.get("game_cover_art") or master_state.attributes.get("cached_game_cover")
+                                if parental_image and parental_image.startswith("/"):
+                                    try:
+                                        from homeassistant.helpers.network import get_url
+                                        base_url = get_url(self.hass, prefer_external=True)
+                                        parental_image = f"{base_url.rstrip('/')}{parental_image}"
+                                    except Exception:
+                                        parental_image = None
+
                             action = st_rule.get("action", "none")
-                            if not action or action == "none": 
+                            if not action or action == "none":
                                 action = fallback_dests
-                                
-                            if await self._fire_parental_action(player_name, action, msg):
+
+                            if await self._fire_parental_action(
+                                player_name, action, msg,
+                                game_title=current_game,
+                                image_url=parental_image,
+                                state_obj=master_state,
+                            ):
                                 self._triggered_parental_events[st_key] = overage
                 else:
                     self._triggered_parental_events.pop(st_key, None)
@@ -519,11 +540,30 @@ class GamingNotifier:
                             else:
                                 msg = f"{player_name} has reached the {pretty_time} curfew."
                                 
+                            current_game = master_state.state if is_playing else None
+                            parental_image = None
+                            if current_game and self._cached_notify_artwork != "none":
+                                parental_image = master_state.attributes.get(self._cached_notify_artwork)
+                                if not parental_image:
+                                    parental_image = master_state.attributes.get("game_cover_art") or master_state.attributes.get("cached_game_cover")
+                                if parental_image and parental_image.startswith("/"):
+                                    try:
+                                        from homeassistant.helpers.network import get_url
+                                        base_url = get_url(self.hass, prefer_external=True)
+                                        parental_image = f"{base_url.rstrip('/')}{parental_image}"
+                                    except Exception:
+                                        parental_image = None
+
                             action = cf_rule.get("action", "none")
-                            if not action or action == "none": 
+                            if not action or action == "none":
                                 action = fallback_dests
-                                
-                            if await self._fire_parental_action(player_name, action, msg):
+
+                            if await self._fire_parental_action(
+                                player_name, action, msg,
+                                game_title=current_game,
+                                image_url=parental_image,
+                                state_obj=master_state,
+                            ):
                                 self._triggered_parental_events[cf_key] = now_dt
 
                     elif now_dt < curfew_dt:
@@ -531,7 +571,15 @@ class GamingNotifier:
 
                 except (ValueError, AttributeError): pass
 
-    async def _fire_parental_action(self, player_name: str, action_data, message: str) -> bool:
+    async def _fire_parental_action(
+        self,
+        player_name: str,
+        action_data,
+        message: str,
+        game_title: str = None,
+        image_url: str = None,
+        state_obj=None,
+    ) -> bool:
         if not action_data or action_data == "none":
             return False
 
@@ -544,9 +592,17 @@ class GamingNotifier:
             if not target or target == "none": continue
 
             if target.startswith("endpoint_"):
-                sent = await self._send_to_endpoint(target.replace("endpoint_", "", 1), message, event_type="parental")
+                sent = await self._send_to_endpoint(
+                    target.replace("endpoint_", "", 1), message,
+                    image_url=image_url, game_title=game_title,
+                    event_type="parental", state_obj=state_obj,
+                )
             elif target in self._cached_endpoints:
-                sent = await self._send_to_endpoint(target, message, event_type="parental")
+                sent = await self._send_to_endpoint(
+                    target, message,
+                    image_url=image_url, game_title=game_title,
+                    event_type="parental", state_obj=state_obj,
+                )
             elif "." in target:
                 domain, service = target.split(".", 1)
                 if self.hass.services.has_service(domain, service):
