@@ -394,7 +394,7 @@ def extract_vibrant_color(image_path):
             
             # Masking: Ignore pixels that are too muddy or bright
             if max(r, g, b) > 50 and min(r, g, b) < 200:
-                color = (round(r/10)*10, round(g/10)*10, round(b/10)*10)
+                color = (min(round(r/10)*10, 250), min(round(g/10)*10, 250), min(round(b/10)*10, 250))
                 color_counts[color] = color_counts.get(color, 0) + 1
                 
         if not color_counts:
@@ -407,7 +407,8 @@ def extract_vibrant_color(image_path):
             return "#333333" # Absolute fallback for completely broken images
             
         dominant_rgb = max(color_counts, key=color_counts.get)
-        return f"#{dominant_rgb[0]:02x}{dominant_rgb[1]:02x}{dominant_rgb[2]:02x}"
+        r, g, b = [min(c, 255) for c in dominant_rgb]
+        return f"#{r:02x}{g:02x}{b:02x}"
         
     except Exception as e:
         import logging

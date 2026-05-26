@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_change, async_track_time_interval
+from homeassistant.helpers.network import get_url
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -130,16 +131,9 @@ class GamingNotifier:
     def _resolve_discord_color(
         self,
         event_type: str,
-        entity_id: str | None,
+        state_obj,
     ) -> int:
-        """Return the Discord embed color integer for this endpoint and event type.
-
-        Modes:
-          default  — hardcoded green / red / blue (original behaviour)
-          platform — color for the active platform (Steam / Xbox / PlayStation / Custom)
-          game     — dominant color extracted from cover art, read from sensor attribute
-          custom   — user-supplied hex values per event type
-        """
+        """Return the Discord embed color integer for this endpoint and event type."""
         DEFAULT_START = 65280      # green
         DEFAULT_STOP  = 16711680   # red
         DEFAULT_INFO  = 3447003    # blue
@@ -160,22 +154,17 @@ class GamingNotifier:
         colors_config = self._cached_discord_colors
         mode = colors_config.get("mode", "default")
 
-        if mode == "platform" and entity_id:
-            master_state = self.hass.states.get(entity_id)
-            if master_state:
-                active_platform = master_state.attributes.get("active_platform", "").lower()
-                for key in PLATFORM_COLORS:
-                    if key in active_platform:
-                        return PLATFORM_COLORS[key]
+        if mode == "platform" and state_obj:
+            active_platform = state_obj.attributes.get("active_platform", "").lower()
+            for key in PLATFORM_COLORS:
+                if key in active_platform:
+                    return PLATFORM_COLORS[key]
             return default_for_type
 
-        if mode == "game" and entity_id:
-            master_state = self.hass.states.get(entity_id)
-            if master_state:
-                hex_color = master_state.attributes.get("game_dominant_color", "")
-                if hex_color:
-                    return self._hex_to_int(hex_color, default_for_type)
-            return default_for_type
+        if mode == "game" and state_obj:
+            hex_color = state_obj.attributes.get("game_dominant_color", "")
+            if hex_color:
+                return self._hex_to_int(hex_color, default_for_type)
 
         if mode == "custom":
             if event_type == "start":
@@ -185,7 +174,6 @@ class GamingNotifier:
             else:
                 return self._hex_to_int(colors_config.get("color_parental", ""), DEFAULT_INFO)
 
-        # "default" or unrecognised mode
         return default_for_type
 
     def _format_duration(self, minutes: int) -> str:
@@ -203,9 +191,8 @@ class GamingNotifier:
         message: str,
         image_url: str = None,
         game_title: str = None,
-        duration_str: str = None,
         event_type: str = "info",
-        entity_id: str = None,
+        state_obj = None,
     ) -> bool:
         """Dispatch a notification to a configured endpoint."""
         dest = self._cached_endpoints.get(ep_id)
@@ -236,7 +223,7 @@ class GamingNotifier:
             else: service_data["target"] = target_id
 
         if ep_type == "Discord":
-            color = self._resolve_discord_color(event_type, entity_id)
+            color = self._resolve_discord_color(event_type, state_obj)
             embed = {"color": color}
             
             # Placing text in "description" puts it INSIDE the colored bar
@@ -406,11 +393,19 @@ class GamingNotifier:
                 target_player, user_config, old_state, is_switch
             )
 
+            # Auto-append the public HA domain so Discord can see cached files
+            if image_url and image_url.startswith("/"):
+                try:
+                    base_url = get_url(self.hass, prefer_external=True)
+                    image_url = f"{base_url.rstrip('/')}{image_url}"
+                except Exception:
+                    pass
+
             for ep_id in start_dests:
                 dest = self._cached_endpoints.get(ep_id, {})
-                discord_safe_url = image_url if (image_url or "").startswith("https://") else None
+                discord_safe_url = image_url if (image_url or "").startswith("http") else None
                 effective_url = discord_safe_url if dest.get("type") == "Discord" else image_url
-                await self._send_to_endpoint(ep_id, message=msg, image_url=effective_url, game_title=display_title, event_type="start", entity_id=entity_id)
+                await self._send_to_endpoint(ep_id, message=msg, image_url=effective_url, game_title=display_title, event_type="start", state_obj=new_state)
 
         elif is_end:
             msg = f"{target_player} played for {duration_str}" if duration_str else f"{target_player} finished playing"
@@ -421,9 +416,18 @@ class GamingNotifier:
                 image_url = old_state.attributes.get(self._cached_notify_artwork)
                 if not image_url:
                     image_url = old_state.attributes.get("game_cover_art") or old_state.attributes.get("cached_game_cover")
+
+            # Auto-append the public HA domain so Discord can see cached files
+            if image_url and image_url.startswith("/"):
+                try:
+                    base_url = get_url(self.hass, prefer_external=True)
+                    image_url = f"{base_url.rstrip('/')}{image_url}"
+                except Exception:
+                    pass
             
             for ep_id in end_dests:
-                await self._send_to_endpoint(ep_id, message=msg, image_url=image_url, game_title=old_game, event_type="stop", entity_id=entity_id)
+                # Pass the OLD state so the color is fully preserved!
+                await self._send_to_endpoint(ep_id, message=msg, image_url=image_url, game_title=old_game, event_type="stop", state_obj=old_state)
 
     # ------------------------------------------------------------------
     # Parental controls
