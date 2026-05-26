@@ -520,18 +520,28 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_discord_colors(self, user_input=None):
         colors = _load_json(self._options.get(OPT_DISCORD_COLORS, ""), {})
-        
+        errors = {}
+
+        _HEX_RE = re.compile(r'^#[0-9A-Fa-f]{6}$')
+
         if user_input is not None:
-            self._options[OPT_DISCORD_COLORS] = _dump_json({
-                "mode": user_input.get("discord_color_mode", "default"),
-                "color_start": user_input.get("color_start", "#00FF00").strip(),
-                "color_end": user_input.get("color_end", "#FF0000").strip(),
-                "color_parental": user_input.get("color_parental", "#0000FF").strip(),
-            })
-            return await self._update_and_return()
+            for field in ("color_start", "color_end", "color_parental"):
+                val = user_input.get(field, "").strip()
+                if not _HEX_RE.match(val):
+                    errors[field] = "invalid_hex_color"
+
+            if not errors:
+                self._options[OPT_DISCORD_COLORS] = _dump_json({
+                    "mode": user_input.get("discord_color_mode", "default"),
+                    "color_start": user_input.get("color_start", "#00FF00").strip(),
+                    "color_end": user_input.get("color_end", "#FF0000").strip(),
+                    "color_parental": user_input.get("color_parental", "#0000FF").strip(),
+                })
+                return await self._update_and_return()
 
         return self.async_show_form(
             step_id="discord_colors",
+            errors=errors,
             data_schema=vol.Schema({
                 vol.Optional("discord_color_mode", default=colors.get("mode", "default")): selector.SelectSelector(
                     selector.SelectSelectorConfig(

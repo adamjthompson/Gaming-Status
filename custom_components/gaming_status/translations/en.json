@@ -217,7 +217,8 @@
     },
     "error": {
       "name_required": "Friendly Name cannot be empty.",
-      "name_exists": "A player with that name already exists."
+      "name_exists": "A player with that name already exists.",
+      "invalid_hex_color": "Must be a valid 6-digit hex color code, e.g. #FF0000"
     }
   }
 }
