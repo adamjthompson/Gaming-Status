@@ -563,7 +563,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._cached_game_icon = stored_data.get("game_icon_art")
             _raw_color = stored_data.get("game_dominant_color")
             if _raw_color and not re.match(r'^#[0-9A-Fa-f]{6}$', str(_raw_color)):
-                _LOGGER.debug("Gaming Status: discarding invalid stored color '%s' for %s", _raw_color, self._player_name)
+                _LOGGER.debug("Gaming Status: discarding invalid stored color '%s' for %s", _raw_color, self._owner_name)
                 _raw_color = None
             self._cached_game_color = _raw_color
             self._color_history_cache = stored_data.get("color_history_cache", {})
