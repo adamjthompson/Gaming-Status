@@ -56,7 +56,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         "game_cover_art", "game_hero_art", "game_logo_art", "game_icon_art",
         "entity_picture", "cached_game_cover", 
         "last_online_valid_timestamp", "current_game", "timer_status",
-        "weekly_game_breakdown", "longest_session_details"
+        "weekly_game_breakdown", "longest_session_details",
+        "rolling_weekly_breakdown", "rolling_longest_session",
+        "calendar_weekly_breakdown", "calendar_longest_session"
     })
 
     def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None, active_settings=None, global_exclusions=None, available_avatars=None):
@@ -181,7 +183,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         
         if self._last_reset_date != current_date_str:
             if self._last_reset_date and self._daily_play_time > 0:
-                self._play_history[self._last_reset_date] = self._daily_play_time
+                self._play_history[self._last_reset_date] = {
+                    "total_seconds": self._daily_play_time,
+                    "game_breakdown": dict(self._weekly_game_breakdown),
+                    "longest_session": dict(self._longest_session_details),
+                    "week_str": current_week_str
+                }
                 history_changed = True
             
             cutoff_date = (now - timedelta(days=8)).date()
@@ -197,19 +204,20 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
             self._daily_play_time_yesterday = self._daily_play_time
             self._daily_play_time = 0
+            self._weekly_game_breakdown = {}
+            self._longest_session_details = {"game": None, "duration": 0}
             self._last_reset_date = current_date_str
             
         if self._last_weekly_reset != current_week_str:
             self._weekly_play_time_last_week = self._weekly_play_time
             self._weekly_play_time = 0
             self._last_weekly_reset = current_week_str
-            
-            # Reset Rich Tracking Data
-            self._weekly_game_breakdown = {}
-            self._longest_session_details = {"game": None, "duration": 0}
 
         if history_changed:
-            self._cached_history_seconds = sum(self._play_history.values())
+            self._cached_history_seconds = sum(
+                day.get("total_seconds", day) if isinstance(day, dict) else day 
+                for day in self._play_history.values()
+            )
             self._store.async_delay_save(self._get_store_data, 5.0)
 
     def _is_ghost_session(self, game_name):
@@ -476,9 +484,39 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if override:
                 self._attr_extra_state_attributes["game_dominant_color"] = override
         
-        # Rich Tracking Attributes
-        self._attr_extra_state_attributes["weekly_game_breakdown"] = self._weekly_game_breakdown
-        self._attr_extra_state_attributes["longest_session_details"] = self._longest_session_details
+        # Dual-Window Rich Tracking Aggregation
+        rolling_breakdown = dict(self._weekly_game_breakdown)
+        rolling_longest = dict(self._longest_session_details)
+        calendar_breakdown = dict(self._weekly_game_breakdown)
+        calendar_longest = dict(self._longest_session_details)
+        
+        now = dt_util.now()
+        current_week = now.strftime("%Y-%U")
+        
+        for day_data in self._play_history.values():
+            if isinstance(day_data, dict):
+                # 7-Day Rolling Math
+                for g, secs in day_data.get("game_breakdown", {}).items():
+                    rolling_breakdown[g] = rolling_breakdown.get(g, 0) + secs
+                hist_longest = day_data.get("longest_session", {})
+                if hist_longest.get("duration", 0) > rolling_longest.get("duration", 0):
+                    rolling_longest = dict(hist_longest)
+                    
+                # Calendar Math (Filters out days not belonging to the current Sunday week)
+                if day_data.get("week_str") == current_week:
+                    for g, secs in day_data.get("game_breakdown", {}).items():
+                        calendar_breakdown[g] = calendar_breakdown.get(g, 0) + secs
+                    if hist_longest.get("duration", 0) > calendar_longest.get("duration", 0):
+                        calendar_longest = dict(hist_longest)
+
+        self._attr_extra_state_attributes["rolling_weekly_breakdown"] = rolling_breakdown
+        self._attr_extra_state_attributes["rolling_longest_session"] = rolling_longest
+        self._attr_extra_state_attributes["calendar_weekly_breakdown"] = calendar_breakdown
+        self._attr_extra_state_attributes["calendar_longest_session"] = calendar_longest
+        
+        # Legacy fallback
+        self._attr_extra_state_attributes["weekly_game_breakdown"] = rolling_breakdown
+        self._attr_extra_state_attributes["longest_session_details"] = rolling_longest
         
         self._attr_extra_state_attributes["daily_play_time"] = self._daily_play_time
         self._attr_extra_state_attributes["daily_play_time_formatted"] = _format_time(self._daily_play_time)
@@ -586,7 +624,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._weekly_game_breakdown = {}
             self._longest_session_details = {"game": None, "duration": 0}
             
-        self._cached_history_seconds = sum(self._play_history.values())
+        self._cached_history_seconds = sum(
+            day.get("total_seconds", day) if isinstance(day, dict) else day 
+            for day in self._play_history.values()
+        )
 
         def _check_local_avatar():
             safe_name = re.sub(r'[^a-z0-9_]', '', self._owner_name.lower().replace(" ", "_"))
@@ -963,7 +1004,9 @@ class MasterGamingSensor(RestoreSensor):
         "current_game", 
         "daily_play_limit_minutes", 
         "remaining_play_time_minutes",
-        "weekly_breakdown", "platform_split", "longest_session"
+        "weekly_breakdown", "platform_split", "longest_session",
+        "rolling_weekly_breakdown", "calendar_weekly_breakdown",
+        "rolling_longest_session", "calendar_longest_session"
     })
     
     def __init__(self, hass, name, profiles, parental_rules=None):
@@ -1017,11 +1060,14 @@ class MasterGamingSensor(RestoreSensor):
         most_recent_sensor = None
         most_recent_key = None
         
-        # Trackers for the new Rich Data attributes
-        master_breakdown = {}
+        # Trackers for the new Dual-Window Rich Data attributes
+        master_rolling_breakdown = {}
+        master_calendar_breakdown = {}
         platform_totals = {}
-        max_session_duration = 0
-        max_session_game = None
+        max_rolling_duration = 0
+        max_rolling_game = None
+        max_calendar_duration = 0
+        max_calendar_game = None
         
         for platform_sensor_id, p_key in self._platform_sensors.items():
             platform_state = self.hass.states.get(platform_sensor_id)
@@ -1041,17 +1087,28 @@ class MasterGamingSensor(RestoreSensor):
                 total_weekly_seconds += int(w_time)
                 platform_totals[p_key] = platform_totals.get(p_key, 0) + int(w_time)
                 
-            # Aggregate Game Breakdowns
-            p_breakdown = platform_state.attributes.get("weekly_game_breakdown", {})
-            for game, duration in p_breakdown.items():
-                master_breakdown[game] = master_breakdown.get(game, 0) + duration
+            # Aggregate Rolling Breakdowns
+            r_breakdown = platform_state.attributes.get("rolling_weekly_breakdown", {})
+            for game, duration in r_breakdown.items():
+                master_rolling_breakdown[game] = master_rolling_breakdown.get(game, 0) + duration
                 
-            # Find Longest Session
-            p_longest = platform_state.attributes.get("longest_session_details", {})
-            p_dur = p_longest.get("duration", 0)
-            if p_dur > max_session_duration:
-                max_session_duration = p_dur
-                max_session_game = p_longest.get("game")
+            # Aggregate Calendar Breakdowns
+            c_breakdown = platform_state.attributes.get("calendar_weekly_breakdown", {})
+            for game, duration in c_breakdown.items():
+                master_calendar_breakdown[game] = master_calendar_breakdown.get(game, 0) + duration
+                
+            # Find Longest Sessions
+            r_longest = platform_state.attributes.get("rolling_longest_session", {})
+            r_dur = r_longest.get("duration", 0)
+            if r_dur > max_rolling_duration:
+                max_rolling_duration = r_dur
+                max_rolling_game = r_longest.get("game")
+                
+            c_longest = platform_state.attributes.get("calendar_longest_session", {})
+            c_dur = c_longest.get("duration", 0)
+            if c_dur > max_calendar_duration:
+                max_calendar_duration = c_dur
+                max_calendar_game = c_longest.get("game")
             
             ts_str = platform_state.attributes.get("last_online_valid_timestamp")
             if ts_str:
@@ -1071,9 +1128,12 @@ class MasterGamingSensor(RestoreSensor):
                 active_state = platform_state
         
         # --- Generate Formatted Rich Data Attributes ---
-        # 1. Top Games Breakdown (Format: {"Minecraft": "5h 30m"})
-        sorted_breakdown = dict(sorted(master_breakdown.items(), key=lambda item: item[1], reverse=True))
-        formatted_breakdown = {k: utils._format_time(v) for k, v in sorted_breakdown.items() if v >= 60}
+        # 1. Top Games Breakdowns
+        sort_rolling = dict(sorted(master_rolling_breakdown.items(), key=lambda item: item[1], reverse=True))
+        fmt_rolling_breakdown = {k: utils._format_time(v) for k, v in sort_rolling.items() if v >= 60}
+        
+        sort_calendar = dict(sorted(master_calendar_breakdown.items(), key=lambda item: item[1], reverse=True))
+        fmt_calendar_breakdown = {k: utils._format_time(v) for k, v in sort_calendar.items() if v >= 60}
         
         # 2. Platform Split (Percentages)
         platform_split = {}
@@ -1084,10 +1144,14 @@ class MasterGamingSensor(RestoreSensor):
                     pct = round((plat_secs / total_weekly_seconds) * 100)
                     platform_split[pretty_plat] = f"{pct}%"
                     
-        # 3. Longest Session Output
-        longest_session_text = "None"
-        if max_session_game and max_session_duration >= 60:
-            longest_session_text = f"{max_session_game} ({utils._format_time(max_session_duration)})"
+        # 3. Longest Session Outputs
+        rolling_longest_text = "None"
+        if max_rolling_game and max_rolling_duration >= 60:
+            rolling_longest_text = f"{max_rolling_game} ({utils._format_time(max_rolling_duration)})"
+            
+        calendar_longest_text = "None"
+        if max_calendar_game and max_calendar_duration >= 60:
+            calendar_longest_text = f"{max_calendar_game} ({utils._format_time(max_calendar_duration)})"
         
         # --- Parental Calculation Logic ---
         daily_play_limit_minutes = 0
@@ -1133,9 +1197,13 @@ class MasterGamingSensor(RestoreSensor):
                 "entity_picture": new_entity_picture,
                 "daily_play_limit_minutes": daily_play_limit_minutes,
                 "remaining_play_time_minutes": remaining_play_time_minutes,
-                "weekly_breakdown": formatted_breakdown,
+                "weekly_breakdown": fmt_rolling_breakdown,
+                "rolling_weekly_breakdown": fmt_rolling_breakdown,
+                "calendar_weekly_breakdown": fmt_calendar_breakdown,
                 "platform_split": platform_split,
-                "longest_session": longest_session_text
+                "longest_session": rolling_longest_text,
+                "rolling_longest_session": rolling_longest_text,
+                "calendar_longest_session": calendar_longest_text
             }
             if platform_key in PLATFORM_CONFIG: new_icon = PLATFORM_CONFIG[platform_key]["icon"]
         else:
@@ -1159,9 +1227,13 @@ class MasterGamingSensor(RestoreSensor):
                     "entity_picture": new_entity_picture,
                     "daily_play_limit_minutes": daily_play_limit_minutes,
                     "remaining_play_time_minutes": remaining_play_time_minutes,
-                    "weekly_breakdown": formatted_breakdown,
+                    "weekly_breakdown": fmt_rolling_breakdown,
+                    "rolling_weekly_breakdown": fmt_rolling_breakdown,
+                    "calendar_weekly_breakdown": fmt_calendar_breakdown,
                     "platform_split": platform_split,
-                    "longest_session": longest_session_text
+                    "longest_session": rolling_longest_text,
+                    "rolling_longest_session": rolling_longest_text,
+                    "calendar_longest_session": calendar_longest_text
                 }
                 lp = new_attrs.get("last_played_game")
                 if lp and str(lp).lower() == "offline": new_attrs["last_played_game"] = None
@@ -1183,9 +1255,13 @@ class MasterGamingSensor(RestoreSensor):
                     "entity_picture": self._attr_extra_state_attributes.get("entity_picture"),
                     "daily_play_limit_minutes": daily_play_limit_minutes,
                     "remaining_play_time_minutes": remaining_play_time_minutes,
-                    "weekly_breakdown": formatted_breakdown,
+                    "weekly_breakdown": fmt_rolling_breakdown,
+                    "rolling_weekly_breakdown": fmt_rolling_breakdown,
+                    "calendar_weekly_breakdown": fmt_calendar_breakdown,
                     "platform_split": platform_split,
-                    "longest_session": longest_session_text
+                    "longest_session": rolling_longest_text,
+                    "rolling_longest_session": rolling_longest_text,
+                    "calendar_longest_session": calendar_longest_text
                 }
 
         if (self._attr_native_value == new_state_value and 
