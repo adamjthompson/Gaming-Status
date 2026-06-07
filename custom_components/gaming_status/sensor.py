@@ -69,8 +69,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._ghosted_by = ghosted_by or []
         self._available_avatars = available_avatars or []
         
-        self._exclude_games = {g.lower() for g in (exclude_games or [])}
-        self._global_exclusions_lower = {x.lower() for x in (global_exclusions or [])}
+        self._exclude_games = {_normalize_game_name(g) for g in (exclude_games or [])}
+        self._global_exclusions_lower = {_normalize_game_name(x) for x in (global_exclusions or [])}
         
         self._active_settings = active_settings or {
             "RESET_HISTORY": DEFAULT_RESET_HISTORY,
@@ -176,8 +176,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
     def _check_daily_reset(self):
         now = dt_util.now()
-        current_date_str = now.strftime("%Y-%m-%d")
-        current_week_str = now.strftime("%Y-%U") 
+        local_now = dt_util.as_local(now)
+        current_date_str = local_now.strftime("%Y-%m-%d")
+        current_week_str = local_now.strftime("%Y-%U") 
         
         history_changed = False
         
@@ -191,7 +192,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 }
                 history_changed = True
             
-            cutoff_date = (now - timedelta(days=8)).date()
+            cutoff_date = (local_now - timedelta(days=8)).date()
             keys_to_remove = []
             for date_str in self._play_history:
                 try:
@@ -275,8 +276,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             data["avatar_url"] = None
 
         is_globally_excluded = False
-        if normalized_state in self._global_exclusions_lower: is_globally_excluded = True
-        is_user_excluded = normalized_state in self._exclude_games
+        norm_state = _normalize_game_name(state)
+        if norm_state in self._global_exclusions_lower: is_globally_excluded = True
+        is_user_excluded = norm_state in self._exclude_games
         is_basic_offline = state_clean in ["offline", "off", "disconnected", "0", "unavailable", "unknown", "0.0"]
 
         if self._gaming_type == "steam":
@@ -372,7 +374,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
         if data.get("is_online") and data.get("current_game"):
             data["current_game"] = self._apply_title_override(get_base_game_name(data["current_game"]))
-            if _format_game_name_for_display(data["current_game"]).lower().strip() in (self._global_exclusions_lower | self._exclude_games): data["is_online"], data["current_game"] = False, None
+            if _normalize_game_name(data["current_game"]) in (self._global_exclusions_lower | self._exclude_games): 
+                data["is_online"], data["current_game"] = False, None
         return data
 
     def _handle_game_transition(self, new_game_name, explicit_end_time=None):
@@ -491,7 +494,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         calendar_longest = dict(self._longest_session_details)
         
         now = dt_util.now()
-        current_week = now.strftime("%Y-%U")
+        local_now = dt_util.as_local(now)
+        current_week = local_now.strftime("%Y-%U")
         
         for day_data in self._play_history.values():
             if isinstance(day_data, dict):
@@ -785,7 +789,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     self._weekly_play_time = int((self._weekly_play_time or 0) + delta_seconds)
                     
                     # Update Rich Tracking
-                    self._weekly_game_breakdown[self._current_game] = self._weekly_game_breakdown.get(self._current_game, 0) + delta_seconds
+                    self._weekly_game_breakdown[self._current_game] = self._weekly_game_breakdown.get(self._current_game, 0) + int(delta_seconds)
                     
                     timer_status = "Running"
                 else: timer_status = f"Paused ({block_reason})"
@@ -850,7 +854,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     if missed_seconds > 0:
                         self._daily_play_time = int((self._daily_play_time or 0) + missed_seconds)
                         self._weekly_play_time = int((self._weekly_play_time or 0) + missed_seconds)
-                        self._weekly_game_breakdown[self._current_game] = self._weekly_game_breakdown.get(self._current_game, 0) + missed_seconds
+                        self._weekly_game_breakdown[self._current_game] = self._weekly_game_breakdown.get(self._current_game, 0) + int(missed_seconds)
                 if self._temp_offline_start is not None:
                     self._temp_offline_start = None
                     self._store.async_delay_save(self._get_store_data, 5.0)
@@ -960,7 +964,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         new_xbox_game = _format_game_name_for_display(self._clean_restored_game_name(platform_data["xbox_last_seen_game"]))
                         idle_list = XBOX_IDLE_STATES
                         is_ghost = self._is_ghost_session(new_xbox_game)
-                        if new_xbox_game.lower() not in idle_list and not is_ghost: self._last_played_game = new_xbox_game
+                        is_excluded = _normalize_game_name(new_xbox_game) in (self._global_exclusions_lower | self._exclude_games)
+                        if new_xbox_game.lower() not in idle_list and not is_ghost and not is_excluded: self._last_played_game = new_xbox_game
                 time_ago, debug_info = _calculate_time_ago_v2(self._last_online_valid_timestamp)
                 if time_ago:
                     if self._last_played_game:
