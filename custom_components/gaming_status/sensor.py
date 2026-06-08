@@ -205,8 +205,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
             self._daily_play_time_yesterday = self._daily_play_time
             self._daily_play_time = 0
+            
+            # NEW: We now wipe the rich tracking dictionaries daily instead of weekly!
             self._weekly_game_breakdown = {}
             self._longest_session_details = {"game": None, "duration": 0}
+            
             self._last_reset_date = current_date_str
             
         if self._last_weekly_reset != current_week_str:
@@ -497,8 +500,15 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         local_now = dt_util.as_local(now)
         current_week = local_now.strftime("%Y-%U")
         
-        for day_data in self._play_history.values():
+        for date_str, day_data in self._play_history.items():
             if isinstance(day_data, dict):
+                try:
+                    # Dynamically calculate the week string from the archived date to bypass midnight bridging
+                    d_obj = datetime.strptime(date_str, "%Y-%m-%d")
+                    calculated_week = d_obj.strftime("%Y-%U")
+                except Exception:
+                    calculated_week = day_data.get("week_str")
+
                 # 7-Day Rolling Math
                 for g, secs in day_data.get("game_breakdown", {}).items():
                     rolling_breakdown[g] = rolling_breakdown.get(g, 0) + secs
@@ -507,7 +517,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     rolling_longest = dict(hist_longest)
                     
                 # Calendar Math (Filters out days not belonging to the current Sunday week)
-                if day_data.get("week_str") == current_week:
+                if calculated_week == current_week:
                     for g, secs in day_data.get("game_breakdown", {}).items():
                         calendar_breakdown[g] = calendar_breakdown.get(g, 0) + secs
                     if hist_longest.get("duration", 0) > calendar_longest.get("duration", 0):
