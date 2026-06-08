@@ -134,9 +134,13 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | total_weekly_hours | Sum of weekly hours across all platforms (float) |
 | rolling_weekly_hours | Sum of rolling hours across all platforms |
 | total_weekly_hours_last_week | Sum of last week's hours |
-| weekly_breakdown | Consolidated dictionary of all games played across all platforms, formatted as human-readable strings (e.g., "5h 30m") |
+| weekly_breakdown | A copy of 'calendar_weekly_breakdown', for backward-compatibility |
+| calendar_weekly_breakdown | Consolidated dictionary of all games played across all platforms for the week, formatted as human-readable strings (e.g., "5h 30m") and resetting each Sunday at midnight |
+| rolling_weekly_breakdown | Consolidated dictionary of all games played across all platforms, formatted as human-readable strings (e.g., "5h 30m") as a rolling 7-day total |
 | platform_split | A dictionary showing the percentage of total weekly hours spent on each platform (e.g., {"Steam": "55%"}) |
-| longest_session | A formatted string showing the game title and duration of the longest session across all platforms |
+| longest_session | A copy of 'calendar_longest_session', for backward-compatibility |
+| calendar_longest_session | A formatted string showing the game title and duration of the longest session across all platforms for the week, resetting each Sunday at midnight |
+| rolling_longest_session | A formatted string showing the game title and duration of the longest session across all platforms, tracking only the last seven days |
 
 **Parental/Limit Controls**
 | Attribute | Description |
@@ -190,10 +194,10 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | weekly_play_time_formatted | Human-readable weekly time |
 | weekly_play_time_last_week | Total seconds played in the previous week |
 | last_played_game | Title of the most recently closed game detected on this specific platform |
-| rolling_weekly_hours | Calculated rolling weekly hours (seconds / 3600) |
 | weekly_game_breakdown | A dictionary mapping game names to their playtime durations |
-| longest_session_details | A dictionary containing the game title and duration (in seconds) of the longest session recorded |
-
+| longest_session_details | A copy of 'calendar_longest session', for backward compatibility |
+| calendar_longest_session | A dictionary containing the game title and duration (in seconds) of the longest session recorded during the calendar week (resets on Sunday at midnight) |
+| rolling_longest_session | A dictionary containing the game title and duration (in seconds) of the longest session recorded over the last seven day period |
 
 ### Attributes for Players Online Sensor
 | Attribute | Description |
