@@ -25,7 +25,7 @@ PLATFORM_CONFIG = {
     "discord": {"icon": "mdi:controller", "name_suffix": "Discord"},
 }
 
-PLATFORM_PRIORITY = ["custom", "steam", "playstation", "xbox", "discord"]
+PLATFORM_PRIORITY = ["discord", "custom", "steam", "playstation", "xbox"]
 PLAYER_PLATFORMS = ["steam", "xbox", "playstation", "custom", "discord"]
 
 # ---------------------------------------------------------------------------
