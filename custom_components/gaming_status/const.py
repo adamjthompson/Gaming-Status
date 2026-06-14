@@ -14,15 +14,32 @@ DEFAULT_MIN_SESSION_DURATION = 300
 ZOMBIE_ATTRIBUTES = ["grace_period_active", "xbox_last_seen_game", "debug_sync"]
 
 PLATFORM_CONFIG = {
-    "custom": {"icon": "mdi:gamepad-variant", "name_suffix": "PC"},
-    "steam": {"icon": "mdi:steam", "name_suffix": "PC"},
+    "custom": {
+        "icon": "mdi:gamepad-variant", 
+        "name_suffix": "PC", 
+        "group": "PC"
+    },
+    "steam": {
+        "icon": "mdi:steam", 
+        "name_suffix": "Steam", 
+        "group": "PC"
+    },
     "xbox": {
         "icon": "mdi:microsoft-xbox",
         "name_suffix": "Xbox",
         "idle_states": ["Home", "Xbox App", "Online", "Microsoft Store"],
+        "group": "Xbox"
     },
-    "playstation": {"icon": "mdi:sony-playstation", "name_suffix": "PlayStation"},
-    "discord": {"icon": "mdi:controller", "name_suffix": "PC"},
+    "playstation": {
+        "icon": "mdi:sony-playstation", 
+        "name_suffix": "PlayStation", 
+        "group": "PlayStation"
+    },
+    "discord": {
+        "icon": "mdi:controller", 
+        "name_suffix": "Discord", 
+        "group": "PC"
+    },
 }
 
 PLATFORM_PRIORITY = ["discord", "custom", "steam", "playstation", "xbox"]

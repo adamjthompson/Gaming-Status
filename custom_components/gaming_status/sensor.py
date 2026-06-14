@@ -1210,16 +1210,18 @@ class MasterGamingSensor(RestoreSensor):
         platform_split = {}
         if total_weekly_seconds > 0:
             grouped_totals = {}
-            # Step 1: Combine the raw seconds by their shared display name
+            # Step 1: Combine the raw seconds by their shared analytic group
             for plat, plat_secs in platform_totals.items():
                 if plat_secs > 0:
-                    pretty_plat = PLATFORM_CONFIG.get(plat, {}).get("name_suffix", plat.title())
-                    grouped_totals[pretty_plat] = grouped_totals.get(pretty_plat, 0) + plat_secs
+                    config = PLATFORM_CONFIG.get(plat, {})
+                    # Pull the analytic group, gracefully falling back to the suffix if missing
+                    group_name = config.get("group", config.get("name_suffix", plat.title()))
+                    grouped_totals[group_name] = grouped_totals.get(group_name, 0) + plat_secs
             
             # Step 2: Calculate the percentages from the grouped totals
-            for pretty_plat, combined_secs in grouped_totals.items():
+            for group_name, combined_secs in grouped_totals.items():
                 pct = round((combined_secs / total_weekly_seconds) * 100)
-                platform_split[pretty_plat] = f"{pct}%"
+                platform_split[group_name] = f"{pct}%"
                     
         # 3. Longest Session Outputs
         rolling_longest_text = "None"
