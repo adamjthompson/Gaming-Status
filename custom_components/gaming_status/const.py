@@ -15,14 +15,14 @@ ZOMBIE_ATTRIBUTES = ["grace_period_active", "xbox_last_seen_game", "debug_sync"]
 
 PLATFORM_CONFIG = {
     "custom": {"icon": "mdi:gamepad-variant", "name_suffix": "PC"},
-    "steam": {"icon": "mdi:steam", "name_suffix": "Steam"},
+    "steam": {"icon": "mdi:steam", "name_suffix": "PC"},
     "xbox": {
         "icon": "mdi:microsoft-xbox",
         "name_suffix": "Xbox",
         "idle_states": ["Home", "Xbox App", "Online", "Microsoft Store"],
     },
     "playstation": {"icon": "mdi:sony-playstation", "name_suffix": "PlayStation"},
-    "discord": {"icon": "mdi:controller", "name_suffix": "Discord"},
+    "discord": {"icon": "mdi:controller", "name_suffix": "PC"},
 }
 
 PLATFORM_PRIORITY = ["discord", "custom", "steam", "playstation", "xbox"]
