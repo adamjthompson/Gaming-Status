@@ -376,8 +376,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     if not found_sibling: data["is_online"] = False
 
         elif self._gaming_type == "discord":
-            if is_globally_excluded or is_user_excluded: data["is_online"] = False
-            elif state_clean in ["offline", "online"]: data["is_online"] = False
+            # Block official Xbox and PlayStation Network Application IDs
+            blocked_app_ids = ["438122597774098432", "567198565530800128"]
+            app_id = str(attrs.get("application_id", ""))
+            
+            if is_globally_excluded or is_user_excluded or app_id in blocked_app_ids: 
+                data["is_online"] = False
+            elif state_clean in ["offline", "online"]: 
+                data["is_online"] = False
             else:
                 data["is_online"] = True
                 data["current_game"] = state
@@ -1433,6 +1439,72 @@ class GlobalOnlineCountSensor(SensorEntity):
         self._attr_native_value = count
         self._attr_extra_state_attributes = {"active_games": new_games_str}
         self.async_write_ha_state()
+
+# ------------------------------------------------------------------
+# 5. PC SUB-MASTER SENSOR
+# ------------------------------------------------------------------
+
+class PCGamingSensor(RestoreSensor):
+    _attr_should_poll = False
+    _attr_icon = "mdi:monitor"
+
+    def __init__(self, hass, name, pc_entities):
+        self.hass = hass
+        self._pc_entities = pc_entities
+        safe_owner = name.lower().replace(" ", "_")
+        self._attr_name = f"{name} PC"
+        self._attr_unique_id = f"{safe_owner}_pc_status_v1"
+        self.entity_id = f"sensor.{safe_owner}_pc"
+        self._attr_native_value = "Offline"
+        self._attr_extra_state_attributes = {}
+        self._attr_entity_picture = None
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self.async_on_remove(async_track_state_change_event(self.hass, self._pc_entities, self._async_pc_changed))
+        await self._update_pc_state()
+
+    @callback
+    def _async_pc_changed(self, event):
+        self.hass.async_create_task(self._update_pc_state())
+
+    async def _update_pc_state(self):
+        active_state = None
+        
+        # Entities are passed in strict priority order (custom -> steam -> discord)
+        for entity_id in self._pc_entities:
+            state = self.hass.states.get(entity_id)
+            if state and state.state.lower() not in ["offline", "unavailable", "unknown", "source missing"]:
+                active_state = state
+                break
+
+        if active_state:
+            self._attr_native_value = active_state.state
+            self._attr_extra_state_attributes = {
+                "secondary": active_state.attributes.get("secondary", ""),
+                "game_cover_art": active_state.attributes.get("game_cover_art"),
+                "game_hero_art": active_state.attributes.get("game_hero_art"),
+                "game_logo_art": active_state.attributes.get("game_logo_art"),
+                "game_icon_art": active_state.attributes.get("game_icon_art"),
+                "game_dominant_color": active_state.attributes.get("game_dominant_color"),
+                "play_start_time": active_state.attributes.get("play_start_time")
+            }
+            self._attr_entity_picture = active_state.attributes.get("entity_picture")
+        else:
+            self._attr_native_value = "Offline"
+            self._attr_extra_state_attributes = {"secondary": "Offline"}
+            
+            # Fallback to Steam avatar if offline, otherwise grab the first available avatar
+            fallback_pic = None
+            for entity_id in self._pc_entities:
+                state = self.hass.states.get(entity_id)
+                if state and state.attributes.get("entity_picture"):
+                    fallback_pic = state.attributes.get("entity_picture")
+                    if "steam" in entity_id:
+                        break
+            self._attr_entity_picture = fallback_pic
+
+        self.async_write_ha_state()
         
 async def async_setup_entry(hass, config_entry, async_add_entities):
     opts = config_entry.options
@@ -1471,15 +1543,36 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     except FileNotFoundError: available_avatars = []
 
     ents = []
+    registry = er.async_get(hass)
+    
     for player_name, player_data in players.items():
         ghosted_by = player_data.get("ghosted_by", [])
         exclude_games = player_data.get("exclude_games", [])
         rules = parental_rules.get(player_name, {})
+        safe_owner = player_name.lower().replace(" ", "_")
+
+        pc_platforms_present = []
 
         for platform in PLAYER_PLATFORMS:
             entity_id = player_data.get(platform)
             if entity_id:
                 ents.append(PersistentStatusSensor(hass, entity_id, platform, player_name, ghosted_by, exclude_games, active_settings, global_exclusions, available_avatars))
+                
+                # Register PC platforms in strict hierarchy order for the Sub-Master
+                if platform in ["custom", "steam", "discord"]:
+                    pc_platforms_present.append(f"sensor.{safe_owner}_{platform}")
+
+        # Spawn PC Sub-Master if any PC platforms exist
+        if pc_platforms_present:
+            # Sort the entities to ensure strict Double-Dip Priority: Custom -> Steam -> Discord
+            priority_order = {"custom": 0, "steam": 1, "discord": 2}
+            pc_platforms_present.sort(key=lambda x: priority_order.get(x.split("_")[-1], 99))
+            ents.append(PCGamingSensor(hass, player_name, pc_platforms_present))
+        else:
+            # Garbage Collection: Destroy orphaned PC sensor if all PC platforms are removed
+            target_id = f"sensor.{safe_owner}_pc"
+            if registry.async_get(target_id):
+                registry.async_remove(target_id)
 
         ents.extend([
             MasterGamingSensor(hass, player_name, player_data, rules),
