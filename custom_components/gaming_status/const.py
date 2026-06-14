@@ -22,7 +22,7 @@ PLATFORM_CONFIG = {
         "idle_states": ["Home", "Xbox App", "Online", "Microsoft Store"],
     },
     "playstation": {"icon": "mdi:sony-playstation", "name_suffix": "PlayStation"},
-    "discord": {"icon": "mdi:discord", "name_suffix": "Discord"},
+    "discord": {"icon": "mdi:controller", "name_suffix": "Discord"},
 }
 
 PLATFORM_PRIORITY = ["custom", "steam", "playstation", "xbox", "discord"]
