@@ -375,6 +375,20 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                                 found_sibling = True
                     if not found_sibling: data["is_online"] = False
 
+        elif self._gaming_type == "discord":
+            if is_globally_excluded or is_user_excluded: data["is_online"] = False
+            elif state_clean in ["offline", "online"]: data["is_online"] = False
+            else:
+                data["is_online"] = True
+                data["current_game"] = state
+            
+            discord_data = attrs.get("discord_data", {})
+            discord_user = discord_data.get("discord_user", {})
+            avatar_hash = discord_user.get("avatar")
+            user_id = discord_user.get("id")
+            if avatar_hash and user_id:
+                data["avatar_url"] = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.png"
+
         if data.get("is_online") and data.get("current_game"):
             data["current_game"] = self._apply_title_override(get_base_game_name(data["current_game"]))
             if _normalize_game_name(data["current_game"]) in (self._global_exclusions_lower | self._exclude_games): 
@@ -707,36 +721,72 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         for legacy_debug in ["debug_raw_source_state", "debug_time_ago", "debug_sync", "source_entity", "play_history", "code_version", "last_update_timestamp", "backup_last_session_time", "backup_last_online_timestamp", "backup_last_played_game", "backup_last_game_stopped_timestamp", "temp_offline_start", "daily_play_time_yesterday", "last_reset_date", "last_weekly_reset", "last_session_play_time", "daily_play_limit_minutes", "remaining_play_time_minutes"]:
             if legacy_debug in self._attr_extra_state_attributes: del self._attr_extra_state_attributes[legacy_debug]
 
-        source_state = self.hass.states.get(self._source_entity_id)
-        if source_state: await self._try_force_sync(source_state)
-        entities_to_watch = [self._source_entity_id]
-        if self._gaming_type == "playstation":
-            try:
-                if "_online_status" in self._source_entity_id:
-                    sibling_id = self._source_entity_id.replace("_online_status", "_now_playing")
-                    entities_to_watch.append(sibling_id)
-                object_id = self._source_entity_id.split('.')[1]
-                if object_id.endswith("_online_status"):
-                    gamertag = object_id[:-14]
-                    image_entity = f"image.{gamertag}_avatar"
-                    entities_to_watch.append(image_entity)
-            except Exception: pass
-        elif self._gaming_type == "xbox":
-            try:
-                gamertag = _get_gamertag_from_entity(self._source_entity_id, "xbox")
-                if gamertag:
-                    safe_tag = gamertag.lower().replace(" ", "_")
-                    image_entity = f"image.{safe_tag}_gamerpic"
-                    entities_to_watch.append(image_entity)
-            except Exception: pass
-
-        self.async_on_remove(async_track_state_change_event(self.hass, entities_to_watch, self._async_state_changed))
         self.async_on_remove(async_track_time_interval(self.hass, self._update_play_time, timedelta(seconds=30)))
-        await self._trigger_source_update(force=True)
+
+        if self._gaming_type == "discord":
+            self.async_on_remove(async_track_time_interval(self.hass, self._poll_lanyard_loop, timedelta(seconds=30)))
+            self.hass.async_create_task(self._poll_lanyard_loop())
+        else:
+            source_state = self.hass.states.get(self._source_entity_id)
+            if source_state: await self._try_force_sync(source_state)
+            entities_to_watch = [self._source_entity_id]
+            if self._gaming_type == "playstation":
+                try:
+                    if "_online_status" in self._source_entity_id:
+                        sibling_id = self._source_entity_id.replace("_online_status", "_now_playing")
+                        entities_to_watch.append(sibling_id)
+                    object_id = self._source_entity_id.split('.')[1]
+                    if object_id.endswith("_online_status"):
+                        gamertag = object_id[:-14]
+                        image_entity = f"image.{gamertag}_avatar"
+                        entities_to_watch.append(image_entity)
+                except Exception: pass
+            elif self._gaming_type == "xbox":
+                try:
+                    gamertag = _get_gamertag_from_entity(self._source_entity_id, "xbox")
+                    if gamertag:
+                        safe_tag = gamertag.lower().replace(" ", "_")
+                        image_entity = f"image.{safe_tag}_gamerpic"
+                        entities_to_watch.append(image_entity)
+                except Exception: pass
+
+            self.async_on_remove(async_track_state_change_event(self.hass, entities_to_watch, self._async_state_changed))
+            await self._trigger_source_update(force=True)
 
     async def _trigger_source_update(self, force=False):
+        if self._gaming_type == "discord": return
         source = self.hass.states.get(self._source_entity_id)
         if source: await self._unified_update(source.state, source.attributes, force_update=force)
+
+    async def _poll_lanyard_loop(self, now=None):
+        if not self._source_entity_id: return
+        session = utils.async_get_clientsession(self.hass)
+        url = f"https://api.lanyard.rest/v1/users/{self._source_entity_id}"
+        try:
+            async with session.get(url, timeout=10) as response:
+                if response.status == 200:
+                    res_json = await response.json()
+                    if res_json.get("success"):
+                        data = res_json.get("data", {})
+                        activities = data.get("activities", [])
+                        
+                        # Filter for active gameplay (Discord Activity Type 0 is "Playing")
+                        game_activity = next((act for act in activities if act.get("type") == 0), None)
+                        
+                        state = "Offline"
+                        attrs = {"discord_data": data}
+                        
+                        if game_activity:
+                            state = game_activity.get("name")
+                            attrs["application_id"] = game_activity.get("application_id")
+                        elif data.get("discord_status") != "offline":
+                            state = "Online"
+                        
+                        await self._unified_update(state, attrs)
+                        return
+        except Exception:
+            pass
+        await self._unified_update("Offline", {})
 
     async def _try_force_sync(self, source_state):
         if self._last_online_valid_timestamp: return

@@ -909,6 +909,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         schema[_field("xbox")] = _get_filtered_selector("xbox", "_status", existing.get("xbox", ""))
         schema[_field("playstation")] = _get_filtered_selector("playstation_network", "_online_status", existing.get("playstation", ""))
         schema[_field("custom")] = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+        schema[_field("discord")] = str
 
         if not is_new:
             schema[vol.Optional("delete_player", default=False)] = bool
