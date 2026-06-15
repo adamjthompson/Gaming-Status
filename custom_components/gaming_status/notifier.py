@@ -378,7 +378,6 @@ class GamingNotifier:
         is_switch = not old_off and not new_off and old_clean != new_clean
         is_end = not old_off and new_off
 
-        # Prevent double notifications and handle platform race conditions
         now = dt_util.now()
         if not hasattr(self, "_last_start_time"): self._last_start_time = {}
 
@@ -390,14 +389,24 @@ class GamingNotifier:
                 
             self._last_start_time[target_player] = now
             
-            # THE SETTLE DELAY: Give higher-priority platforms (like Steam) 8 seconds to boot up and claim the game
-            await asyncio.sleep(8)
-            refreshed_state = self.hass.states.get(entity_id)
-            if refreshed_state and refreshed_state.state.lower() not in (["offline", "unknown", "unavailable"] + self._cached_exclusions):
+            # SMART POLLING DELAY: Give the API up to 15 seconds to fetch artwork, checking every 3 seconds
+            refreshed_state = None
+            for _ in range(5):
+                await asyncio.sleep(3)
+                temp_state = self.hass.states.get(entity_id)
+                if temp_state and temp_state.state.lower() not in (["offline", "unknown", "unavailable"] + self._cached_exclusions):
+                    refreshed_state = temp_state
+                    
+                    # If the API successfully populated custom art (not just the fallback Akamai link), stop waiting!
+                    art_check = refreshed_state.attributes.get("game_hero_art") or refreshed_state.attributes.get("game_cover_art")
+                    if art_check and "akamaihd.net" not in art_check:
+                        break
+                else:
+                    return # The game was closed instantly, abort notification
+            
+            if refreshed_state:
                 new_state = refreshed_state
                 new_game = " ".join(str(new_state.state).split())
-            else:
-                return # The game was closed instantly, abort notification
                 
         elif is_switch:
             last_start = self._last_start_time.get(target_player)
