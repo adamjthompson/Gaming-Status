@@ -16,7 +16,7 @@ ZOMBIE_ATTRIBUTES = ["grace_period_active", "xbox_last_seen_game", "debug_sync"]
 PLATFORM_CONFIG = {
     "custom": {
         "icon": "mdi:controller", 
-        "name_suffix": "PC", 
+        "name_suffix": "Custom", 
         "group": "PC"
     },
     "steam": {
