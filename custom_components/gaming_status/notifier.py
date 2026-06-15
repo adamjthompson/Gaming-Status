@@ -366,11 +366,18 @@ class GamingNotifier:
         is_end = not old_off and new_off
 
         # Prevent double notifications and handle platform race conditions
+        now = dt_util.now()
+        if not hasattr(self, "_last_start_time"): self._last_start_time = {}
+
         if is_start:
-            if not hasattr(self, "_last_start_time"): self._last_start_time = {}
-            self._last_start_time[target_player] = dt_util.now()
+            last_start = self._last_start_time.get(target_player)
+            # COOLDOWN: If a session just started less than 90 seconds ago, block the duplicate bounce!
+            if last_start and (now - last_start).total_seconds() < 90:
+                return
+                
+            self._last_start_time[target_player] = now
             
-            # THE SETTLE DELAY: Give higher-priority platforms (like Discord) 8 seconds to boot up and claim the game
+            # THE SETTLE DELAY: Give higher-priority platforms (like Steam) 8 seconds to boot up and claim the game
             await asyncio.sleep(8)
             refreshed_state = self.hass.states.get(entity_id)
             if refreshed_state and refreshed_state.state.lower() not in (["offline", "unknown", "unavailable"] + self._cached_exclusions):
@@ -380,8 +387,9 @@ class GamingNotifier:
                 return # The game was closed instantly, abort notification
                 
         elif is_switch:
-            last_start = getattr(self, "_last_start_time", {}).get(target_player)
-            if last_start and (dt_util.now() - last_start).total_seconds() < 60:
+            last_start = self._last_start_time.get(target_player)
+            # If a game launcher transitioned to the real game within 90 seconds, suppress the switch alert
+            if last_start and (now - last_start).total_seconds() < 90:
                 return
 
         if not (is_start or is_switch or is_end): return
