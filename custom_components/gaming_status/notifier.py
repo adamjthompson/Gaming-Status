@@ -365,10 +365,20 @@ class GamingNotifier:
         is_switch = not old_off and not new_off and old_clean != new_clean
         is_end = not old_off and new_off
 
-        # Prevent double notifications (e.g., Discord loading a launcher, then immediately switching to the game)
+        # Prevent double notifications and handle platform race conditions
         if is_start:
             if not hasattr(self, "_last_start_time"): self._last_start_time = {}
             self._last_start_time[target_player] = dt_util.now()
+            
+            # THE SETTLE DELAY: Give higher-priority platforms (like Discord) 8 seconds to boot up and claim the game
+            await asyncio.sleep(8)
+            refreshed_state = self.hass.states.get(entity_id)
+            if refreshed_state and refreshed_state.state.lower() not in (["offline", "unknown", "unavailable"] + self._cached_exclusions):
+                new_state = refreshed_state
+                new_game = " ".join(str(new_state.state).split())
+            else:
+                return # The game was closed instantly, abort notification
+                
         elif is_switch:
             last_start = getattr(self, "_last_start_time", {}).get(target_player)
             if last_start and (dt_util.now() - last_start).total_seconds() < 60:
@@ -395,10 +405,10 @@ class GamingNotifier:
 
         if is_start or is_switch:
             if is_switch:
-                msg = f"{target_player} switched to {new_game} after {duration_str}" if duration_str else f"{target_player} switched to {new_game}"
+                msg = f"{target_player} switched games after {duration_str}" if duration_str else f"{target_player} switched games"
                 display_title = f"{old_game} > {new_game}"
             else:
-                msg = f"{target_player} started playing {new_game}"
+                msg = f"{target_player} started playing"
                 display_title = new_game
 
             image_url = await self._resolve_cover_art(
