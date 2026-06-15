@@ -1522,12 +1522,14 @@ class PCGamingSensor(RestoreSensor):
         if active_state:
             self._attr_native_value = active_state.state
             
-            # Dynamically grab the icon from the winning platform
+            # Dynamically grab the icon and name from the winning platform
             winning_platform = active_state.entity_id.split("_")[-1]
             self._attr_icon = PLATFORM_CONFIG.get(winning_platform, {}).get("icon", "mdi:monitor")
+            pretty_platform_name = PLATFORM_CONFIG.get(winning_platform, {}).get("name_suffix", winning_platform.title())
             
             self._attr_extra_state_attributes = {
                 "secondary": active_state.attributes.get("secondary", ""),
+                "active_platform": pretty_platform_name,
                 "game_cover_art": active_state.attributes.get("game_cover_art"),
                 "game_hero_art": active_state.attributes.get("game_hero_art"),
                 "game_logo_art": active_state.attributes.get("game_logo_art"),
@@ -1542,8 +1544,13 @@ class PCGamingSensor(RestoreSensor):
             
             # If everything is offline, inherit the 'Last seen...' data from the most recently active PC platform
             if most_recent_state:
+                winning_platform = most_recent_state.entity_id.split("_")[-1]
+                pretty_platform_name = PLATFORM_CONFIG.get(winning_platform, {}).get("name_suffix", winning_platform.title())
+                self._attr_icon = PLATFORM_CONFIG.get(winning_platform, {}).get("icon", "mdi:monitor")
+                
                 self._attr_extra_state_attributes = {
                     "secondary": most_recent_state.attributes.get("secondary", "Offline"),
+                    "active_platform": pretty_platform_name,
                     "last_online_valid_timestamp": most_recent_state.attributes.get("last_online_valid_timestamp"),
                     "last_played_game": most_recent_state.attributes.get("last_played_game"),
                     "play_start_time": None
