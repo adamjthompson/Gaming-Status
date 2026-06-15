@@ -302,6 +302,19 @@ class GamingNotifier:
                 if not url:
                     url = pstate.attributes.get("game_cover_art") or pstate.attributes.get("cached_game_cover")
                 
+                # THE FAILSAFE: If the API failed but we know the file is local, force the local path
+                if not url or "akamaihd.net" in url:
+                    import re
+                    safe_game = re.sub(r'[^a-z0-9]', '_', str(pstate.state).lower())
+                    safe_game = re.sub(r'_+', '_', safe_game).strip('_')
+                    
+                    if self._cached_notify_artwork == "game_hero_art":
+                        url = f"/local/gaming_status_cache/{safe_game}_hero.png"
+                    elif self._cached_notify_artwork == "game_logo_art":
+                        url = f"/local/gaming_status_cache/{safe_game}_logo.png"
+                    else:
+                        url = f"/local/gaming_status_cache/{safe_game}_grid.png"
+
                 if not url:
                     continue
 

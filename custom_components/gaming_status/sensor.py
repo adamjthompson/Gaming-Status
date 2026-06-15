@@ -1262,13 +1262,27 @@ class MasterGamingSensor(RestoreSensor):
             new_entity_picture = active_state.attributes.get("entity_picture")
             platform_key = self._platform_sensors.get(active_sensor_id, "gaming")
             pretty_platform_name = PLATFORM_CONFIG.get(platform_key, {}).get("name_suffix", platform_key.title())
+            
+            # --- AUTOMATIC LOCAL CACHE FAILSAFE (ACTIVE) ---
+            import re
+            safe_game = re.sub(r'[^a-z0-9]', '_', str(active_state.state).lower())
+            safe_game = re.sub(r'_+', '_', safe_game).strip('_')
+            
+            hero = active_state.attributes.get("game_hero_art") or f"/local/gaming_status_cache/{safe_game}_hero.png"
+            logo = active_state.attributes.get("game_logo_art") or f"/local/gaming_status_cache/{safe_game}_logo.png"
+            icon = active_state.attributes.get("game_icon_art") or f"/local/gaming_status_cache/{safe_game}_icon.png"
+            
+            cover = active_state.attributes.get("game_cover_art")
+            if not cover or "akamaihd.net" in cover: 
+                cover = f"/local/gaming_status_cache/{safe_game}_grid.png"
+
             new_attrs = {
                 "secondary": active_state.attributes.get("secondary", ""),
                 "active_platform": pretty_platform_name, 
-                "game_cover_art": active_state.attributes.get("game_cover_art"),
-                "game_hero_art": active_state.attributes.get("game_hero_art"),
-                "game_logo_art": active_state.attributes.get("game_logo_art"),
-                "game_icon_art": active_state.attributes.get("game_icon_art"),
+                "game_cover_art": cover,
+                "game_hero_art": hero,
+                "game_logo_art": logo,
+                "game_icon_art": icon,
                 "game_dominant_color": active_state.attributes.get("game_dominant_color"),
                 "current_game": active_state.attributes.get("current_game"),
                 "play_start_time": active_state.attributes.get("play_start_time"),
@@ -1294,13 +1308,28 @@ class MasterGamingSensor(RestoreSensor):
             if most_recent_sensor:
                 pretty_name = PLATFORM_CONFIG.get(most_recent_key, {}).get("name_suffix", "Gaming")
                 new_entity_picture = most_recent_sensor.attributes.get("entity_picture")
+                
+                # --- AUTOMATIC LOCAL CACHE FAILSAFE (OFFLINE/RECENT) ---
+                import re
+                last_played = most_recent_sensor.attributes.get("last_played_game", "")
+                safe_game = re.sub(r'[^a-z0-9]', '_', str(last_played).lower())
+                safe_game = re.sub(r'_+', '_', safe_game).strip('_')
+                
+                hero = most_recent_sensor.attributes.get("game_hero_art") or f"/local/gaming_status_cache/{safe_game}_hero.png"
+                logo = most_recent_sensor.attributes.get("game_logo_art") or f"/local/gaming_status_cache/{safe_game}_logo.png"
+                icon = most_recent_sensor.attributes.get("game_icon_art") or f"/local/gaming_status_cache/{safe_game}_icon.png"
+                
+                cover = most_recent_sensor.attributes.get("game_cover_art")
+                if not cover or "akamaihd.net" in cover: 
+                    cover = f"/local/gaming_status_cache/{safe_game}_grid.png"
+
                 new_attrs = {
                     "secondary": most_recent_sensor.attributes.get("secondary", "Offline"),
                     "active_platform": pretty_name,
-                    "game_cover_art": most_recent_sensor.attributes.get("game_cover_art"),
-                    "game_hero_art": most_recent_sensor.attributes.get("game_hero_art"),
-                    "game_logo_art": most_recent_sensor.attributes.get("game_logo_art"),
-                    "game_icon_art": most_recent_sensor.attributes.get("game_icon_art"),
+                    "game_cover_art": cover,
+                    "game_hero_art": hero,
+                    "game_logo_art": logo,
+                    "game_icon_art": icon,
                     "game_dominant_color": most_recent_sensor.attributes.get("game_dominant_color"),
                     "last_played_game": most_recent_sensor.attributes.get("last_played_game"),
                     "last_online_valid_timestamp": most_recent_sensor.attributes.get("last_online_valid_timestamp"),
@@ -1527,13 +1556,26 @@ class PCGamingSensor(RestoreSensor):
             self._attr_icon = PLATFORM_CONFIG.get(winning_platform, {}).get("icon", "mdi:monitor")
             pretty_platform_name = PLATFORM_CONFIG.get(winning_platform, {}).get("name_suffix", winning_platform.title())
             
+            # AUTOMATIC LOCAL CACHE FAILSAFE
+            import re
+            safe_game = re.sub(r'[^a-z0-9]', '_', active_state.state.lower())
+            safe_game = re.sub(r'_+', '_', safe_game).strip('_')
+            
+            hero = active_state.attributes.get("game_hero_art") or f"/local/gaming_status_cache/{safe_game}_hero.png"
+            logo = active_state.attributes.get("game_logo_art") or f"/local/gaming_status_cache/{safe_game}_logo.png"
+            icon = active_state.attributes.get("game_icon_art") or f"/local/gaming_status_cache/{safe_game}_icon.png"
+            
+            cover = active_state.attributes.get("game_cover_art")
+            if not cover or "akamaihd.net" in cover: 
+                cover = f"/local/gaming_status_cache/{safe_game}_grid.png"
+
             self._attr_extra_state_attributes = {
                 "secondary": active_state.attributes.get("secondary", ""),
                 "active_platform": pretty_platform_name,
-                "game_cover_art": active_state.attributes.get("game_cover_art"),
-                "game_hero_art": active_state.attributes.get("game_hero_art"),
-                "game_logo_art": active_state.attributes.get("game_logo_art"),
-                "game_icon_art": active_state.attributes.get("game_icon_art"),
+                "game_cover_art": cover,
+                "game_hero_art": hero,
+                "game_logo_art": logo,
+                "game_icon_art": icon,
                 "game_dominant_color": active_state.attributes.get("game_dominant_color"),
                 "play_start_time": active_state.attributes.get("play_start_time")
             }
