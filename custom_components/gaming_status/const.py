@@ -42,7 +42,7 @@ PLATFORM_CONFIG = {
     },
 }
 
-PLATFORM_PRIORITY = ["discord", "custom", "steam", "playstation", "xbox"]
+PLATFORM_PRIORITY = ["custom", "steam", "playstation", "xbox", "discord"]
 PLAYER_PLATFORMS = ["steam", "xbox", "playstation", "custom", "discord"]
 
 # ---------------------------------------------------------------------------
