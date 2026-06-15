@@ -279,11 +279,11 @@ class GamingNotifier:
         safe = player_name.lower().replace(" ", "_")
         old_url = old_state.attributes.get(self._cached_notify_artwork) if old_state else None
 
-        platform_entity_ids = [
-            f"sensor.{safe}_{platform}"
-            for platform in ("steam", "xbox", "playstation", "custom")
-            if user_config.get(platform)
-        ]
+        # Check Master, Sub-Master, and all active platforms (including Discord) for artwork
+        platform_entity_ids = [f"sensor.{safe}_gaming_status", f"sensor.{safe}_pc_status"]
+        for platform in ("steam", "xbox", "playstation", "custom", "discord"):
+            if user_config.get(platform):
+                platform_entity_ids.append(f"sensor.{safe}_{platform}")
 
         def _read_cover() -> str | None:
             """Return the preferred artwork URL found across platform sensors."""
@@ -361,8 +361,18 @@ class GamingNotifier:
         new_off = new_clean in (["offline"] + ignored) or new_clean in self._cached_exclusions
 
         is_start = old_off and not new_off
-        is_switch = not old_off and not new_off and old_game != new_game
+        # Use old_clean != new_clean to prevent case-sensitivity triggers
+        is_switch = not old_off and not new_off and old_clean != new_clean
         is_end = not old_off and new_off
+
+        # Prevent double notifications (e.g., Discord loading a launcher, then immediately switching to the game)
+        if is_start:
+            if not hasattr(self, "_last_start_time"): self._last_start_time = {}
+            self._last_start_time[target_player] = dt_util.now()
+        elif is_switch:
+            last_start = getattr(self, "_last_start_time", {}).get(target_player)
+            if last_start and (dt_util.now() - last_start).total_seconds() < 60:
+                return
 
         if not (is_start or is_switch or is_end): return
 
@@ -384,11 +394,28 @@ class GamingNotifier:
                 except Exception: pass
 
         if is_start or is_switch:
+            # Dynamically grab and sanitize the platform name for the text message
+            raw_platform = new_state.attributes.get("active_platform")
+            display_platform = ""
+            
+            if raw_platform:
+                val = str(raw_platform).lower()
+                if val in ["steam", "discord", "custom", "pc"]:
+                    display_platform = "PC"
+                elif "xbox" in val:
+                    display_platform = "Xbox"
+                elif "playstation" in val:
+                    display_platform = "PlayStation"
+                else:
+                    display_platform = str(raw_platform)
+
+            platform_text = f" on {display_platform}" if display_platform else ""
+
             if is_switch:
-                msg = f"{target_player} switched games after {duration_str}" if duration_str else f"{target_player} switched games"
+                msg = f"{target_player} switched to {new_game}{platform_text} after {duration_str}" if duration_str else f"{target_player} switched to {new_game}{platform_text}"
                 display_title = f"{old_game} > {new_game}"
             else:
-                msg = f"{target_player} started playing"
+                msg = f"{target_player} started playing {new_game}{platform_text}"
                 display_title = new_game
 
             image_url = await self._resolve_cover_art(
