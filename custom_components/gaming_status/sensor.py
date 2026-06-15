@@ -1477,13 +1477,28 @@ class PCGamingSensor(RestoreSensor):
 
     async def _update_pc_state(self):
         active_state = None
+        most_recent_state = None
+        most_recent_ts = None
         
         # Entities are passed in strict priority order (custom -> steam -> discord)
         for entity_id in self._pc_entities:
             state = self.hass.states.get(entity_id)
-            if state and state.state.lower() not in ["offline", "unavailable", "unknown", "source missing"]:
+            if not state: continue
+
+            # Track most recent for offline fallback
+            ts_str = state.attributes.get("last_online_valid_timestamp")
+            if ts_str:
+                try:
+                    ts = parser.isoparse(ts_str)
+                    if ts.tzinfo is None: ts = ts.replace(tzinfo=timezone.utc)
+                    if most_recent_ts is None or ts > most_recent_ts:
+                        most_recent_ts = ts
+                        most_recent_state = state
+                except Exception: pass
+
+            # Set active state (respecting priority order)
+            if not active_state and state.state.lower() not in ["offline", "unavailable", "unknown", "source missing"]:
                 active_state = state
-                break
 
         if active_state:
             self._attr_native_value = active_state.state
@@ -1505,17 +1520,28 @@ class PCGamingSensor(RestoreSensor):
         else:
             self._attr_native_value = "Offline"
             self._attr_icon = "mdi:monitor"
-            self._attr_extra_state_attributes = {"secondary": "Offline"}
             
-            # Fallback to Steam avatar if offline, otherwise grab the first available avatar
-            fallback_pic = None
-            for entity_id in self._pc_entities:
-                state = self.hass.states.get(entity_id)
-                if state and state.attributes.get("entity_picture"):
-                    fallback_pic = state.attributes.get("entity_picture")
-                    if "steam" in entity_id:
-                        break
-            self._attr_entity_picture = fallback_pic
+            # If everything is offline, inherit the 'Last seen...' data from the most recently active PC platform
+            if most_recent_state:
+                self._attr_extra_state_attributes = {
+                    "secondary": most_recent_state.attributes.get("secondary", "Offline"),
+                    "last_online_valid_timestamp": most_recent_state.attributes.get("last_online_valid_timestamp"),
+                    "last_played_game": most_recent_state.attributes.get("last_played_game"),
+                    "play_start_time": None
+                }
+                self._attr_entity_picture = most_recent_state.attributes.get("entity_picture")
+            else:
+                self._attr_extra_state_attributes = {"secondary": "Offline", "play_start_time": None}
+                
+                # Fallback to Steam avatar if completely offline and blank, otherwise grab the first available avatar
+                fallback_pic = None
+                for entity_id in self._pc_entities:
+                    state = self.hass.states.get(entity_id)
+                    if state and state.attributes.get("entity_picture"):
+                        fallback_pic = state.attributes.get("entity_picture")
+                        if "steam" in entity_id:
+                            break
+                self._attr_entity_picture = fallback_pic
 
         self.async_write_ha_state()
         
