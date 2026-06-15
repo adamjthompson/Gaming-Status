@@ -1482,6 +1482,14 @@ class PCGamingSensor(RestoreSensor):
         self.async_on_remove(async_track_state_change_event(self.hass, self._pc_entities, self._async_pc_changed))
         await self._update_pc_state()
 
+        # FORCE UPDATE: Wait for HA to finish booting, pause 5 seconds, then check platforms again
+        from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
+        async def _force_delayed_update(event):
+            await asyncio.sleep(5)
+            await self._update_pc_state()
+            
+        self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _force_delayed_update)
+
     @callback
     def _async_pc_changed(self, event):
         self.hass.async_create_task(self._update_pc_state())
