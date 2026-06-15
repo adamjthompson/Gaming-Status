@@ -394,28 +394,11 @@ class GamingNotifier:
                 except Exception: pass
 
         if is_start or is_switch:
-            # Dynamically grab and sanitize the platform name for the text message
-            raw_platform = new_state.attributes.get("active_platform")
-            display_platform = ""
-            
-            if raw_platform:
-                val = str(raw_platform).lower()
-                if val in ["steam", "discord", "custom", "pc"]:
-                    display_platform = "PC"
-                elif "xbox" in val:
-                    display_platform = "Xbox"
-                elif "playstation" in val:
-                    display_platform = "PlayStation"
-                else:
-                    display_platform = str(raw_platform)
-
-            platform_text = f" on {display_platform}" if display_platform else ""
-
             if is_switch:
-                msg = f"{target_player} switched to {new_game}{platform_text} after {duration_str}" if duration_str else f"{target_player} switched to {new_game}{platform_text}"
+                msg = f"{target_player} switched to {new_game} after {duration_str}" if duration_str else f"{target_player} switched to {new_game}"
                 display_title = f"{old_game} > {new_game}"
             else:
-                msg = f"{target_player} started playing {new_game}{platform_text}"
+                msg = f"{target_player} started playing {new_game}"
                 display_title = new_game
 
             image_url = await self._resolve_cover_art(
