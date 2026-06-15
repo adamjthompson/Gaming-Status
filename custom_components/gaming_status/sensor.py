@@ -1193,8 +1193,13 @@ class MasterGamingSensor(RestoreSensor):
                 except Exception: pass
                 
             if active_state: continue 
+        
             state_value = platform_state.state
-            if state_value.lower() not in ["offline", "source missing", "unavailable", "unknown"]:
+            idle_states = PLATFORM_CONFIG.get(p_key, {}).get("idle_states", [])
+            
+            # Only mark active if NOT offline/unknown AND NOT in the idle list
+            if (state_value.lower() not in ["offline", "source missing", "unavailable", "unknown"] and 
+                state_value not in idle_states):
                 active_sensor_id = platform_sensor_id
                 active_state = platform_state
         
@@ -1482,6 +1487,11 @@ class PCGamingSensor(RestoreSensor):
 
         if active_state:
             self._attr_native_value = active_state.state
+            
+            # Dynamically grab the icon from the winning platform
+            winning_platform = active_state.entity_id.split("_")[-1]
+            self._attr_icon = PLATFORM_CONFIG.get(winning_platform, {}).get("icon", "mdi:monitor")
+            
             self._attr_extra_state_attributes = {
                 "secondary": active_state.attributes.get("secondary", ""),
                 "game_cover_art": active_state.attributes.get("game_cover_art"),
@@ -1494,6 +1504,7 @@ class PCGamingSensor(RestoreSensor):
             self._attr_entity_picture = active_state.attributes.get("entity_picture")
         else:
             self._attr_native_value = "Offline"
+            self._attr_icon = "mdi:monitor"
             self._attr_extra_state_attributes = {"secondary": "Offline"}
             
             # Fallback to Steam avatar if offline, otherwise grab the first available avatar
