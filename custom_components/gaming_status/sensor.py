@@ -242,16 +242,33 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         return False
 
     def _is_game_active_elsewhere(self, current_game):
-        if not current_game or self._gaming_type != "xbox": return False
+        if not current_game: return False
+        
         try:
-            normalized = _normalize_game_name(current_game)
-            steam_sensor_id = self._desired_entity_id.replace("_xbox", "_steam")
-            steam_state = self.hass.states.get(steam_sensor_id)
-            if steam_state and steam_state.state not in ["Offline", "offline", STATE_UNKNOWN, STATE_UNAVAILABLE]:
-                steam_game = steam_state.attributes.get("current_game") or steam_state.state
-                if _normalize_game_name(steam_game) == normalized:
-                    return True
-        except Exception: pass
+            normalized_current = _normalize_game_name(current_game)
+            # Find our place in the pecking order (lower index = higher priority)
+            my_priority = PLATFORM_PRIORITY.index(self._gaming_type) if self._gaming_type in PLATFORM_PRIORITY else 99
+            
+            # Check all other platforms for this specific player
+            for other_platform in PLATFORM_PRIORITY:
+                if other_platform == self._gaming_type:
+                    continue
+                    
+                # Only yield to platforms that have a HIGHER priority than us
+                other_priority = PLATFORM_PRIORITY.index(other_platform)
+                if other_priority > my_priority:
+                    continue
+                    
+                other_sensor_id = self._desired_entity_id.replace(f"_{self._gaming_type}", f"_{other_platform}")
+                other_state = self.hass.states.get(other_sensor_id)
+                
+                if other_state and str(other_state.state).lower() not in ["offline", "unavailable", "unknown", "source missing"]:
+                    other_game = other_state.attributes.get("current_game") or other_state.state
+                    if _normalize_game_name(other_game) == normalized_current:
+                        return True
+        except Exception: 
+            pass
+            
         return False
 
     def _apply_title_override(self, game_name):
