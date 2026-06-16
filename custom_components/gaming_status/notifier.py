@@ -425,8 +425,21 @@ class GamingNotifier:
             if start_time_str:
                 try:
                     start_dt = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
-                    now_dt = datetime.now(start_dt.tzinfo) if start_dt.tzinfo else datetime.now()
-                    diff = now_dt - start_dt
+                    
+                    # TRUE END TIME CALCULATION: Default to now, but override if a session cleanly ended
+                    end_dt = datetime.now(start_dt.tzinfo) if start_dt.tzinfo else datetime.now()
+                    
+                    if is_end:
+                        last_online_str = old_state.attributes.get("last_online_valid_timestamp")
+                        if last_online_str:
+                            temp_end = datetime.fromisoformat(last_online_str.replace("Z", "+00:00"))
+                            if not temp_end.tzinfo:
+                                temp_end = temp_end.replace(tzinfo=start_dt.tzinfo)
+                            # Only apply if it doesn't result in a negative time glitch
+                            if temp_end > start_dt:
+                                end_dt = temp_end
+
+                    diff = end_dt - start_dt
                     total_minutes = int(diff.total_seconds() / 60)
                     if total_minutes > 0:
                         hours, minutes = total_minutes // 60, total_minutes % 60
