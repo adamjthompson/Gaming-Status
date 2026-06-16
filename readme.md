@@ -12,7 +12,9 @@ Some of the key features are listed below.
 * **Unified Master Sensor:** Combines Xbox, PlayStation, Steam, and Custom PC clients into one clean "Master Status" sensor per person.
 * **Online/Offline Notifications** Receive Discord, SMS, and/or Mobile notifications when users start or finish playing a game.
 * **Parental Controls:** Track daily playtime and recieve notifications or trigger an automation or script when a limit or curfew is reached.
+* **Discord Rich Presence:** Track hundreds of standalone games, emulators, and Epic/EA/Ubisoft launchers automatically by hooking into Discord's Rich Presence status.
 * **Custom PC Game Support:** Track non-platform games (like Epic Games, Minecraft, or Genshin Impact) using template funnels or binary sensors.
+* **PC Sub-Master Sensor:** Automatically aggregates Custom, Steam, and Discord tracking into a single, unified "PC" status. It features smart platform yielding (e.g., Discord quietly steps aside if Steam is tracking the same game) to completely eliminate double-counting in your playtime analytics.
 * **Smart Ghosting Protection:** Automatically prevents echo sessions (e.g., when the Windows Xbox app incorrectly broadcasts a Steam game).
 * **Drop-Out Protection:** Built-in grace periods prevent a gamer from appearing "Offline" if their game crashes, they switch titles, or their internet briefly blips, keeping play sessions perfectly intact.
 * **Playtime Analytics:** Automatically calculates session time, daily hours, and a rolling 7-day total for easy dashboard charting.
@@ -27,6 +29,7 @@ This integration acts as a "wrapper" that intelligently processes data from your
 * [Official PlayStation Network Integration](https://www.home-assistant.io/integrations/playstation_network)
 * [Official Steam Integration](https://www.home-assistant.io/integrations/steam_online)
 * [Official Xbox Integration](https://www.home-assistant.io/integrations/xbox)
+* Lanyard API (for Discord tracking) - Requires [joining their Discord server](https://discord.com/invite/UrXF2cfJ7F) to link your Discord ID to the public API. *REQUIRED if you plan to use Discord for tracking.*
 * [SteamGridDB API Key](https://www.steamgriddb.com/) (for cover art) - *This is not 100% REQUIRED, but it is HIGHLY recommended!*
 
 ## Recommended
@@ -109,6 +112,21 @@ These variables control how the integration handles network drops, game crashes,
 * **Minimum Session Duration:** Prevents quickly opening and closing a game (like launching a launcher) from cluttering your play history.
 * **Reset History:** A toggle to clear all accumulated daily/weekly session history upon the next Home Assistant restart. *Use with caution!*
 
+#### 6. PC Tracking & Discord Setup
+To provide the most accurate PC tracking possible, this integration can monitor Steam, Discord, and Custom clients simultaneously. 
+
+**Setting up Discord (Lanyard):**
+Because Home Assistant does not have an official Discord integration that tracks Rich Presence, this integration utilizes the free **Lanyard API**.
+1. Join the [Lanyard Discord Server](https://discord.gg/lanyard). Simply joining the server automatically links your Discord ID to their API.
+2. In the Gaming Status configuration, paste the player's 18-digit Discord User ID (found by turning on Developer Mode in Discord and right-clicking their profile).
+
+**The PC Sub-Master Priority Logic:**
+If a player launches a game, it is very common for both Discord and Steam to track it simultaneously. To prevent double-counting your playtime hours and sending duplicate push notifications, the `sensor.XXXXX_pc_status` sensor uses strict **Smart Platform Yielding**. 
+
+Platforms are prioritized in this exact order: **Custom > Steam > Discord**.
+* *Example:* If a player launches a Steam game, Discord will likely detect it first and claim the dashboard. Seconds later, when Steam wakes up and detects the same game, Discord will instantly pause its timer and yield control to Steam. 
+* *Result:* You get the lightning-fast notifications of Discord, but the pristine, deduplicated analytics of Steam!
+
 ### Entities
 
 Upon restart, the integration will instantly read your settings and generate the master tracking sensors for your dashboard. Look for the new master sensors named `sensor.XXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
@@ -118,6 +136,8 @@ Upon restart, the integration will instantly read your settings and generate the
 | sensor.XXXXX_steam | Sensor | Steam sensor for each added profile |
 | sensor.XXXXX_xbox | Sensor | Xbox sensor for each added profile |
 | sensor.XXXXX_playstation | Sensor | PlayStation sensor for each added profile |
+| sensor.XXXXX_discord | Sensor | Discord sensor powered by Lanyard for each added profile |
+| sensor.XXXXX_pc | Sensor | Sub-master sensor that automatically aggregates Steam, Discord, and Custom PC clients into a single unified PC state |
 | sensor.XXXXX_gaming_status | Sensor | Master sensor for each added profile that combines all added platforms into one "Online/Offline" status |
 | sensor.XXXXX_daily_gaming_hours_chart | Sensor | Daily game time, tracked in 0.0 h format |
 | sensor.players_online | Sensor | Global sensor that tracks the total number of players currently online |
@@ -211,9 +231,9 @@ Several of these attributes (e.g., the artwork URLs, weekly_breakdown, longest_s
 Once everything is up and running (with sensors showing up from the integration), try playing a game for at least 5 minutes to make sure the online status is reflected in the master "_gaming_status" sensors. *Note that, by default, sessions shorter than 300 seconds (5 minutes) are discarded and do not count toward the total playtime hours.* If the sensors are working correctly, try some of the following! If not, see the [troubleshooting](docs/troubleshooting.md) documentation.
 
 - Add some sweet displays to your [dashboard](https://github.com/adamjthompson/Gaming-Status-Cards#1-gaming-status---list), showing who's online and what they're playing
-- Set up Discord, SMS, and/or Mobile [notifications](docs/notifications.md) for when users start and stop playing games
+- Set up Discord, SMS, and/or Mobile [notifications](docs/notifications.md) for when users start, stop, and switch games
 - Add a [slideshow](https://github.com/adamjthompson/Gaming-Status-Cards#2-gaming-status---slideshow) to your dashboard or wallpanel display to see what's being played
 - Add a [graph](https://github.com/adamjthompson/Gaming-Status-Cards#3-gaming-status---chart) to chart weekly game time
-- Add [custom sensors](docs/advanced.md#tracking-standalone-pc-games-hassagent-setup) to track PC games not logged by Steam or Xbox
+- Add [custom sensors](docs/advanced.md#tracking-standalone-pc-games-hassagent-setup) to track PC games not logged by Steam or Xbox sensors
 - Use a [sensor](docs/advanced.md#the-is-anyone-gaming-binary-sensor-for-automations) to track whether or not anyone is gaming (useful for automations or contextual card display)
 - Check out other [advanced setup options](docs/advanced.md) for features like preventing tracking of games by the wrong players and per-user game exclusions
