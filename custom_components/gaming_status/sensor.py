@@ -650,7 +650,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             device_entries = er.async_entries_for_device(registry, entry.device_id)
             for e in device_entries:
                 if e.domain == "image":
-                    self._avatar_entity_id = e.entity_id
+                    # Explicitly hunt for the correct image type based on the platform!
+                    if self._gaming_type == "xbox" and "gamerpic" in e.entity_id:
+                        self._avatar_entity_id = e.entity_id
+                    elif self._gaming_type == "playstation" and "avatar" in e.entity_id:
+                        self._avatar_entity_id = e.entity_id
                 elif e.domain == "sensor" and "now_playing" in e.entity_id:
                     self._now_playing_entity_id = e.entity_id
                     
