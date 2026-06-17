@@ -25,18 +25,18 @@ Some of the key features are listed below.
 * **Custom Avatars:** Automatically pulls live gamer pictures from platform APIs, with the option to easily override missing or incorrect images with your own local images.
 
 ## ⚠️ Prerequisites
-This integration acts as a "wrapper" that intelligently processes data from your existing integrations. Before installing, ensure you have any necessary base integrations installed and working in Home Assistant. Not all are required, but you'll need at least ONE installed:
+This integration acts as a "wrapper" that intelligently processes data from your existing integrations. Before installing, ensure you have any necessary base integrations installed and working in Home Assistant. Not all are required, but you'll need at least ONE official integration installed:
 * [Official PlayStation Network Integration](https://www.home-assistant.io/integrations/playstation_network)
 * [Official Steam Integration](https://www.home-assistant.io/integrations/steam_online)
 * [Official Xbox Integration](https://www.home-assistant.io/integrations/xbox)
-* Lanyard API (for Discord tracking) - Requires [joining their Discord server](https://discord.com/invite/UrXF2cfJ7F) to link your Discord ID to the public API. *REQUIRED if you plan to use Discord for tracking.*
-* [SteamGridDB API Key](https://www.steamgriddb.com/) (for cover art) - *This is not 100% REQUIRED, but it is HIGHLY recommended!*
 
 ## Recommended
-While not required for functionality, I recommend installing the following HACS integrations for the most robust dashboard cards:
-* [Gaming Status Cards](https://github.com/adamjthompson/Gaming-Status-Cards) - Companion dashboard cards, so you don't have to make your own
-* [ApexCharts Card](https://github.com/RomRider/apexcharts-card) - For the stats and donut graphs
-* [HASS.Agent](https://www.hass-agent.io/2.2/getting-started/installation/#installing-hassagent) - Install both the PC app and the integration for Custom PC sensors
+While not required for functionality, I recommend installing the following HACS for the most robust dashboard cards:
+* [SteamGridDB API Key](https://www.steamgriddb.com/) - Provides artwork for games. *This is not REQUIRED, but it is HIGHLY recommended!*
+* [Gaming Status Cards](https://github.com/adamjthompson/Gaming-Status-Cards) - Easy to use companion dashboard cards, so you don't have to make your own.
+* [ApexCharts Card](https://github.com/RomRider/apexcharts-card) - For the stats and donut graph cards.
+* Lanyard API - Requires [joining their Discord server](https://discord.com/invite/UrXF2cfJ7F) to link your Discord ID to the public API. *REQUIRED if you want to use Discord for tracking.*
+* [HASS.Agent](https://www.hass-agent.io/2.2/getting-started/installation/#installing-hassagent) - Allows you to create custom sensors for otherwise untrackable games. Install both the PC app and the integration for Custom PC sensors. *Try using Discord tracking with Lanyard first, if possible.*
 
 ### Obtaining a SteamGridDB API Key
 To display beautiful, high-resolution game covers on your dashboard, this integration requires a free API key from SteamGridDB.
