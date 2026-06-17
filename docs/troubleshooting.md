@@ -3,6 +3,9 @@ Below are some of the possible issues you may encounter and their fixes.
 
 ---
 
+## My game is being tracked by more than one platform at the same time
+This generally happens if you're using Discord for tracking along with other services. Sometimes, game titles are reported differently, resulting in a game being tracked by more than one service simultaneously. For example, Xbox may track the title as "DOOM Eternal" while Discord tracks it as "DOOM Eternal (BATTLEMODE)". The solution is to add a game title override to the [**Advanced Settings**](docs/advanced.md#game-title-overrides) to normalize the name. This would look like "DOOM Eternal (BATTLEMODE) = DOOM Eternal". Once the names match, the prioritization of trackers will take effect, with Xbox tracking the game and Discord stepping out of the way.
+
 ## My sensor always says "Offline" even when I'm playing!
 One possibility is the privacy settings of your account. Your online status and game activity must be viewable by the public in order to be properly reported by the Gaming Status integration. Instructions for changing the necessary settings is included below:
 
@@ -52,7 +55,7 @@ Xbox possesses highly granular privacy controls that explicitly separate your on
 
 ## The game cover art is missing or incorrect.
 The integration searches SteamGridDB for high-quality cover art based on the name of the game. If a publisher names a game weirdly on Xbox (like *"Call of Duty®: HQ - Cross-Gen Bundle"*), the search will fail.
-- **The Fix:** Use the **Game Title Overrides** in the Advanced section to map that messy title to a clean one (e.g., `"Call of Duty®: HQ - Cross-Gen Bundle": "Call of Duty"`). The integration will instantly find the right art!
+- **The Fix:** Use the **Game Title Overrides** in the Advanced section to map that messy title to a clean one (e.g., `Call of Duty®: HQ - Cross-Gen Bundle = Call of Duty`). The integration will instantly find the right art!
 
 ## My gamerpic / avatar is blank or broken.
 Sometimes, official APIs (especially PlayStation) fail to pass the avatar image URL to Home Assistant. 
