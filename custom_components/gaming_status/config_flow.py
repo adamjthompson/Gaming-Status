@@ -171,7 +171,9 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ),
                 vol.Optional(OPT_ENABLE_NOTIFICATIONS, default=False): bool,
                 vol.Optional(OPT_ENABLE_PARENTAL, default=False): bool,
-                vol.Optional(CONF_STEAMGRIDDB_API_KEY, default=""): str,
+                vol.Optional(CONF_STEAMGRIDDB_API_KEY, default=""): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
                 vol.Optional(OPT_USE_CACHE, default=smart_cache_default): bool,
             }),
             description_placeholders={"api_url": "https://www.steamgriddb.com/profile/api"},
@@ -267,37 +269,47 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     # -----------------------------------------------------------------------
 
     async def async_step_global_settings(self, user_input=None):
+        from .const import (
+            OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS,
+            OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS,
+            OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL,
+            OPT_USE_CACHE, DEFAULT_USE_CACHE,
+            OPT_EXTRACT_COLOR, DEFAULT_EXTRACT_COLOR,
+            OPT_CACHE_MAX_FILES, DEFAULT_CACHE_MAX_FILES,
+            OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS,
+            OPT_GRACE_PERIOD, DEFAULT_GRACE_PERIOD_SECONDS,
+            OPT_AWAY_GRACE_PERIOD, DEFAULT_AWAY_GRACE_PERIOD_SECONDS,
+            OPT_TRANSITION_GRACE, DEFAULT_GAME_TRANSITION_GRACE_SECONDS,
+            OPT_MIN_SESSION, DEFAULT_MIN_SESSION_DURATION,
+            OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY,
+            OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS
+        )
+
         opts = self._options
 
         if user_input is not None:
-            from .const import OPT_ENABLED_PLATFORMS, OPT_ENABLE_NOTIFICATIONS, OPT_ENABLE_PARENTAL
-            opts[OPT_ENABLED_PLATFORMS] = user_input.get(OPT_ENABLED_PLATFORMS, [])
-            opts[OPT_ENABLE_NOTIFICATIONS] = user_input.get(OPT_ENABLE_NOTIFICATIONS, False)
-            opts[OPT_ENABLE_PARENTAL] = user_input.get(OPT_ENABLE_PARENTAL, False)
-            opts[OPT_USE_CACHE] = user_input[OPT_USE_CACHE]
-            # Auto-disable color extraction if local cache is disabled
-            opts[OPT_EXTRACT_COLOR] = user_input[OPT_EXTRACT_COLOR] if user_input[OPT_USE_CACHE] else False
-            opts[OPT_CACHE_MAX_FILES] = user_input[OPT_CACHE_MAX_FILES]
-            opts[OPT_CACHE_MAX_DAYS] = user_input[OPT_CACHE_MAX_DAYS]
-            opts[OPT_RESET_HISTORY] = user_input[OPT_RESET_HISTORY]
-            from .const import OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS
+            opts[OPT_ENABLED_PLATFORMS] = user_input.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
+            opts[OPT_ENABLE_NOTIFICATIONS] = user_input.get(OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS)
+            opts[OPT_ENABLE_PARENTAL] = user_input.get(OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL)
+            opts[OPT_USE_CACHE] = user_input.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
+            opts[OPT_EXTRACT_COLOR] = user_input.get(OPT_EXTRACT_COLOR, DEFAULT_EXTRACT_COLOR) if user_input.get(OPT_USE_CACHE, DEFAULT_USE_CACHE) else False
+            opts[OPT_CACHE_MAX_FILES] = user_input.get(OPT_CACHE_MAX_FILES, DEFAULT_CACHE_MAX_FILES)
+            opts[OPT_CACHE_MAX_DAYS] = user_input.get(OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS)
+            opts[OPT_GRACE_PERIOD] = user_input.get(OPT_GRACE_PERIOD, DEFAULT_GRACE_PERIOD_SECONDS)
+            opts[OPT_AWAY_GRACE_PERIOD] = user_input.get(OPT_AWAY_GRACE_PERIOD, DEFAULT_AWAY_GRACE_PERIOD_SECONDS)
+            opts[OPT_TRANSITION_GRACE] = user_input.get(OPT_TRANSITION_GRACE, DEFAULT_GAME_TRANSITION_GRACE_SECONDS)
+            opts[OPT_MIN_SESSION] = user_input.get(OPT_MIN_SESSION, DEFAULT_MIN_SESSION_DURATION)
+            opts[OPT_RESET_HISTORY] = user_input.get(OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY)
             opts[OPT_REMOVE_DISABLED_SENSORS] = user_input.get(OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS)
-            opts[OPT_GRACE_PERIOD] = user_input[OPT_GRACE_PERIOD]
-            opts[OPT_AWAY_GRACE_PERIOD] = user_input[OPT_AWAY_GRACE_PERIOD]
-            opts[OPT_TRANSITION_GRACE] = user_input[OPT_TRANSITION_GRACE]
-            opts[OPT_MIN_SESSION] = user_input[OPT_MIN_SESSION]
+            
             self._options = opts
             return await self._update_and_return()
 
-        from .const import OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS, OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS, OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL
         return self.async_show_form(
             step_id=MENU_GLOBAL_SETTINGS,
             data_schema=vol.Schema(
                 {
-                    vol.Optional(
-                        OPT_ENABLED_PLATFORMS, 
-                        default=opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
-                    ): selector.SelectSelector(
+                    vol.Optional(OPT_ENABLED_PLATFORMS, default=opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)): selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=[
                                 selector.SelectOptionDict(value="steam", label="Steam"),
@@ -310,54 +322,18 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                             mode=selector.SelectSelectorMode.LIST
                         )
                     ),
-                    vol.Optional(
-                        OPT_ENABLE_NOTIFICATIONS,
-                        default=opts.get(OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS),
-                    ): bool,
-                    vol.Optional(
-                        OPT_ENABLE_PARENTAL,
-                        default=opts.get(OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL),
-                    ): bool,
-                    vol.Optional(
-                        OPT_USE_CACHE,
-                        default=opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE),
-                    ): bool,
-                    vol.Optional(
-                        OPT_EXTRACT_COLOR,
-                        default=opts.get(OPT_EXTRACT_COLOR, DEFAULT_EXTRACT_COLOR),
-                    ): bool,
-                    vol.Optional(
-                        OPT_CACHE_MAX_FILES,
-                        default=opts.get(OPT_CACHE_MAX_FILES, DEFAULT_CACHE_MAX_FILES),
-                    ): vol.All(int, vol.Range(min=0)),
-                    vol.Optional(
-                        OPT_CACHE_MAX_DAYS,
-                        default=opts.get(OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS),
-                    ): vol.All(int, vol.Range(min=0)),
-                    vol.Optional(
-                        OPT_GRACE_PERIOD,
-                        default=opts.get(OPT_GRACE_PERIOD, DEFAULT_GRACE_PERIOD_SECONDS),
-                    ): vol.All(int, vol.Range(min=0)),
-                    vol.Optional(
-                        OPT_AWAY_GRACE_PERIOD,
-                        default=opts.get(OPT_AWAY_GRACE_PERIOD, DEFAULT_AWAY_GRACE_PERIOD_SECONDS),
-                    ): vol.All(int, vol.Range(min=0)),
-                    vol.Optional(
-                        OPT_TRANSITION_GRACE,
-                        default=opts.get(OPT_TRANSITION_GRACE, DEFAULT_GAME_TRANSITION_GRACE_SECONDS),
-                    ): vol.All(int, vol.Range(min=0)),
-                    vol.Optional(
-                        OPT_MIN_SESSION,
-                        default=opts.get(OPT_MIN_SESSION, DEFAULT_MIN_SESSION_DURATION),
-                    ): vol.All(int, vol.Range(min=0)),
-                    vol.Optional(
-                        OPT_RESET_HISTORY,
-                        default=opts.get(OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY),
-                    ): bool,
-                    vol.Optional(
-                        OPT_REMOVE_DISABLED_SENSORS,
-                        default=opts.get(OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS),
-                    ): bool,
+                    vol.Optional(OPT_ENABLE_NOTIFICATIONS, default=opts.get(OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS)): bool,
+                    vol.Optional(OPT_ENABLE_PARENTAL, default=opts.get(OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL)): bool,
+                    vol.Optional(OPT_USE_CACHE, default=opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)): bool,
+                    vol.Optional(OPT_EXTRACT_COLOR, default=opts.get(OPT_EXTRACT_COLOR, DEFAULT_EXTRACT_COLOR)): bool,
+                    vol.Optional(OPT_CACHE_MAX_FILES, default=opts.get(OPT_CACHE_MAX_FILES, DEFAULT_CACHE_MAX_FILES)): vol.All(int, vol.Range(min=0)),
+                    vol.Optional(OPT_CACHE_MAX_DAYS, default=opts.get(OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS)): vol.All(int, vol.Range(min=0)),
+                    vol.Optional(OPT_GRACE_PERIOD, default=opts.get(OPT_GRACE_PERIOD, DEFAULT_GRACE_PERIOD_SECONDS)): vol.All(int, vol.Range(min=0)),
+                    vol.Optional(OPT_AWAY_GRACE_PERIOD, default=opts.get(OPT_AWAY_GRACE_PERIOD, DEFAULT_AWAY_GRACE_PERIOD_SECONDS)): vol.All(int, vol.Range(min=0)),
+                    vol.Optional(OPT_TRANSITION_GRACE, default=opts.get(OPT_TRANSITION_GRACE, DEFAULT_GAME_TRANSITION_GRACE_SECONDS)): vol.All(int, vol.Range(min=0)),
+                    vol.Optional(OPT_MIN_SESSION, default=opts.get(OPT_MIN_SESSION, DEFAULT_MIN_SESSION_DURATION)): vol.All(int, vol.Range(min=0)),
+                    vol.Optional(OPT_RESET_HISTORY, default=opts.get(OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY)): bool,
+                    vol.Optional(OPT_REMOVE_DISABLED_SENSORS, default=opts.get(OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS)): bool,
                 }
             ),
         )
@@ -956,7 +932,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_STEAMGRIDDB_API_KEY,
                 default=self._config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, ""),
-            ): str,
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+            ),
         }
 
         if "discord" in enabled_platforms:
@@ -1140,7 +1118,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             self._options[OPT_WEEKLY_REPORT] = _dump_json(report)
     
     async def _update_and_return(self):
-        """Save the updated options to Home Assistant and close the menu."""
-        # Using async_create_entry in an OptionsFlow tells Home Assistant 
-        # to apply the new dictionary and cleanly close the UI modal!
-        return self.async_create_entry(title="", data=self._options)
+        """Save the updated options to Home Assistant and return to the main menu."""
+        self.hass.config_entries.async_update_entry(self._config_entry, options=self._options)
+        return await self.async_step_init()
