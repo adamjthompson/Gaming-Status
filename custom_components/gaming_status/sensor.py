@@ -1700,15 +1700,27 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 try: registry.async_update_entity(entity.entity_id, new_entity_id=new_id)
                 except ValueError: pass
     
+    from .const import OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS, OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS
+    enabled_platforms = opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
+    remove_disabled = opts.get(OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS)
+
     for player_name, player_data in players.items():
         ghosted_by = player_data.get("ghosted_by", [])
         exclude_games = player_data.get("exclude_games", [])
         rules = parental_rules.get(player_name, {})
         safe_owner = player_name.lower().replace(" ", "_")
 
+        # --- ORPHANED SENSOR GARBAGE COLLECTION ---
+        if remove_disabled:
+            for platform in PLAYER_PLATFORMS:
+                if platform not in enabled_platforms:
+                    target_id = f"sensor.gaming_status_{safe_owner}_{platform}"
+                    if registry.async_get(target_id):
+                        registry.async_remove(target_id)
+
         pc_platforms_present = []
 
-        for platform in PLAYER_PLATFORMS:
+        for platform in enabled_platforms:
             entity_id = player_data.get(platform)
             if entity_id:
                 ents.append(PersistentStatusSensor(hass, entity_id, platform, player_name, ghosted_by, exclude_games, active_settings, global_exclusions, available_avatars))

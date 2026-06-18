@@ -280,6 +280,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             opts[OPT_CACHE_MAX_FILES] = user_input[OPT_CACHE_MAX_FILES]
             opts[OPT_CACHE_MAX_DAYS] = user_input[OPT_CACHE_MAX_DAYS]
             opts[OPT_RESET_HISTORY] = user_input[OPT_RESET_HISTORY]
+            from .const import OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS
+            opts[OPT_REMOVE_DISABLED_SENSORS] = user_input.get(OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS)
             opts[OPT_GRACE_PERIOD] = user_input[OPT_GRACE_PERIOD]
             opts[OPT_AWAY_GRACE_PERIOD] = user_input[OPT_AWAY_GRACE_PERIOD]
             opts[OPT_TRANSITION_GRACE] = user_input[OPT_TRANSITION_GRACE]
@@ -351,6 +353,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional(
                         OPT_RESET_HISTORY,
                         default=opts.get(OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY),
+                    ): bool,
+                    vol.Optional(
+                        OPT_REMOVE_DISABLED_SENSORS,
+                        default=opts.get(OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS),
                     ): bool,
                 }
             ),

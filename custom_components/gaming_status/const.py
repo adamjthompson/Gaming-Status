@@ -61,6 +61,8 @@ MENU_ADVANCED = "advanced"
 # Option keys
 # ---------------------------------------------------------------------------
 OPT_RESET_HISTORY = "reset_history"
+OPT_REMOVE_DISABLED_SENSORS = "remove_disabled_sensors"
+DEFAULT_REMOVE_DISABLED_SENSORS = False
 OPT_GRACE_PERIOD = "grace_period_seconds"
 OPT_AWAY_GRACE_PERIOD = "away_grace_period_seconds"
 OPT_TRANSITION_GRACE = "game_transition_grace_seconds"

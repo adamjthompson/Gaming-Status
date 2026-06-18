@@ -206,7 +206,8 @@
           "away_grace_period_seconds": "Away grace period (seconds)",
           "game_transition_grace_seconds": "Game transition grace period (seconds)",
           "min_session_duration": "Minimum session duration (seconds)",
-          "reset_history": "Reset play history on restart"
+          "reset_history": "Reset play history on restart",
+          "remove_disabled_sensors": "Remove disabled platform sensors on restart"
         },
         "data_description": {
           "enabled_platforms": "Select which platforms should appear in the player configuration menus.",
@@ -220,7 +221,8 @@
           "away_grace_period_seconds": "How long to wait before marking a Steam Away player offline. Default: 600 (10 min)",
           "game_transition_grace_seconds": "Bridges small gaps between game launches so sessions stay continuous. Default: 120 (2 min)",
           "min_session_duration": "Sessions shorter than this are not counted in history. Default: 300 (5 min)",
-          "reset_history": "Clear all accumulated session history when Home Assistant restarts."
+          "reset_history": "Clear all accumulated session history when Home Assistant restarts.",
+          "remove_disabled_sensors": "Automatically deletes sensors from Home Assistant for platforms you have unchecked in the Global Settings menu."
         }
       },
       "custom_artwork": {
