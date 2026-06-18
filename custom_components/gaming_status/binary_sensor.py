@@ -35,8 +35,12 @@ class GlobalGamingSensor(BinarySensorEntity):
     def __init__(self, hass, master_sensor_ids):
         self.hass = hass
         self._master_sensor_ids = master_sensor_ids
+        
+        # Explicitly force the Entity ID and Unique ID to your new standard
+        self.entity_id = "binary_sensor.gaming_status_anyone_gaming"
+        self._attr_unique_id = "gaming_status_anyone_gaming"
         self._attr_name = "Anyone Gaming"
-        self._attr_unique_id = "global_anyone_gaming_v1"
+        
         self._attr_is_on = False
         self._attr_icon = "mdi:controller-off"
 
