@@ -876,7 +876,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     # -----------------------------------------------------------------------
     # Advanced
     # -----------------------------------------------------------------------
-
+    
     async def async_step_advanced(self, user_input=None):
         opts = self._options
         errors = {}
@@ -937,17 +937,16 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             ),
         }
 
-        if "discord" in enabled_platforms:
-            schema_dict.update({
-                vol.Optional(
-                    CONF_DISCORD_TOKEN,
-                    default=self._config_entry.data.get(CONF_DISCORD_TOKEN, ""),
-                ): str,
-                vol.Optional(
-                    CONF_DISCORD_SERVER,
-                    default=self._config_entry.data.get(CONF_DISCORD_SERVER, ""),
-                ): str,
-            })
+        schema_dict.update({
+            vol.Optional(
+                CONF_DISCORD_TOKEN,
+                default=self._config_entry.data.get(CONF_DISCORD_TOKEN, ""),
+            ): str,
+            vol.Optional(
+                CONF_DISCORD_SERVER,
+                default=self._config_entry.data.get(CONF_DISCORD_SERVER, ""),
+            ): str,
+        })
 
         schema_dict.update({
             vol.Optional(

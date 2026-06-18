@@ -57,7 +57,7 @@
           "steam": "Steam sensor",
           "xbox": "Xbox sensor",
           "playstation": "PlayStation sensor",
-          "discord": "Discord ID (Lanyard)",
+          "discord": "Discord Member",
           "custom": "Custom / PC sensor"
         },
         "data_description": {
@@ -65,7 +65,7 @@
           "steam": "e.g. sensor.steam_player_one",
           "xbox": "e.g. sensor.player_one_xbox_status",
           "playstation": "e.g. sensor.player_one_psn_online_status",
-          "discord": "e.g. 123456789012345678 (Player's numerical Discord ID)",
+          "discord": "Select the Discord user from the dropdown.",
           "custom": "e.g. sensor.player_one_active_pc_game"
         }
       },
@@ -76,13 +76,14 @@
           "steam": "Steam sensor",
           "xbox": "Xbox sensor",
           "playstation": "PlayStation sensor",
-          "discord": "Discord ID (Lanyard)",
+          "discord": "Discord Member",
           "custom": "Custom / PC sensor",
           "delete_player": "Delete this player"
         },
         "data_description": {
           "xbox": "(Select the _status sensor)",
-          "playstation": "(Select the _online_status sensor)"
+          "playstation": "(Select the _online_status sensor)",
+          "discord": "Select the Discord user from the dropdown."
         }
       },
       "player_details": {
@@ -186,6 +187,8 @@
         "description": "Configure advanced integration behavior and API keys.",
         "data": {
           "steamgriddb_api_key": "SteamGridDB API Key",
+          "discord_bot_token": "Discord Bot Token",
+          "discord_server_id": "Discord Server ID",
           "title_overrides": "Title Overrides (e.g., Destiny 2: Lightfall = Destiny 2)",
           "title_cleanups": "Title Cleanups (Regex/Text to strip from titles)",
           "global_exclusions": "Global Exclusions (Ignored apps/games)"
@@ -193,7 +196,6 @@
       },
       "global_settings": {
         "title": "Global Settings",
-        "description": "Timing and behavior settings that apply to all players. **Only change these if you understand exactly what they do!**",
         "data": {
           "enabled_platforms": "Platforms to Track",
           "enable_notifications": "Enable Notifications & Reporting",
