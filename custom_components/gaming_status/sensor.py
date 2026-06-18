@@ -168,7 +168,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 "last_weekly_reset": self._last_weekly_reset,
                 "last_session_play_time": self._last_session_play_time,
                 "weekly_game_breakdown": self._weekly_game_breakdown,
-                "longest_session_details": self._longest_session_details
+                "longest_session_details": self._longest_session_details,
+                "daily_play_time": getattr(self, "_daily_play_time", 0),
+                "weekly_play_time": getattr(self, "_weekly_play_time", 0),
+                "weekly_play_time_last_week": getattr(self, "_weekly_play_time_last_week", 0)
             },
             "cached_game_cover": getattr(self, "_cached_game_cover", None),
             "game_hero_art": getattr(self, "_cached_game_hero", None),
@@ -676,6 +679,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._last_session_play_time = int(internal.get("last_session_play_time", 0))
             self._weekly_game_breakdown = internal.get("weekly_game_breakdown", {})
             self._longest_session_details = internal.get("longest_session_details", {"game": None, "duration": 0})
+            
+            # Restore live running tallies from JSON backup if RAM wipe occurs
+            self._daily_play_time = int(internal.get("daily_play_time", 0))
+            self._weekly_play_time = int(internal.get("weekly_play_time", 0))
+            self._weekly_play_time_last_week = int(internal.get("weekly_play_time_last_week", 0))
             
             self._cached_game_cover = stored_data.get("cached_game_cover")
             self._cached_game_hero = stored_data.get("game_hero_art")
