@@ -902,8 +902,12 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 opts[key] = _dump_json(parsed_list)
 
             api_key = user_input.get(CONF_STEAMGRIDDB_API_KEY, "").strip()
+            dc_token = user_input.get(CONF_DISCORD_TOKEN, "").strip()
+            dc_server = user_input.get(CONF_DISCORD_SERVER, "").strip()
             new_data = dict(self._config_entry.data)
             new_data[CONF_STEAMGRIDDB_API_KEY] = api_key
+            new_data[CONF_DISCORD_TOKEN] = dc_token
+            new_data[CONF_DISCORD_SERVER] = dc_server
             self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
 
             if not errors:
@@ -937,16 +941,17 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             ),
         }
 
-        schema_dict.update({
-            vol.Optional(
-                CONF_DISCORD_TOKEN,
-                default=self._config_entry.data.get(CONF_DISCORD_TOKEN, ""),
-            ): str,
-            vol.Optional(
-                CONF_DISCORD_SERVER,
-                default=self._config_entry.data.get(CONF_DISCORD_SERVER, ""),
-            ): str,
-        })
+        if "discord" in enabled_platforms:
+            schema_dict.update({
+                vol.Optional(
+                    CONF_DISCORD_TOKEN,
+                    default=self._config_entry.data.get(CONF_DISCORD_TOKEN, ""),
+                ): str,
+                vol.Optional(
+                    CONF_DISCORD_SERVER,
+                    default=self._config_entry.data.get(CONF_DISCORD_SERVER, ""),
+                ): str,
+            })
 
         schema_dict.update({
             vol.Optional(
