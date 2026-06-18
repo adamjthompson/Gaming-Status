@@ -1138,3 +1138,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             dests.remove(ep_id)
             report["destinations"] = dests
             self._options[OPT_WEEKLY_REPORT] = _dump_json(report)
+    
+    async def _update_and_return(self):
+        """Save the updated options to Home Assistant and close the menu."""
+        # Using async_create_entry in an OptionsFlow tells Home Assistant 
+        # to apply the new dictionary and cleanly close the UI modal!
+        return self.async_create_entry(title="", data=self._options)
