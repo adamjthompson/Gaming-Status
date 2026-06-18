@@ -46,6 +46,10 @@ class GamingNotifier:
         self._triggered_parental_events: dict = {}
 
         opts = self._entry.options
+        
+        from .const import OPT_ENABLE_NOTIFICATIONS, OPT_ENABLE_PARENTAL
+        self._enable_notifications = opts.get(OPT_ENABLE_NOTIFICATIONS, False)
+        self._enable_parental = opts.get(OPT_ENABLE_PARENTAL, False)
 
         # Parse JSON exactly once at startup and cache in memory
         self._cached_players = _load_json(opts.get(OPT_PLAYERS), {})
@@ -348,6 +352,9 @@ class GamingNotifier:
     # ------------------------------------------------------------------
 
     async def _handle_state_change(self, event) -> None:
+        if not self._enable_notifications:
+            return
+            
         if self._startup_time and dt_util.now() - self._startup_time < timedelta(seconds=30):
             return
 
@@ -499,7 +506,7 @@ class GamingNotifier:
     # ------------------------------------------------------------------
 
     async def _check_parental_controls(self, now) -> None:
-        if not self._cached_parental: return
+        if not self._enable_parental or not self._cached_parental: return
 
         now_dt = dt_util.now()
         is_weekend = now_dt.weekday() >= 5
@@ -691,7 +698,7 @@ class GamingNotifier:
     # ------------------------------------------------------------------
 
     async def _trigger_weekly_report(self, now) -> None:
-        if now.weekday() != self._run_day or not self._cached_weekly.get("enabled"): return
+        if not self._enable_notifications or now.weekday() != self._run_day or not self._cached_weekly.get("enabled"): return
         assigned = self._cached_weekly.get("destinations", [])
         lines = [f"**Weekly Gaming Report** — {dt_util.now().strftime('%B %d, %Y')}"]
         for player_name in self._cached_players:

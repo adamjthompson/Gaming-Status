@@ -125,63 +125,97 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if self._async_current_entries():
             return self.async_abort(reason="single_instance_allowed")
 
-        if user_input is not None:
-            api_key = user_input.get(CONF_STEAMGRIDDB_API_KEY, "").strip()
-            dc_token = user_input.get(CONF_DISCORD_TOKEN, "").strip()
-            dc_server = user_input.get(CONF_DISCORD_SERVER, "").strip()
-            use_cache = user_input.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
-            
-            return self.async_create_entry(
-                title="Gaming Status",
-                data={
-                    CONF_STEAMGRIDDB_API_KEY: api_key,
-                    CONF_DISCORD_TOKEN: dc_token,
-                    CONF_DISCORD_SERVER: dc_server,
-                },
-                options={OPT_USE_CACHE: use_cache},
-            )
-
         # --- SMART DEFAULT LOGIC ---
-        # Probe HA to see if they have a public URL configured
         smart_cache_default = DEFAULT_USE_CACHE
         try:
-            # allow_internal=False forces HA to look specifically for a remote URL
             public_url = get_url(self.hass, prefer_external=True, allow_internal=False)
             if public_url and public_url.startswith("https"):
                 smart_cache_default = True
             else:
                 smart_cache_default = False
         except NoURLAvailableError:
-            # If they have no external URL configured at all, default to False
             smart_cache_default = False
 
-        if user_input is not None:
-            api_key = user_input.get(CONF_STEAMGRIDDB_API_KEY, "").strip()
-            dc_token = user_input.get(CONF_DISCORD_TOKEN, "").strip()
-            dc_server = user_input.get(CONF_DISCORD_SERVER, "").strip()
-            use_cache = user_input.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
-            
-            return self.async_create_entry(
-                title="Gaming Status",
-                data={
-                    CONF_STEAMGRIDDB_API_KEY: api_key,
-                    CONF_DISCORD_TOKEN: dc_token,
-                    CONF_DISCORD_SERVER: dc_server,
-                },
-                options={OPT_USE_CACHE: use_cache},
-            )
+        smart_platforms = ["discord", "custom"]
+        if self.hass.config_entries.async_entries("steam_online"): smart_platforms.append("steam")
+        if self.hass.config_entries.async_entries("xbox"): smart_platforms.append("xbox")
+        if self.hass.config_entries.async_entries("playstation_network"): smart_platforms.append("playstation")
 
+        if user_input is not None:
+            self._temp_user_input = user_input
+            
+            # If they checked Discord, route them to the dedicated Discord Setup Screen
+            from .const import OPT_ENABLED_PLATFORMS
+            if "discord" in user_input.get(OPT_ENABLED_PLATFORMS, []):
+                return await self.async_step_discord_setup()
+                
+            # If no Discord, finish setup immediately
+            return self._create_entry_from_temp()
+
+        from .const import OPT_ENABLED_PLATFORMS, OPT_ENABLE_NOTIFICATIONS, OPT_ENABLE_PARENTAL
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional(CONF_STEAMGRIDDB_API_KEY, default=""): str,
-                    vol.Optional(CONF_DISCORD_TOKEN, default=""): str,
-                    vol.Optional(CONF_DISCORD_SERVER, default=""): str,
-                    vol.Optional(OPT_USE_CACHE, default=smart_cache_default): bool,
-                }
-            ),
+            data_schema=vol.Schema({
+                vol.Optional(OPT_ENABLED_PLATFORMS, default=smart_platforms): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value="steam", label="Steam"),
+                            selector.SelectOptionDict(value="xbox", label="Xbox"),
+                            selector.SelectOptionDict(value="playstation", label="PlayStation"),
+                            selector.SelectOptionDict(value="discord", label="Discord"),
+                            selector.SelectOptionDict(value="custom", label="Custom Tracker"),
+                        ],
+                        multiple=True,
+                        mode=selector.SelectSelectorMode.LIST
+                    )
+                ),
+                vol.Optional(OPT_ENABLE_NOTIFICATIONS, default=False): bool,
+                vol.Optional(OPT_ENABLE_PARENTAL, default=False): bool,
+                vol.Optional(CONF_STEAMGRIDDB_API_KEY, default=""): str,
+                vol.Optional(OPT_USE_CACHE, default=smart_cache_default): bool,
+            }),
             description_placeholders={"api_url": "https://www.steamgriddb.com/profile/api"},
+        )
+
+    async def async_step_discord_setup(self, user_input=None):
+        if user_input is not None:
+            self._temp_user_input.update(user_input)
+            return self._create_entry_from_temp()
+
+        return self.async_show_form(
+            step_id="discord_setup",
+            data_schema=vol.Schema({
+                vol.Optional(CONF_DISCORD_TOKEN, default=""): str,
+                vol.Optional(CONF_DISCORD_SERVER, default=""): str,
+            }),
+        )
+
+    def _create_entry_from_temp(self):
+        user_input = getattr(self, "_temp_user_input", {})
+        
+        api_key = user_input.get(CONF_STEAMGRIDDB_API_KEY, "").strip()
+        dc_token = user_input.get(CONF_DISCORD_TOKEN, "").strip()
+        dc_server = user_input.get(CONF_DISCORD_SERVER, "").strip()
+        
+        from .const import OPT_ENABLED_PLATFORMS, OPT_ENABLE_NOTIFICATIONS, OPT_ENABLE_PARENTAL
+        use_cache = user_input.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
+        enabled_platforms = user_input.get(OPT_ENABLED_PLATFORMS, [])
+        enable_notifications = user_input.get(OPT_ENABLE_NOTIFICATIONS, False)
+        enable_parental = user_input.get(OPT_ENABLE_PARENTAL, False)
+        
+        return self.async_create_entry(
+            title="Gaming Status",
+            data={
+                CONF_STEAMGRIDDB_API_KEY: api_key,
+                CONF_DISCORD_TOKEN: dc_token,
+                CONF_DISCORD_SERVER: dc_server,
+            },
+            options={
+                OPT_USE_CACHE: use_cache,
+                OPT_ENABLED_PLATFORMS: enabled_platforms,
+                OPT_ENABLE_NOTIFICATIONS: enable_notifications,
+                OPT_ENABLE_PARENTAL: enable_parental
+            },
         )
     
     @staticmethod
@@ -207,16 +241,25 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         if token and server_id and not self._discord_members:
             self._discord_members = await _fetch_discord_members(token, server_id)
             
+        from .const import OPT_ENABLE_NOTIFICATIONS, OPT_ENABLE_PARENTAL
+        
+        menu_options = [MENU_MANAGE_PLAYERS]
+        
+        if self._options.get(OPT_ENABLE_NOTIFICATIONS, False):
+            menu_options.append(MENU_NOTIFICATIONS)
+            
+        if self._options.get(OPT_ENABLE_PARENTAL, False):
+            menu_options.append(MENU_PARENTAL)
+            
+        menu_options.extend([
+            MENU_CUSTOM_ARTWORK,
+            MENU_ADVANCED,
+            MENU_GLOBAL_SETTINGS,
+        ])
+            
         return self.async_show_menu(
             step_id="init",
-            menu_options=[
-                MENU_MANAGE_PLAYERS,
-                MENU_NOTIFICATIONS,
-                MENU_PARENTAL,
-                MENU_CUSTOM_ARTWORK,
-                MENU_ADVANCED,
-                MENU_GLOBAL_SETTINGS,
-            ],
+            menu_options=menu_options,
         )
 
     # -----------------------------------------------------------------------
@@ -227,6 +270,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         opts = self._options
 
         if user_input is not None:
+            from .const import OPT_ENABLED_PLATFORMS, OPT_ENABLE_NOTIFICATIONS, OPT_ENABLE_PARENTAL
+            opts[OPT_ENABLED_PLATFORMS] = user_input.get(OPT_ENABLED_PLATFORMS, [])
+            opts[OPT_ENABLE_NOTIFICATIONS] = user_input.get(OPT_ENABLE_NOTIFICATIONS, False)
+            opts[OPT_ENABLE_PARENTAL] = user_input.get(OPT_ENABLE_PARENTAL, False)
             opts[OPT_USE_CACHE] = user_input[OPT_USE_CACHE]
             # Auto-disable color extraction if local cache is disabled
             opts[OPT_EXTRACT_COLOR] = user_input[OPT_EXTRACT_COLOR] if user_input[OPT_USE_CACHE] else False
@@ -240,10 +287,35 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             self._options = opts
             return await self._update_and_return()
 
+        from .const import OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS, OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS, OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL
         return self.async_show_form(
             step_id=MENU_GLOBAL_SETTINGS,
             data_schema=vol.Schema(
                 {
+                    vol.Optional(
+                        OPT_ENABLED_PLATFORMS, 
+                        default=opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                selector.SelectOptionDict(value="steam", label="Steam"),
+                                selector.SelectOptionDict(value="xbox", label="Xbox"),
+                                selector.SelectOptionDict(value="playstation", label="PlayStation"),
+                                selector.SelectOptionDict(value="discord", label="Discord"),
+                                selector.SelectOptionDict(value="custom", label="Custom Tracker"),
+                            ],
+                            multiple=True,
+                            mode=selector.SelectSelectorMode.LIST
+                        )
+                    ),
+                    vol.Optional(
+                        OPT_ENABLE_NOTIFICATIONS,
+                        default=opts.get(OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS),
+                    ): bool,
+                    vol.Optional(
+                        OPT_ENABLE_PARENTAL,
+                        default=opts.get(OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL),
+                    ): bool,
                     vol.Optional(
                         OPT_USE_CACHE,
                         default=opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE),
@@ -360,8 +432,11 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 self._options[OPT_PARENTAL] = _dump_json(parental)
                 return await self._update_and_return()
             else:
+                from .const import OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS
                 updated_platforms = self._player_data_from_input(user_input)
-                for p in PLAYER_PLATFORMS:
+                enabled_platforms = self._options.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
+                
+                for p in enabled_platforms:
                     if p in updated_platforms:
                         existing[p] = updated_platforms[p]
                     elif p in existing:
@@ -868,41 +943,51 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 return ", ".join([f"{k} = {v}" for k, v in parsed.items()])
             return ", ".join([f"{k} = {v}" for k, v in fallback.items()])
 
+        from .const import OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS
+        enabled_platforms = opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
+
+        schema_dict = {
+            vol.Optional(
+                CONF_STEAMGRIDDB_API_KEY,
+                default=self._config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, ""),
+            ): str,
+        }
+
+        if "discord" in enabled_platforms:
+            schema_dict.update({
+                vol.Optional(
+                    CONF_DISCORD_TOKEN,
+                    default=self._config_entry.data.get(CONF_DISCORD_TOKEN, ""),
+                ): str,
+                vol.Optional(
+                    CONF_DISCORD_SERVER,
+                    default=self._config_entry.data.get(CONF_DISCORD_SERVER, ""),
+                ): str,
+            })
+
+        schema_dict.update({
+            vol.Optional(
+                "title_overrides",
+                default=_get_dict_default(OPT_TITLE_OVERRIDES, {}),
+            ): str,
+            vol.Optional(
+                "title_cleanups",
+                default=_get_list_default(OPT_TITLE_CLEANUPS, []),
+            ): str,
+            vol.Optional(
+                "global_exclusions",
+                default=_get_list_default(OPT_GLOBAL_EXCLUSIONS, [
+                    "Home", "Online", "Xbox App", "YouTube", "Netflix",
+                    "Hulu", "Amazon Prime Video", "Spotify",
+                    "Microsoft Store", "Store", "Xbox 360 Dashboard",
+                    "Setting up...", "Wallpaper Engine",
+                ]),
+            ): str,
+        })
+
         return self.async_show_form(
             step_id=MENU_ADVANCED,
-            data_schema=vol.Schema(
-                {
-                    vol.Optional(
-                        CONF_STEAMGRIDDB_API_KEY,
-                        default=self._config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, ""),
-                    ): str,
-                    vol.Optional(
-                        CONF_DISCORD_TOKEN,
-                        default=self._config_entry.data.get(CONF_DISCORD_TOKEN, ""),
-                    ): str,
-                    vol.Optional(
-                        CONF_DISCORD_SERVER,
-                        default=self._config_entry.data.get(CONF_DISCORD_SERVER, ""),
-                    ): str,
-                    vol.Optional(
-                        "title_overrides",
-                        default=_get_dict_default(OPT_TITLE_OVERRIDES, {}),
-                    ): str,
-                    vol.Optional(
-                        "title_cleanups",
-                        default=_get_list_default(OPT_TITLE_CLEANUPS, []),
-                    ): str,
-                    vol.Optional(
-                        "global_exclusions",
-                        default=_get_list_default(OPT_GLOBAL_EXCLUSIONS, [
-                            "Home", "Online", "Xbox App", "YouTube", "Netflix",
-                            "Hulu", "Amazon Prime Video", "Spotify",
-                            "Microsoft Store", "Store", "Xbox 360 Dashboard",
-                            "Setting up...", "Wallpaper Engine",
-                        ]),
-                    ): str,
-                }
-            ),
+            data_schema=vol.Schema(schema_dict),
             errors=errors,
         )
 

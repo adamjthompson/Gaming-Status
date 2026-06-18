@@ -1669,7 +1669,13 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     utils.CACHE_MAX_DAYS = opts.get(OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS)
     global_exclusions = _load_opt_json(opts, OPT_GLOBAL_EXCLUSIONS, [])
     players = _load_opt_json(opts, OPT_PLAYERS, {})
-    parental_rules = _load_opt_json(opts, OPT_PARENTAL, {})
+    
+    from .const import OPT_ENABLE_PARENTAL
+    if opts.get(OPT_ENABLE_PARENTAL, False):
+        parental_rules = _load_opt_json(opts, OPT_PARENTAL, {})
+    else:
+        parental_rules = {}
+        
     avatar_dir = hass.config.path("www/gaming_status")
     try: available_avatars = await hass.async_add_executor_job(os.listdir, avatar_dir)
     except FileNotFoundError: available_avatars = []

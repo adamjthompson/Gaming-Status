@@ -66,6 +66,13 @@ OPT_AWAY_GRACE_PERIOD = "away_grace_period_seconds"
 OPT_TRANSITION_GRACE = "game_transition_grace_seconds"
 OPT_MIN_SESSION = "min_session_duration"
 
+OPT_ENABLED_PLATFORMS = "enabled_platforms"
+DEFAULT_ENABLED_PLATFORMS = ["steam", "xbox", "playstation", "discord", "custom"]
+OPT_ENABLE_NOTIFICATIONS = "enable_notifications"
+DEFAULT_ENABLE_NOTIFICATIONS = False
+OPT_ENABLE_PARENTAL = "enable_parental"
+DEFAULT_ENABLE_PARENTAL = False
+
 OPT_PLAYERS = "players"
 
 OPT_ENDPOINTS = "notification_endpoints"

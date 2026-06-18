@@ -3,13 +3,24 @@
     "step": {
       "user": {
         "title": "Gaming Status Setup",
-        "description": "Enter your SteamGridDB API Key to automatically fetch game cover art. You can get a free key at [SteamGridDB]({api_url}).\n\n**Optional:** You can leave this blank and add a key later via the Configure menu.",
+        "description": "Configure your tracking ecosystem. You can change these settings later via the Global Settings menu.\n\n*Note: To fetch automatic game cover art, please enter a SteamGridDB API Key. You can get a free key at [SteamGridDB]({api_url}).*",
         "data": {
-          "steamgriddb_api_key": "SteamGridDB API Key",
-          "use_local_cache": "Enable Local Image Caching - Recommended if you have an external URL."
+          "enabled_platforms": "Platforms to Track",
+          "enable_notifications": "Enable Notifications & Reporting",
+          "enable_parental": "Enable Parental Controls",
+          "steamgriddb_api_key": "SteamGridDB API Key (Optional)",
+          "use_local_cache": "Enable Local Image Caching"
         },
         "data_description": {
-          "use_local_cache": "Downloads artwork directly to your Home Assistant storage. Makes dashboard load times instant, allows for offline artwork access, and prevents broken images during Internet outages. *This setting will break Discord notification images if you do NOT have an external Home Assistant URL.*"
+          "use_local_cache": "Downloads artwork directly to your Home Assistant storage. Makes dashboard load times instant, allows for offline artwork access, and prevents broken images during Internet outages. *Note: If you do NOT have an external Home Assistant URL, using this setting will break Discord notification images.*"
+        }
+      },
+      "discord_setup": {
+        "title": "Discord Configuration",
+        "description": "Please provide your bot credentials. \n\n🛠️ **Developer Portal Requirement:**\nEnsure the **Server Members Intent** is toggled ON under the Privileged Gateway Intents section for your bot.",
+        "data": {
+          "discord_bot_token": "Discord Bot Token",
+          "discord_server_id": "Discord Server ID"
         }
       }
     },
@@ -184,6 +195,9 @@
         "title": "Global Settings",
         "description": "Timing and behavior settings that apply to all players. **Only change these if you understand exactly what they do!**",
         "data": {
+          "enabled_platforms": "Platforms to Track",
+          "enable_notifications": "Enable Notifications & Reporting",
+          "enable_parental": "Enable Parental Controls",
           "use_local_cache": "Enable Local Image Caching",
           "extract_colors": "Enable Game Color Extraction",
           "cache_max_files": "Maximum Cached Images",
@@ -195,6 +209,9 @@
           "reset_history": "Reset play history on restart"
         },
         "data_description": {
+          "enabled_platforms": "Select which platforms should appear in the player configuration menus.",
+          "enable_notifications": "Activates the Notifications & Reporting menu to configure session alerts and weekly summaries.",
+          "enable_parental": "Activates the Parental Controls menu to set screen time limits and curfews.",
           "use_local_cache": "Downloads artwork to your local storage. Disable this to use raw web URLs (recommended if you use Discord notifications without remote HA access).",
           "extract_colors": "Automatically calculates the dominant vibrant color of game artwork for use in dashboard cards. *Note: This will be automatically ignored if Local Caching is disabled.*",
           "cache_max_files": "The maximum number of images to keep on your drive. Set to 0 for unlimited. Default: 200",
