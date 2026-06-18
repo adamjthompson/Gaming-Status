@@ -1691,15 +1691,42 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     ents = []
     registry = er.async_get(hass)
     
-    # --- AUTOMATIC LEGACY SENSOR PURGE ---
-    # Automatically delete the old v5 entities so users don't have to manually delete ghosts.
+    # --- AUTOMATIC LEGACY SENSOR PURGE (DATABASE & RAM GHOSTS) ---
+    
+    # Step 1: Registry Purge by Legacy Unique ID
     legacy_tags = ("_tracker_v5", "_master_v5", "_chart_v161", "_pc_status_v1", "global_players_online_count_v1")
     for entity in er.async_entries_for_config_entry(registry, config_entry.entry_id):
         if entity.unique_id.endswith(legacy_tags) or entity.unique_id in legacy_tags:
-            try:
-                registry.async_remove(entity.entity_id)
-                _LOGGER.warning(f"Automatically purged legacy ghost sensor: {entity.entity_id}")
-            except Exception:
+            try: registry.async_remove(entity.entity_id)
+            except Exception: pass
+
+    # Step 2: Hard RAM & Registry Purge by Exact Legacy Name
+    legacy_entity_ids = ["sensor.players_online"]
+    for player_name in players.keys():
+        safe_owner = player_name.lower().replace(" ", "_")
+        legacy_entity_ids.extend([
+            f"sensor.{safe_owner}_gaming_status",
+            f"sensor.{safe_owner}_daily_gaming_hours_chart",
+            f"sensor.{safe_owner}_pc_status",
+            f"sensor.{safe_owner}_steam",
+            f"sensor.{safe_owner}_xbox",
+            f"sensor.{safe_owner}_playstation",
+            f"sensor.{safe_owner}_discord",
+            f"sensor.{safe_owner}_custom"
+        ])
+
+    for entity_id in legacy_entity_ids:
+        # Kill the Database Ghost
+        if registry.async_get(entity_id):
+            try: registry.async_remove(entity_id)
+            except Exception: pass
+            
+        # Kill the RAM Ghost (Prevents writing back to core.restore_state)
+        if hass.states.get(entity_id):
+            try: 
+                hass.states.async_remove(entity_id)
+                _LOGGER.warning(f"Permanently flushed legacy RAM ghost: {entity_id}")
+            except Exception: 
                 pass
 
     # --- BACKGROUND ENTITY MIGRATION ---

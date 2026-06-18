@@ -284,10 +284,10 @@ class GamingNotifier:
         old_url = old_state.attributes.get(self._cached_notify_artwork) if old_state else None
 
         # Check Master, Sub-Master, and all active platforms (including Discord) for artwork
-        platform_entity_ids = [f"sensor.{safe}_gaming_status", f"sensor.{safe}_pc_status"]
+        platform_entity_ids = [f"sensor.gaming_status_{safe}_master", f"sensor.gaming_status_{safe}_pc"]
         for platform in ("steam", "xbox", "playstation", "custom", "discord"):
             if user_config.get(platform):
-                platform_entity_ids.append(f"sensor.{safe}_{platform}")
+                platform_entity_ids.append(f"sensor.gaming_status_{safe}_{platform}")
 
         def _read_cover() -> str | None:
             """Return the preferred artwork URL found across platform sensors."""
