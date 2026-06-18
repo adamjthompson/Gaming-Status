@@ -143,7 +143,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         
         self._desired_entity_id = f"sensor.gaming_status_{safe_owner}_{gaming_type}"
         self.entity_id = self._desired_entity_id
-        self._attr_unique_id = f"{source_entity_id}_tracker_v5"
+        self._attr_unique_id = f"gaming_status_{source_entity_id}_tracker_v6"
         self._attr_name = f"{self._owner_name} {config['name_suffix']}"
 
     @property
@@ -1112,7 +1112,7 @@ class MasterGamingSensor(RestoreSensor):
         self._parental_rules = parental_rules or {}
         safe_owner = name.lower().replace(" ", "_")
         self._attr_name = f"{name} Gaming Status"
-        self._attr_unique_id = f"{safe_owner}_master_v5"
+        self._attr_unique_id = f"gaming_status_{safe_owner}_master_v6"
         self.entity_id = f"sensor.gaming_status_{safe_owner}_master"
         self._attr_native_value = "Offline"
         self._attr_icon = "mdi:controller"
@@ -1426,7 +1426,7 @@ class HistoryChartSensor(RestoreEntity, SensorEntity):
         self.hass = hass
         safe_owner = name.lower().replace(" ", "_")
         self._attr_name = f"{name} Chart"
-        self._attr_unique_id = f"{safe_owner}_chart_v161"
+        self._attr_unique_id = f"gaming_status_{safe_owner}_chart_v6"
         self.entity_id = f"sensor.gaming_status_{safe_owner}_chart"
         self._master_sensor_id = f"sensor.gaming_status_{safe_owner}_master"
         self._attr_native_value = 0.0
@@ -1470,7 +1470,7 @@ class GlobalOnlineCountSensor(SensorEntity):
     def __init__(self, hass, players):
         self.hass = hass
         self._attr_name = "Players Online"
-        self._attr_unique_id = "global_players_online_count_v1"
+        self._attr_unique_id = "gaming_status_players_online_count_v2"
         self.entity_id = "sensor.gaming_status_players_online"
         self._attr_icon = "mdi:account-group"
         self._attr_native_value = 0
@@ -1515,8 +1515,8 @@ class PCGamingSensor(RestoreSensor):
         self._pc_entities = pc_entities
         safe_owner = name.lower().replace(" ", "_")
         self._attr_name = f"{name} PC"
-        self._attr_unique_id = f"{safe_owner}_pc_status_v1"
-        self.entity_id = f"sensor.gaming_status_{safe_owner}_pc_status"
+        self._attr_unique_id = f"gaming_status_{safe_owner}_pc_v2"
+        self.entity_id = f"sensor.gaming_status_{safe_owner}_pc"
         self._attr_native_value = "Offline"
         self._attr_extra_state_attributes = {}
         self._attr_entity_picture = None
@@ -1683,6 +1683,17 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     ents = []
     registry = er.async_get(hass)
     
+    # --- AUTOMATIC LEGACY SENSOR PURGE ---
+    # Automatically delete the old v5 entities so users don't have to manually delete ghosts.
+    legacy_tags = ("_tracker_v5", "_master_v5", "_chart_v161", "_pc_status_v1", "global_players_online_count_v1")
+    for entity in er.async_entries_for_config_entry(registry, config_entry.entry_id):
+        if entity.unique_id.endswith(legacy_tags) or entity.unique_id in legacy_tags:
+            try:
+                registry.async_remove(entity.entity_id)
+                _LOGGER.warning(f"Automatically purged legacy ghost sensor: {entity.entity_id}")
+            except Exception:
+                pass
+
     # --- BACKGROUND ENTITY MIGRATION ---
     for entity in er.async_entries_for_config_entry(registry, config_entry.entry_id):
         if entity.domain == "sensor" and not entity.entity_id.startswith("sensor.gaming_status_"):
