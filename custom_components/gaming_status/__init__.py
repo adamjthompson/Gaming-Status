@@ -21,6 +21,7 @@ from .const import (
     OPT_TITLE_OVERRIDES,
     OPT_TITLE_CLEANUPS,
     OPT_GLOBAL_EXCLUSIONS,
+    CONF_DISCORD_TOKEN,
 )
 from .notifier import GamingNotifier
 
@@ -93,6 +94,54 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await notifier.async_start()
     hass.data[DOMAIN]["notifier"] = notifier
 
+    # --- DISCORD WEBSOCKET MANAGER ---
+    discord_token = entry.data.get(CONF_DISCORD_TOKEN)
+    if discord_token:
+        try:
+            import nextcord
+            intents = nextcord.Intents.default()
+            intents.members = True
+            intents.presences = True
+            
+            bot = nextcord.Client(loop=hass.loop, intents=intents)
+            
+            def _dispatch(member):
+                activity_name = None
+                app_id = None
+                for activity in member.activities:
+                    if activity.type == nextcord.ActivityType.playing:
+                        activity_name = activity.name
+                        app_id = str(activity.application_id) if getattr(activity, "application_id", None) else None
+                        break
+                
+                data = {
+                    "user_id": str(member.id),
+                    "state": activity_name if activity_name else ("Online" if str(member.status) != "offline" else "Offline"),
+                    "app_id": app_id,
+                    "avatar_url": str(member.display_avatar.with_size(1024).url) if member.display_avatar else None
+                }
+                hass.bus.async_fire(f"gaming_status_discord_{member.id}", data)
+                
+            @bot.event
+            async def on_presence_update(before, after):
+                _dispatch(after)
+                
+            @bot.event
+            async def on_member_update(before, after):
+                _dispatch(after)
+                
+            @bot.event
+            async def on_ready():
+                _LOGGER.info("Gaming Status Discord Bot Connected!")
+                for guild in bot.guilds:
+                    for member in guild.members:
+                        _dispatch(member)
+                        
+            hass.loop.create_task(bot.start(discord_token))
+            hass.data[DOMAIN]["discord_bot"] = bot
+        except Exception as e:
+            _LOGGER.error("Failed to setup Discord Bot: %s", e)
+
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -105,5 +154,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     if "notifier" in hass.data.get(DOMAIN, {}):
         await hass.data[DOMAIN]["notifier"].async_stop()
+        
+    if "discord_bot" in hass.data.get(DOMAIN, {}):
+        await hass.data[DOMAIN]["discord_bot"].close()
 
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

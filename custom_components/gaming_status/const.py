@@ -2,6 +2,8 @@
 
 DOMAIN = "gaming_status"
 CONF_STEAMGRIDDB_API_KEY = "steamgriddb_api_key"
+CONF_DISCORD_TOKEN = "discord_bot_token"
+CONF_DISCORD_SERVER = "discord_server_id"
 
 # --- Default values ---
 DEFAULT_RESET_HISTORY = False

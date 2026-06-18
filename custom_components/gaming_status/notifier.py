@@ -62,7 +62,7 @@ class GamingNotifier:
 
         # Instant O(1) lookup map (entity_id -> player_name)
         self._entity_player_map = {
-            f"sensor.{p.lower().replace(' ', '_')}_gaming_status": p
+            f"sensor.gaming_status_{p.lower().replace(' ', '_')}_master": p
             for p in self._cached_players
         }
 
@@ -506,7 +506,7 @@ class GamingNotifier:
 
         for player_name, rules in self._cached_parental.items():
             safe_player = player_name.lower().replace(" ", "_")
-            master_entity = f"sensor.{safe_player}_gaming_status"
+            master_entity = f"sensor.gaming_status_{safe_player}_master"
             master_state = self.hass.states.get(master_entity)
             if not master_state: continue
             
@@ -696,7 +696,7 @@ class GamingNotifier:
         lines = [f"**Weekly Gaming Report** — {dt_util.now().strftime('%B %d, %Y')}"]
         for player_name in self._cached_players:
             safe = player_name.lower().replace(" ", "_")
-            state = self.hass.states.get(f"sensor.{safe}_gaming_status")
+            state = self.hass.states.get(f"sensor.gaming_status_{safe}_master")
             if state:
                 attrs = state.attributes
                 lines.append(f"\n**{player_name}**: {attrs.get('total_weekly_hours_last_week', attrs.get('total_weekly_hours', 0))}h total — Last game: {attrs.get('last_played_game', 'Unknown')}")

@@ -9,7 +9,8 @@
   "issue_tracker": "https://github.com/adamjthompson/Gaming-Status/issues",
   "requirements": [
     "python-dateutil>=2.8.2",
-    "Pillow"
+    "Pillow",
+    "nextcord"
   ],
-  "version": "2.4.2"
+  "version": "3.0.0-alpha"
 }

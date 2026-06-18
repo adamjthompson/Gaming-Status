@@ -141,7 +141,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         
         self._store = Store(hass, 1, f"gaming_status.{safe_owner}_{gaming_type}_history")
         
-        self._desired_entity_id = f"sensor.{safe_owner}_{gaming_type}"
+        self._desired_entity_id = f"sensor.gaming_status_{safe_owner}_{gaming_type}"
+        self.entity_id = self._desired_entity_id
         self._attr_unique_id = f"{source_entity_id}_tracker_v5"
         self._attr_name = f"{self._owner_name} {config['name_suffix']}"
 
@@ -774,8 +775,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self.async_on_remove(async_track_time_interval(self.hass, self._update_play_time, timedelta(seconds=30)))
 
         if self._gaming_type == "discord":
-            self.async_on_remove(async_track_time_interval(self.hass, self._poll_lanyard_loop, timedelta(seconds=30)))
-            self.hass.async_create_task(self._poll_lanyard_loop())
+            self.async_on_remove(
+                self.hass.bus.async_listen(f"gaming_status_discord_{self._source_entity_id}", self._async_discord_update)
+            )
         else:
             source_state = self.hass.states.get(self._source_entity_id)
             if source_state: await self._try_force_sync(source_state)
@@ -813,35 +815,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         source = self.hass.states.get(self._source_entity_id)
         if source: await self._unified_update(source.state, source.attributes, force_update=force)
 
-    async def _poll_lanyard_loop(self, now=None):
-        if not self._source_entity_id: return
-        session = utils.async_get_clientsession(self.hass)
-        url = f"https://api.lanyard.rest/v1/users/{self._source_entity_id}"
-        try:
-            async with session.get(url, timeout=10) as response:
-                if response.status == 200:
-                    res_json = await response.json()
-                    if res_json.get("success"):
-                        data = res_json.get("data", {})
-                        activities = data.get("activities", [])
-                        
-                        game_activity = next((act for act in activities if act.get("type") == 0), None)
-                        
-                        state = "Offline"
-                        attrs = {"discord_data": data}
-                        
-                        if game_activity:
-                            state = game_activity.get("name")
-                            attrs["application_id"] = game_activity.get("application_id")
-                        elif data.get("discord_status") != "offline":
-                            state = "Online"
-                        
-                        await self._unified_update(state, attrs)
-                        return
-        except Exception:
-            pass
-        await self._unified_update("Offline", {})
-
     async def _try_force_sync(self, source_state):
         if self._last_online_valid_timestamp: return
         s_ts = None
@@ -861,6 +834,19 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
     @callback
     def _async_state_changed(self, event): self.hass.async_create_task(self._trigger_source_update())
+
+    @callback
+    def _async_discord_update(self, event):
+        data = event.data
+        state = data["state"]
+        attrs = {
+            "application_id": data["app_id"],
+            "discord_data": {
+                "discord_user": {"id": data["user_id"], "avatar": "HANDLED_BY_URL"}
+            },
+            "entity_picture": data["avatar_url"]
+        }
+        self.hass.async_create_task(self._unified_update(state, attrs))
 
     @callback
     def _update_play_time(self, now=None):
@@ -1127,14 +1113,14 @@ class MasterGamingSensor(RestoreSensor):
         safe_owner = name.lower().replace(" ", "_")
         self._attr_name = f"{name} Gaming Status"
         self._attr_unique_id = f"{safe_owner}_master_v5"
-        self.entity_id = f"sensor.{safe_owner}_gaming_status"
+        self.entity_id = f"sensor.gaming_status_{safe_owner}_master"
         self._attr_native_value = "Offline"
         self._attr_icon = "mdi:controller"
         self._attr_entity_picture = None
         self._attr_extra_state_attributes = {}
         self._platform_sensors = {}
         for platform in PLATFORM_PRIORITY:
-            if profiles.get(platform): self._platform_sensors[f"sensor.{safe_owner}_{platform}"] = platform
+            if profiles.get(platform): self._platform_sensors[f"sensor.gaming_status_{safe_owner}_{platform}"] = platform
     
     @property
     def available(self): return True
@@ -1441,8 +1427,8 @@ class HistoryChartSensor(RestoreEntity, SensorEntity):
         safe_owner = name.lower().replace(" ", "_")
         self._attr_name = f"{name} Chart"
         self._attr_unique_id = f"{safe_owner}_chart_v161"
-        self.entity_id = f"sensor.{safe_owner}_daily_gaming_hours_chart"
-        self._master_sensor_id = f"sensor.{safe_owner}_gaming_status"
+        self.entity_id = f"sensor.gaming_status_{safe_owner}_chart"
+        self._master_sensor_id = f"sensor.gaming_status_{safe_owner}_master"
         self._attr_native_value = 0.0
 
     async def async_added_to_hass(self):
@@ -1485,13 +1471,13 @@ class GlobalOnlineCountSensor(SensorEntity):
         self.hass = hass
         self._attr_name = "Players Online"
         self._attr_unique_id = "global_players_online_count_v1"
-        self.entity_id = "sensor.players_online"
+        self.entity_id = "sensor.gaming_status_players_online"
         self._attr_icon = "mdi:account-group"
         self._attr_native_value = 0
         self._master_sensors = []
         for player_name in players:
             safe_owner = player_name.lower().replace(" ", "_")
-            self._master_sensors.append(f"sensor.{safe_owner}_gaming_status")
+            self._master_sensors.append(f"sensor.gaming_status_{safe_owner}_master")
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
@@ -1530,8 +1516,7 @@ class PCGamingSensor(RestoreSensor):
         safe_owner = name.lower().replace(" ", "_")
         self._attr_name = f"{name} PC"
         self._attr_unique_id = f"{safe_owner}_pc_status_v1"
-        # Update ID to prevent collision with custom trackers named 'PC'
-        self.entity_id = f"sensor.{safe_owner}_pc_status"
+        self.entity_id = f"sensor.gaming_status_{safe_owner}_pc_status"
         self._attr_native_value = "Offline"
         self._attr_extra_state_attributes = {}
         self._attr_entity_picture = None
@@ -1692,6 +1677,23 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     ents = []
     registry = er.async_get(hass)
     
+    # --- BACKGROUND ENTITY MIGRATION ---
+    for entity in er.async_entries_for_config_entry(registry, config_entry.entry_id):
+        if entity.domain == "sensor" and not entity.entity_id.startswith("sensor.gaming_status_"):
+            new_id = entity.entity_id.replace("sensor.", "sensor.gaming_status_")
+            
+            # Map legacy suffix exceptions to the new clean standard using precise slicing
+            if entity.entity_id.endswith("_gaming_status"):
+                new_id = new_id[:-14] + "_master"  # -14 removes exactly "_gaming_status"
+            elif entity.entity_id.endswith("_daily_gaming_hours_chart"):
+                new_id = new_id[:-25] + "_chart"   # -25 removes exactly "_daily_gaming_hours_chart"
+            elif entity.entity_id == "sensor.players_online":
+                new_id = "sensor.gaming_status_players_online"
+                
+            if not registry.async_get(new_id):
+                try: registry.async_update_entity(entity.entity_id, new_entity_id=new_id)
+                except ValueError: pass
+    
     for player_name, player_data in players.items():
         ghosted_by = player_data.get("ghosted_by", [])
         exclude_games = player_data.get("exclude_games", [])
@@ -1707,7 +1709,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 
                 # Register PC platforms in strict hierarchy order for the Sub-Master
                 if platform in ["custom", "steam", "discord"]:
-                    pc_platforms_present.append(f"sensor.{safe_owner}_{platform}")
+                    pc_platforms_present.append(f"sensor.gaming_status_{safe_owner}_{platform}")
 
         # Spawn PC Sub-Master if any PC platforms exist
         if pc_platforms_present:
@@ -1717,7 +1719,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             ents.append(PCGamingSensor(hass, player_name, pc_platforms_present))
         else:
             # Garbage Collection: Destroy orphaned PC sensor if all PC platforms are removed
-            target_id = f"sensor.{safe_owner}_pc_status"
+            target_id = f"sensor.gaming_status_{safe_owner}_pc_status"
             if registry.async_get(target_id):
                 registry.async_remove(target_id)
 

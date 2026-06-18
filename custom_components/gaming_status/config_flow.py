@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import aiohttp
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
@@ -14,6 +15,8 @@ from homeassistant.helpers.network import get_url, NoURLAvailableError
 from .const import (
     DOMAIN,
     CONF_STEAMGRIDDB_API_KEY,
+    CONF_DISCORD_TOKEN,
+    CONF_DISCORD_SERVER,
     OPT_RESET_HISTORY,
     OPT_GRACE_PERIOD,
     OPT_AWAY_GRACE_PERIOD,
@@ -70,6 +73,26 @@ def _load_json(raw: str, fallback):
 def _dump_json(obj) -> str:
     return json.dumps(obj, indent=2, ensure_ascii=False)
 
+async def _fetch_discord_members(token: str, server_id: str) -> list:
+    if not token or not server_id: return []
+    url = f"https://discord.com/api/v10/guilds/{server_id}/members?limit=1000"
+    headers = {"Authorization": f"Bot {token}"}
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    members = []
+                    for m in data:
+                        user = m.get("user", {})
+                        if not user.get("bot"):
+                            display = m.get("nick") or user.get("global_name") or user.get("username")
+                            members.append((user.get("id"), display))
+                    return sorted(members, key=lambda x: x[1].lower())
+    except Exception as e:
+        _LOGGER.error(f"Error fetching Discord members: {e}")
+    return []
+
 def _players(options: dict) -> dict:
     data = _load_json(options.get(OPT_PLAYERS, ""), {})
     # Sort players alphabetically by their name (the dictionary key)
@@ -104,12 +127,17 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             api_key = user_input.get(CONF_STEAMGRIDDB_API_KEY, "").strip()
+            dc_token = user_input.get(CONF_DISCORD_TOKEN, "").strip()
+            dc_server = user_input.get(CONF_DISCORD_SERVER, "").strip()
             use_cache = user_input.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
             
             return self.async_create_entry(
                 title="Gaming Status",
-                data={CONF_STEAMGRIDDB_API_KEY: api_key},
-                # Seed the user's choice (or the smart default) into options!
+                data={
+                    CONF_STEAMGRIDDB_API_KEY: api_key,
+                    CONF_DISCORD_TOKEN: dc_token,
+                    CONF_DISCORD_SERVER: dc_server,
+                },
                 options={OPT_USE_CACHE: use_cache},
             )
 
@@ -127,12 +155,29 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # If they have no external URL configured at all, default to False
             smart_cache_default = False
 
+        if user_input is not None:
+            api_key = user_input.get(CONF_STEAMGRIDDB_API_KEY, "").strip()
+            dc_token = user_input.get(CONF_DISCORD_TOKEN, "").strip()
+            dc_server = user_input.get(CONF_DISCORD_SERVER, "").strip()
+            use_cache = user_input.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
+            
+            return self.async_create_entry(
+                title="Gaming Status",
+                data={
+                    CONF_STEAMGRIDDB_API_KEY: api_key,
+                    CONF_DISCORD_TOKEN: dc_token,
+                    CONF_DISCORD_SERVER: dc_server,
+                },
+                options={OPT_USE_CACHE: use_cache},
+            )
+
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
                 {
                     vol.Optional(CONF_STEAMGRIDDB_API_KEY, default=""): str,
-                    # Pass the smartly detected boolean into the checkbox!
+                    vol.Optional(CONF_DISCORD_TOKEN, default=""): str,
+                    vol.Optional(CONF_DISCORD_SERVER, default=""): str,
                     vol.Optional(OPT_USE_CACHE, default=smart_cache_default): bool,
                 }
             ),
@@ -154,17 +199,14 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         self._options: dict = dict(config_entry.options)
         self._editing_player: str | None = None
         self._editing_endpoint: str | None = None
-
-    async def _update_and_return(self):
-        """Save data and route user back to the main menu."""
-        self.hass.config_entries.async_update_entry(self._config_entry, options=self._options)
-        return await self.async_step_init()
-
-    # -----------------------------------------------------------------------
-    # Top-level menu
-    # -----------------------------------------------------------------------
+        self._discord_members = []
 
     async def async_step_init(self, user_input=None):
+        token = self._config_entry.data.get(CONF_DISCORD_TOKEN)
+        server_id = self._config_entry.data.get(CONF_DISCORD_SERVER)
+        if token and server_id and not self._discord_members:
+            self._discord_members = await _fetch_discord_members(token, server_id)
+            
         return self.async_show_menu(
             step_id="init",
             menu_options=[
@@ -835,6 +877,14 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                         default=self._config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, ""),
                     ): str,
                     vol.Optional(
+                        CONF_DISCORD_TOKEN,
+                        default=self._config_entry.data.get(CONF_DISCORD_TOKEN, ""),
+                    ): str,
+                    vol.Optional(
+                        CONF_DISCORD_SERVER,
+                        default=self._config_entry.data.get(CONF_DISCORD_SERVER, ""),
+                    ): str,
+                    vol.Optional(
                         "title_overrides",
                         default=_get_dict_default(OPT_TITLE_OVERRIDES, {}),
                     ): str,
@@ -908,7 +958,17 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         schema[_field("steam")] = _get_filtered_selector("steam_online", None, existing.get("steam", ""))
         schema[_field("xbox")] = _get_filtered_selector("xbox", "_status", existing.get("xbox", ""))
         schema[_field("playstation")] = _get_filtered_selector("playstation_network", "_online_status", existing.get("playstation", ""))
-        schema[_field("discord")] = str
+        if self._discord_members:
+            dc_options = [selector.SelectOptionDict(value=m[0], label=f"{m[1]} ({m[0]})") for m in self._discord_members]
+            dc_options.insert(0, selector.SelectOptionDict(value="none", label="None"))
+            current_dc = existing.get("discord", "")
+            if current_dc and current_dc != "none" and not any(o["value"] == current_dc for o in dc_options):
+                dc_options.append(selector.SelectOptionDict(value=current_dc, label=f"Unknown ID ({current_dc})"))
+            schema[_field("discord")] = selector.SelectSelector(
+                selector.SelectSelectorConfig(options=dc_options, mode=selector.SelectSelectorMode.DROPDOWN)
+            )
+        else:
+            schema[_field("discord")] = str
         schema[_field("custom")] = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
 
         if not is_new:

@@ -23,7 +23,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     
     for name in players.keys():
         safe_owner = name.lower().replace(" ", "_")
-        master_sensor_ids.append(f"sensor.{safe_owner}_gaming_status")
+        master_sensor_ids.append(f"sensor.gaming_status_{safe_owner}_master")
         
     if master_sensor_ids:
         async_add_entities([GlobalGamingSensor(hass, master_sensor_ids)])
