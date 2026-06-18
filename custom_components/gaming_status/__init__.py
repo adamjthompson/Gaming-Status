@@ -22,6 +22,8 @@ from .const import (
     OPT_TITLE_CLEANUPS,
     OPT_GLOBAL_EXCLUSIONS,
     CONF_DISCORD_TOKEN,
+    OPT_ENABLED_PLATFORMS,
+    DEFAULT_ENABLED_PLATFORMS,
 )
 from .notifier import GamingNotifier
 
@@ -96,7 +98,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # --- DISCORD WEBSOCKET MANAGER ---
     discord_token = entry.data.get(CONF_DISCORD_TOKEN)
-    if discord_token:
+    enabled_platforms = entry.options.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
+    
+    if discord_token and "discord" in enabled_platforms:
         try:
             import nextcord
             intents = nextcord.Intents.default()
