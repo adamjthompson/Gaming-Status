@@ -1438,7 +1438,7 @@ class HistoryChartSensor(RestoreEntity, SensorEntity):
         self.hass = hass
         safe_owner = name.lower().replace(" ", "_")
         self._attr_name = f"{name} Chart"
-        self._attr_unique_id = f"{safe_owner}_chart_v161"
+        self._attr_unique_id = f"gaming_status_{safe_owner}_chart_v7"
         self.entity_id = f"sensor.gaming_status_{safe_owner}_chart"
         self._master_sensor_id = f"sensor.gaming_status_{safe_owner}_master"
         self._attr_native_value = 0.0
@@ -1702,7 +1702,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     # --- AUTOMATIC LEGACY SENSOR PURGE (DATABASE & RAM GHOSTS) ---
     
     # Step 1: Registry Purge by Legacy Unique ID
-    legacy_tags = ("_tracker_v5", "_master_v5", "_chart_v161", "_pc_status_v1", "global_players_online_count_v1")
+    legacy_tags = ("_tracker_v5", "_master_v5", "_chart_v161", "_pc_status_v1", "global_players_online_count_v1", "_chart_v6")
     for entity in er.async_entries_for_config_entry(registry, config_entry.entry_id):
         if entity.unique_id.endswith(legacy_tags) or entity.unique_id in legacy_tags:
             try: registry.async_remove(entity.entity_id)
@@ -1720,7 +1720,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             f"sensor.{safe_owner}_xbox",
             f"sensor.{safe_owner}_playstation",
             f"sensor.{safe_owner}_discord",
-            f"sensor.{safe_owner}_custom"
+            f"sensor.{safe_owner}_custom",
+            f"sensor.gaming_status_{safe_owner}_chart",
+            f"sensor.gaming_status_{safe_owner}_chart_2"
         ])
 
     for entity_id in legacy_entity_ids:
