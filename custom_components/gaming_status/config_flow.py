@@ -1025,7 +1025,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         def _field(platform: str):
             current = existing.get(platform, "")
             if current:
-                return vol.Optional(platform, default=current)
+                return vol.Optional(platform, description={"suggested_value": current})
             return vol.Optional(platform)
 
         schema[_field("steam")] = _get_filtered_selector("steam_online", None, existing.get("steam", ""))
@@ -1052,9 +1052,11 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     def _player_data_from_input(self, user_input: dict) -> dict:
         data: dict = {}
         for platform in PLAYER_PLATFORMS:
-            val = user_input.get(platform, "").strip()
-            if val and val.lower() != "none":
-                data[platform] = val
+            val = user_input.get(platform)
+            if val is not None:
+                val = str(val).strip()
+                if val and val.lower() != "none":
+                    data[platform] = val
         return data
 
     def _get_notify_services(self) -> list[str]:
