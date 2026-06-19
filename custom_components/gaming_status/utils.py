@@ -94,6 +94,11 @@ async def fetch_game_assets(hass, game_name):
     
     if not game_name:
         return assets
+        
+    # 0. Check Memory Cache BEFORE touching the disk or creating sessions!
+    if game_name in ASSET_URL_CACHE:
+        ASSET_URL_CACHE.move_to_end(game_name)
+        return ASSET_URL_CACHE[game_name]
 
     # 1. Setup Session and Cache Directory early
     session = async_get_clientsession(hass)
@@ -141,23 +146,22 @@ async def fetch_game_assets(hass, game_name):
             
             assets[asset_type] = f"{base_url}/local/gaming_status_cache/{file_name}"
     
-    # If the user provided ALL 4 custom images manually, skip the API entirely!
-    if all(assets.values()):
-        return assets
-        
-    # 3. Check Memory Cache
-    if game_name in ASSET_URL_CACHE:
-        ASSET_URL_CACHE.move_to_end(game_name)
-        cached_assets = ASSET_URL_CACHE[game_name]
-        return {k: assets[k] or cached_assets.get(k) for k in assets}
-
     def _update_cache(name, data_dict):
         final_dict = {k: assets[k] or data_dict.get(k) for k in assets}
         ASSET_URL_CACHE[name] = final_dict
         ASSET_URL_CACHE.move_to_end(name)
         if len(ASSET_URL_CACHE) > MAX_CACHE_SIZE:
             ASSET_URL_CACHE.popitem(last=False)
+            
+        # Fire off non-blocking cache cleanup whenever a NEW game enters RAM
+        if USE_LOCAL_CACHE:
+            hass.async_create_task(hass.async_add_executor_job(_clean_image_cache, cache_dir))
+            
         return final_dict
+
+    # If the user provided ALL 4 custom images manually, skip the API entirely!
+    if all(assets.values()):
+        return _update_cache(game_name, assets)
 
     if not STEAMGRIDDB_API_KEY:
         if not _MISSING_KEY_WARNED:
@@ -218,9 +222,6 @@ async def fetch_game_assets(hass, game_name):
                                 
                         fetched_assets[asset_type] = f"{base_url}/local/gaming_status_cache/{file_name}"
                                 
-        if USE_LOCAL_CACHE:
-            await hass.async_add_executor_job(_clean_image_cache, cache_dir)
-        
     except Exception as e:
         _LOGGER.error("Failed to fetch assets for %s: %s", game_name, e)
 
