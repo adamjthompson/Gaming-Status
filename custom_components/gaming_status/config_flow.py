@@ -406,6 +406,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
         if user_input is not None:
             if user_input.get("delete_player"):
+                # Trigger the purge BEFORE deleting the player data
+                await self._cleanup_player_entities(name)
+                
                 players.pop(name, None)
                 self._options[OPT_PLAYERS] = _dump_json(players)
                 
@@ -422,6 +425,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     if p in updated_platforms:
                         existing[p] = updated_platforms[p]
                     elif p in existing:
+                        # Platform was removed! Purge it from the registry.
+                        await self._cleanup_player_entities(name, [p])
                         del existing[p]
                 
                 players[name] = existing
@@ -1122,6 +1127,23 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             dests.remove(ep_id)
             report["destinations"] = dests
             self._options[OPT_WEEKLY_REPORT] = _dump_json(report)
+
+    async def _cleanup_player_entities(self, player_name: str, platforms: list | None = None):
+        """Forcefully remove entities from the registry when a player or platform is removed."""
+        registry = er.async_get(self.hass)
+        safe_owner = player_name.lower().replace(" ", "_")
+        
+        # If no specific platforms provided, remove ALL sensors for this player
+        platforms_to_clean = platforms if platforms else ["steam", "xbox", "playstation", "discord", "custom", "master", "chart", "pc"]
+        
+        for p in platforms_to_clean:
+            entity_id = f"sensor.gaming_status_{safe_owner}_{p}"
+            
+            if registry.async_get(entity_id):
+                try:
+                    registry.async_remove(entity_id)
+                except Exception as e:
+                    _LOGGER.warning(f"Could not remove {entity_id}: {e}")
     
     async def _update_and_return(self):
         """Save the updated options to Home Assistant and return to the main menu."""
