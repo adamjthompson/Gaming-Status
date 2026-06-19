@@ -1709,7 +1709,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             except Exception: pass
 
     # Step 2: Hard RAM & Registry Purge by Exact Legacy Name
-    legacy_entity_ids = ["sensor.players_online"]
+    legacy_entity_ids = ["sensor.players_online", "binary_sensor.anyone_gaming"]
     for player_name in players.keys():
         safe_owner = player_name.lower().replace(" ", "_")
         legacy_entity_ids.extend([
