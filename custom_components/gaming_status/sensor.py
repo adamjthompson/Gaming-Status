@@ -415,16 +415,17 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     if not found_sibling: data["is_online"] = False
 
         elif self._gaming_type == "discord":
-            blocked_app_ids = ["438122597774098432", "567198565530800128"]
+            # Allow Discord to track games if an application_id is present
             app_id = str(attrs.get("application_id", ""))
             
-            if is_globally_excluded or is_user_excluded or app_id in blocked_app_ids: 
-                data["is_online"] = False
-            elif state_clean in ["offline", "online"]: 
-                data["is_online"] = False
-            else:
+            # If we have an app_id, we treat the state as the game name
+            if app_id and state_clean not in ["offline", "online", "idle"]:
                 data["is_online"] = True
                 data["current_game"] = state
+            elif is_globally_excluded or is_user_excluded: 
+                data["is_online"] = False
+            else:
+                data["is_online"] = False
             
             discord_data = attrs.get("discord_data", {})
             discord_user = discord_data.get("discord_user", {})
@@ -554,11 +555,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         
         for date_str, day_data in self._play_history.items():
             if isinstance(day_data, dict):
-                try:
-                    d_obj = datetime.strptime(date_str, "%Y-%m-%d")
-                    calculated_week = d_obj.strftime("%Y-%U")
-                except Exception:
-                    calculated_week = day_data.get("week_str")
+                # OPTIMIZATION: Check for pre-calculated string first to avoid CPU-heavy date parsing in the 30s loop
+                calculated_week = day_data.get("week_str")
+                if not calculated_week:
+                    try:
+                        d_obj = datetime.strptime(date_str, "%Y-%m-%d")
+                        calculated_week = d_obj.strftime("%Y-%U")
+                    except Exception:
+                        pass
 
                 for g, secs in day_data.get("game_breakdown", {}).items():
                     rolling_breakdown[g] = rolling_breakdown.get(g, 0) + secs
@@ -1428,13 +1432,13 @@ class MasterGamingSensor(RestoreSensor):
 
 class HistoryChartSensor(RestoreEntity, SensorEntity):
     _attr_should_poll = False
-    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_native_unit_of_measurement = "h"
     def __init__(self, hass, name):
         self.hass = hass
         safe_owner = name.lower().replace(" ", "_")
         self._attr_name = f"{name} Chart"
-        self._attr_unique_id = f"gaming_status_{safe_owner}_chart_v6"
+        self._attr_unique_id = f"{safe_owner}_chart_v161"
         self.entity_id = f"sensor.gaming_status_{safe_owner}_chart"
         self._master_sensor_id = f"sensor.gaming_status_{safe_owner}_master"
         self._attr_native_value = 0.0
@@ -1546,11 +1550,15 @@ class PCGamingSensor(RestoreSensor):
 
         # FORCE UPDATE: Wait for HA to finish booting, pause 5 seconds, then check platforms again
         from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
-        async def _force_delayed_update(event):
+        async def _force_delayed_update(event=None):
             await asyncio.sleep(5)
             await self._update_pc_state()
             
-        self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _force_delayed_update)
+        # OPTIMIZATION: Allow Hot-Reloads to work without full system reboots
+        if self.hass.is_running:
+            self.hass.async_create_task(_force_delayed_update())
+        else:
+            self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _force_delayed_update)
 
     @callback
     def _async_pc_changed(self, event):
