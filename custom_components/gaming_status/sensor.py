@@ -850,7 +850,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         attrs = {
             "application_id": data["app_id"],
             "discord_data": {
-                "discord_user": {"id": data["user_id"], "avatar": "HANDLED_BY_URL"}
+                "discord_user": {"id": data["user_id"], "avatar": None}
             },
             "entity_picture": data["avatar_url"]
         }
