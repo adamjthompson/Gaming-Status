@@ -12,7 +12,7 @@ Some of the key features are listed below.
 * **Unified Master Sensor:** Combines Xbox, PlayStation, Steam, and Custom PC clients into one clean "Master Status" sensor per person.
 * **Online/Offline Notifications** Receive Discord, SMS, and/or Mobile notifications when users start or finish playing a game.
 * **Parental Controls:** Track daily playtime and recieve notifications or trigger an automation or script when a limit or curfew is reached.
-* **Discord Rich Presence:** Track hundreds of standalone games, emulators, and Epic/EA/Ubisoft launchers automatically by hooking into Discord's Rich Presence status.
+* **Discord Rich Presence:** Track hundreds of standalone games, emulators, and Epic/EA/Ubisoft launchers automatically by hooking into Discord's Rich Presence status. Automatically ignores custom text statuses to prevent false positives.
 * **Custom PC Game Support:** Track non-platform games (like Epic Games, Minecraft, or Genshin Impact) using template funnels or binary sensors.
 * **PC Sub-Master Sensor:** Automatically aggregates Custom, Steam, and Discord tracking into a single, unified "PC" status. It features smart platform yielding (e.g., Discord quietly steps aside if Steam is tracking the same game) to completely eliminate double-counting in your playtime analytics.
 * **Smart Ghosting Protection:** Automatically prevents echo sessions (e.g., when the Windows Xbox app incorrectly broadcasts a Steam game).
@@ -35,7 +35,7 @@ While not required for functionality, I recommend installing the following HACS 
 * [SteamGridDB API Key](https://www.steamgriddb.com/) - Provides artwork for games. *This is not REQUIRED, but it is HIGHLY recommended!*
 * [Gaming Status Cards](https://github.com/adamjthompson/Gaming-Status-Cards) - Easy to use companion dashboard cards, so you don't have to make your own.
 * [ApexCharts Card](https://github.com/RomRider/apexcharts-card) - For the stats and donut graph cards.
-* Lanyard API - Requires [joining their Discord server](https://discord.com/invite/UrXF2cfJ7F) to link your Discord ID to the public API. *REQUIRED if you want to use Discord for tracking.*
+* [Official Discord Integration](https://www.home-assistant.io/integrations/discord) - Requires setting up a Discord Bot. *REQUIRED if you want to use Discord for notifications.*
 * [HASS.Agent](https://www.hass-agent.io/2.2/getting-started/installation/#installing-hassagent) - Allows you to create custom sensors for otherwise untrackable games. Install both the PC app and the integration for Custom PC sensors. *Try using Discord tracking with Lanyard first, if possible.*
 
 ### Obtaining a SteamGridDB API Key
@@ -73,55 +73,70 @@ Gaming Status is configured entirely through the Home Assistant UI. **There is n
 4. Click Submit. 
 
 ### Options & Features
-To configure your players, notifications, and rules, click the **Configure** button (gear icon) on the Gaming Status integration card. This opens the main configuration hub, which is divided into five sections:
+To configure your players, notifications, and rules, click the **Configure** button (gear icon) on the Gaming Status integration card. This opens the main configuration hub, which is divided into six menus based on your enabled features:
 
 #### 1. Manage Players
 Add, edit, or delete the gamers in your household.
-* **Platform Sensors:** When adding a player, you simply select their respective integration sensors from the dropdowns. The integration will automatically filter your entities to show the correct Steam, Xbox (`_status`), and PlayStation (`_online_status`) sensors.
+* **Platform Sensors:** When adding a player, you simply select their respective integration sensors from the dropdowns. The integration will automatically filter your entities to show the correct Steam, Xbox (`_status`), PlayStation (`_online_status`), and Discord (`sensor.discord_user`) sensors. *(Note: To remove a previously assigned sensor, simply click the 'X' to clear the entity dropdown and click Submit. The integration will safely save the empty state and stop tracking that platform).*
 * **Player Details:** After adding a player, you can configure:
   * **Session Notifications:** Select notification methods for when this specific player starts or stops gaming. *Note: These must be configured under Notifications.*
-  * **Ghosted-by:** Enter comma-separated entity IDs (e.g., `sensor.player_two_steam`) to hide this player's status from someone else's view.
+  * **Ghosted-by:** Enter comma-separated entity IDs (e.g., `sensor.gaming_status_player_two_steam`) to hide this player's status from someone else's view.
   * **Exclude Games:** Comma-separated list of games to ignore for this specific player.
 
-#### 2. Notifications
+#### 2. Notifications (Requires Global Toggle)
 Manage where your [gaming alerts and weekly reports](docs/notifications.md) are sent.
+* **Notify Artwork Style:** Choose which fetched artwork type (Cover, Hero, Logo, Icon) attaches to your notifications.
 * **Add Notification:** Map a friendly name (e.g., "Dad's Phone") to an existing Home Assistant `notify.` service. It fully supports standard mobile app notifications, Discord, and SMS.
+* **Discord Notification Colors:** Customize the embed colors for Discord alerts (Default, Platform Colors, Game Color, or Custom Hex).
 * **Weekly Report:** Send a beautifully formatted summary of everyone's weekly playtime and top games to your selected notification methods on a specific day and time.
 
-#### 3. Parental Controls
+#### 3. Parental Controls (Requires Global Toggle)
 Set automated rules based on accumulated playtime or time of day.
 * **Screen Time:** Set distinct weekday and weekend daily minute limits.
 * **Curfew:** Set distinct weekday and weekend cutoff times (e.g., 22:00).
 * **Reminder Frequency:** Set how often to repeat the notification(s).
 * **Notifications:** When a limit is reached, you can automatically send a notification using any of your configured methods.
 
-#### 4. Advanced
-Fine-tune game names, covers, and exclusions using simple, comma-separated lists.
-* **Game Title Overrides:** Clean up messy or lengthy names. Format as `raw name: display name`.
-  * *Example:* `Minecraft Launcher = Minecraft, Grand Theft Auto V = GTA V`
-* **Custom Cover Map:** Manually assign cover art for custom games or unrecognized titles. Fully supports web URLs and Home Assistant `/local/` paths.
-  * *Example:* `Marvel Rivals = /local/covers/marvel.png, Halo = https://...`
-* **Title Cleanups:** A list of strings to automatically strip from game names.
-  * *Example:* `Tom Clancy's, Sid Meier's`
-* **Global Exclusions:** Games or apps that should be universally ignored by the tracker. 
-  * *Example:* `Home, YouTube, Netflix, Xbox App`
+#### 4. Custom Artwork
+Manually assign artwork or colors to specific games using simple `Game = Value` lists.
+* **Custom Asset Maps (Grid, Hero, Logo, Icon):** Assign artwork for custom games or unrecognized titles. Fully supports web URLs and Home Assistant `/local/` paths. *(Example: `Marvel Rivals = /local/covers/marvel.png`)*
+* **Custom Colors:** Override the automatic dominant color extractor by assigning specific hex codes to games. *(Example: `Cyberpunk 2077 = #fcee0a`)*
 
-#### 5. Global Settings
-These variables control how the integration handles network drops, game crashes, and short sessions across all players.
-* **Grace Periods:** Bridges the gap between game launches or brief network drops so your session doesn't falsely show as "Offline". 
+#### 5. Advanced
+Update your API keys and fine-tune text processing rules.
+* **API Keys & Tokens:** Update your SteamGridDB API key, or your Discord Bot Token and Server ID.
+* **Game Title Overrides:** Clean up messy or lengthy names. Format as `raw name = display name`. *(Example: `Minecraft Launcher = Minecraft`)*
+* **Title Cleanups:** A list of strings to automatically strip from game names. *(Example: `Tom Clancy's, Sid Meier's`)*
+* **Global Exclusions:** Games or apps that should be universally ignored by the tracker. *(Example: `Home, YouTube, Netflix, Xbox App`)*
+
+#### 6. Global Settings
+These variables control how the integration handles platforms, caching, and network drops across all players.
+* **Enabled Platforms:** Select which gaming platforms to track (Steam, Xbox, PlayStation, Discord, Custom).
+* **Master Toggles:** Enable or disable the Notifications and Parental Controls configuration hubs.
+* **Cache Settings:** Toggle local image caching, automatic vibrant color extraction, and configure background cleanup limits (Max Files & Max Days).
+* **Grace Periods (Network / Away / Transition):** Configure exactly how long the integration waits during network drops, idle statuses, or game switches before ending a session.
 * **Minimum Session Duration:** Prevents quickly opening and closing a game (like launching a launcher) from cluttering your play history.
 * **Reset History:** A toggle to clear all accumulated daily/weekly session history upon the next Home Assistant restart. *Use with caution!*
+* **Remove Disabled Sensors:** Automatically deletes orphaned sensors from the registry if their platform is un-checked from the Enabled Platforms list.
 
-#### 6. PC Tracking & Discord Setup
-To provide the most accurate PC tracking possible, this integration can monitor Steam, Discord, and Custom clients simultaneously. 
+#### 7. PC Tracking & Discord Setup
+To provide the most accurate PC tracking possible, this integration can monitor Steam, Discord, and Custom clients simultaneously and output the result as one "PC" sensor. 
 
-**Setting up Discord (Lanyard):**
-Because Home Assistant does not have an official Discord integration that tracks Rich Presence, this integration utilizes the free **Lanyard API**.
-1. Join the [Lanyard Discord Server](https://discord.gg/lanyard). Simply joining the server automatically links your Discord ID to their API.
-2. In the Gaming Status configuration, paste the player's 18-digit Discord User ID (found by turning on Developer Mode in Discord and right-clicking their profile).
+**Setting up Discord Tracking:**
+Because Home Assistant does not natively track Rich Presence, this integration features a built-in Discord tracker. To use it, you must create a bot in the Developer Portal to read your server's statuses.
+1. Go to the [Discord Developer Portal](https://discord.com/developers/applications) and log in.
+2. Click **New Application** in the top right corner and give your bot a name (e.g., "Home Assistant Tracker").
+3. On the left menu, click **Bot**. Scroll down to the **Privileged Gateway Intents** section.
+4. **CRITICAL:** You must turn on **Presence Intent** and **Server Members Intent**. Without these, the integration cannot see what games you are playing. Save your changes.
+5. Scroll up and click **Reset Token**. Copy this newly generated Bot Token to a safe place. 
+6. On the left menu, click **OAuth2**, then **URL Generator**. Under Scopes, check the **bot** box. 
+7. Copy the generated URL at the bottom, paste it into your browser, and authorize the bot to join your personal Discord server. 
+8. Open your Discord app, right-click your server icon, and click **Copy Server ID** *(Note: This requires Developer Mode to be enabled in Discord's advanced settings).*
+9. Finally, in Home Assistant, add the **Gaming Status** integration (or go to the Advanced menu if already installed) and make sure **Discord** is checked in the platforms list. Paste your Bot Token and Server ID. The integration will automatically fetch a list of your server members so you can easily assign them to your players from a dropdown menu!
+10. *Smart Application ID Filtering:* Once set up, the integration automatically ignores custom text statuses (like 'Eating dinner' or listening to Spotify). It strictly requires a verified Discord `application_id` to trigger, guaranteeing only legitimate gaming sessions are captured.
 
 **The PC Sub-Master Priority Logic:**
-If a player launches a game, it is very common for both Discord and Steam to track it simultaneously. To prevent double-counting your playtime hours and sending duplicate push notifications, the `sensor.XXXXX_pc_status` sensor uses strict **Smart Platform Yielding**. 
+If a player launches a game, it is very common for both Discord and Steam to track it simultaneously. To prevent double-counting your playtime hours and sending duplicate push notifications, the `sensor.gaming_status_XXXXX_pc` sensor uses strict **Smart Platform Yielding**. 
 
 Platforms are prioritized in this exact order: **Custom > Steam > Discord**.
 * *Example:* If a player launches a Steam game, Discord will likely detect it first and claim the dashboard. Seconds later, when Steam wakes up and detects the same game, Discord will instantly pause its timer and yield control to Steam. 
@@ -129,22 +144,22 @@ Platforms are prioritized in this exact order: **Custom > Steam > Discord**.
 
 ### Entities
 
-Upon restart, the integration will instantly read your settings and generate the master tracking sensors for your dashboard. Look for the new master sensors named `sensor.XXXXX.gaming_status`. Additionally, individual platform sensors will be created ending in `_playstation`, `_steam`, `_xbox`, and `_custom`, where applicable.
+Upon restart, the integration will instantly read your settings and generate the master tracking sensors for your dashboard. All entities generated by the integration are strictly standardized under the `gaming_status_` namespace.
 
 | Entity | Type | Description |
 | ---| --- | --- |
-| sensor.XXXXX_steam | Sensor | Steam sensor for each added profile |
-| sensor.XXXXX_xbox | Sensor | Xbox sensor for each added profile |
-| sensor.XXXXX_playstation | Sensor | PlayStation sensor for each added profile |
-| sensor.XXXXX_discord | Sensor | Discord sensor powered by Lanyard for each added profile |
-| sensor.XXXXX_pc | Sensor | Sub-master sensor that automatically aggregates Steam, Discord, and Custom PC clients into a single unified PC state |
-| sensor.XXXXX_gaming_status | Sensor | Master sensor for each added profile that combines all added platforms into one "Online/Offline" status |
-| sensor.XXXXX_daily_gaming_hours_chart | Sensor | Daily game time, tracked in 0.0 h format |
-| sensor.players_online | Sensor | Global sensor that tracks the total number of players currently online |
-| binary_sensor.anyone_gaming | Binary Sensor | Useful for showing or hiding cards |
+| sensor.gaming_status_XXXXX_steam | Sensor | Steam sensor for each added profile |
+| sensor.gaming_status_XXXXX_xbox | Sensor | Xbox sensor for each added profile |
+| sensor.gaming_status_XXXXX_playstation | Sensor | PlayStation sensor for each added profile |
+| sensor.gaming_status_XXXXX_discord | Sensor | Discord sensor powered by Lanyard for each added profile |
+| sensor.gaming_status_XXXXX_pc | Sensor | Sub-master sensor that automatically aggregates Steam, Discord, and Custom PC clients into a single unified PC state |
+| sensor.gaming_status_XXXXX_master | Sensor | Master sensor for each added profile that combines all added platforms into one "Online/Offline" status |
+| sensor.gaming_status_XXXXX_chart | Sensor | Daily game time mapped to the Long-Term Statistics database (Total Increasing) |
+| sensor.gaming_status_players_online | Sensor | Global sensor that tracks the total number of players currently online |
+| binary_sensor.gaming_status_anyone_gaming | Binary Sensor | Useful for showing or hiding cards |
 
 ### Attributes for Master Sensors
-Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The `*_gaming_status` sensors provide the following attibutes
+Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The `*_master` sensors provide the following attibutes:
 
 **Aggregate Analytics**
 | Attribute | Description |
@@ -186,7 +201,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | last_online_valid_timestamp | Timestamp of the last time detected online |
 
 ### Attributes for Platform Sensors
-Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The `*_steam`, `*_xbox`, and `*_playstation` sensors provide the following attibutes
+Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The individual `*_steam`, `*_xbox`, `*_discord`, and `*_playstation` sensors provide the following attibutes:
 
 **Core State Attributes**
 | Attribute | Description |
@@ -228,7 +243,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 Several of these attributes (e.g., the artwork URLs, weekly_breakdown, longest_session_details) are explicitly added to `_unrecorded_attributes` in the classes. This is a deliberate performance optimization to prevent Home Assistant from saving these frequently changing values into the long-term database (recorder), which keeps your `home-assistant_v2.db` file from growing excessively large.
 
 ## ❓ What Next?
-Once everything is up and running (with sensors showing up from the integration), try playing a game for at least 5 minutes to make sure the online status is reflected in the master "_gaming_status" sensors. *Note that, by default, sessions shorter than 300 seconds (5 minutes) are discarded and do not count toward the total playtime hours.* If the sensors are working correctly, try some of the following! If not, see the [troubleshooting](docs/troubleshooting.md) documentation.
+Once everything is up and running (with sensors showing up from the integration), try playing a game for at least 5 minutes to make sure the online status is reflected in the `_master` sensors. *Note that, by default, sessions shorter than 300 seconds (5 minutes) are discarded and do not count toward the total playtime hours.* If the sensors are working correctly, try some of the following! If not, see the [troubleshooting](docs/troubleshooting.md) documentation.
 
 - Add some sweet displays to your [dashboard](https://github.com/adamjthompson/Gaming-Status-Cards#1-gaming-status---list), showing who's online and what they're playing
 - Set up Discord, SMS, and/or Mobile [notifications](docs/notifications.md) for when users start, stop, and switch games
