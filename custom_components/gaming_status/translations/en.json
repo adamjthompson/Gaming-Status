@@ -98,7 +98,7 @@
         "data_description": {
           "notify_start_destinations": "Select notification method(s) when this player starts gaming.",
           "notify_end_destinations": "Select notification method(s) when this player stops gaming.",
-          "ghosted_by": "e.g. sensor.player_two_steam — Hides this player's status from that player's view.",
+          "ghosted_by": "e.g. sensor.gaming_status_player_two_steam — Sensors that should take priority over this user's Xbox sensor.",
           "exclude_games": "e.g. Genshin Impact, Minecraft — Games to ignore for this player."
         }
       },
