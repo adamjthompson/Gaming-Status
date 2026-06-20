@@ -80,7 +80,7 @@ Add, edit, or delete the gamers in your household.
 * **Platform Sensors:** When adding a player, you simply select their respective integration sensors from the dropdowns. The integration will automatically filter your entities to show the correct Steam, Xbox (`_status`), PlayStation (`_online_status`), and Discord (`sensor.discord_user`) sensors. *(Note: To remove a previously assigned sensor, simply click the 'X' to clear the entity dropdown and click Submit. The integration will safely save the empty state and stop tracking that platform).*
 * **Player Details:** After adding a player, you can configure:
   * **Session Notifications:** Select notification methods for when this specific player starts or stops gaming. *Note: These must be configured under Notifications.*
-  * **Ghosted-by:** Enter comma-separated entity IDs (e.g., `sensor.gaming_status_player_two_steam`) to hide this player's status from someone else's view.
+  * **Ghosted-by:** Enter comma-separated entity IDs (e.g., `sensor.gaming_status_player_two_steam`) for sensors that should take priority over this user's Xbox sensor.
   * **Exclude Games:** Comma-separated list of games to ignore for this specific player.
 
 #### 2. Notifications (Requires Global Toggle)

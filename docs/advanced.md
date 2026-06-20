@@ -13,7 +13,7 @@ This section maps a friendly display name to the underlying Home Assistant senso
 - **Xbox:** sensor.playername_status
 - **PlayStation:** sensor.playername_online_status
 
-**Ghosted-by:** A list of master sensor IDs. If the current user is playing the exact same game as someone in this list, the current user's sensor will remain offline. This is useful for shared consoles or PCs to prevent duplicate tracking.
+**Ghosted-by:** A list of master sensor IDs. If the current user is playing the exact same game as someone in this list, the current user's Xbox sensor will remain offline. This is useful for shared PCs where one user's profile is signed into the Xbox app and another user is signed into Steam.
 
 **Games to exclude:** A user-specific list of games or apps that should be completely ignored (case-insensitive).
 
@@ -141,6 +141,6 @@ Any images added manually in this way will take priority over whatever is provid
 
 ## The "Is Anyone Gaming?" Binary Sensor (For Automations)
 
-**The Problem:** You want to trigger a Home Assistant automation (like changing the living room lights to a specific color, or silencing TTS announcements) whenever *anyone* in the house starts gaming, but you don't want to write a messy automation trigger that manually lists every single person's Xbox, Steam, and PlayStation sensor.
+**The Problem:** You want to trigger a Home Assistant automation (like changing the living room lights to a specific color, or silencing TTS announcements) whenever *anyone* in the house starts gaming, but you don't want to write a messy automation trigger that manually lists every single person's Xbox, Steam, PlayStation, Discord, and Custom sensors.
 
-**The Solution:** This dynamic binary sensor automatically searches your entire Home Assistant system for any Master Gaming Sensors (`_gaming_status`) created by this integration. If *any* of them are currently playing a game, this switch turns `on`. When the last person stops playing, it turns `off`.
+**The Solution:** This dynamic binary sensor automatically searches your entire Home Assistant system for any Master Gaming Sensors (`_master`) created by this integration. If *any* of them are currently playing a game, this switch turns `on`. When the last person stops playing, it turns `off`.

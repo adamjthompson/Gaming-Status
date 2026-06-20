@@ -53,6 +53,23 @@ Xbox possesses highly granular privacy controls that explicitly separate your on
 - Go to the Xbox Social widget, click Xbox Social Options in the title bar, then select Account.
 - Under "Others can see your PC game activity", ensure this is set to Allow so that Microsoft can collect your PC game activity and determine what you are playing.
 
+### Discord
+Discord requires specific settings to be enabled on both your local client and the specific server where your Home Assistant bot resides. If your status is not updating, Discord is likely refusing to broadcast your Rich Presence data.
+
+**Client Activity Privacy:**
+- Open Discord and click the gear icon (User Settings) in the bottom left.
+- Navigate to Activity Privacy under the Activity Settings section.
+- Ensure Display current activity as a status message is toggled ON. This is the master switch that allows Discord to broadcast what game you are playing.
+
+**Server-Specific Privacy:**
+Even if your global activity is enabled, Discord allows you to hide your status from specific servers. If your bot is on a server where your activity is hidden, it will not be able to track your games.
+- Open the Discord server where your Home Assistant bot is located.
+- Click the Server Name at the top left of the screen to open the dropdown menu.
+- Select Privacy Settings.
+- Ensure Activity Status is toggled ON to allow your gaming activity to be visible within that specific server.
+
+*Note on Custom Games: If you manually added a non-supported game to Discord via the "Registered Games" menu, ensure the eye icon next to the game is not crossed out. If it is crossed out, Discord will hide that specific game from your status.*
+
 ## The game cover art is missing or incorrect.
 The integration searches SteamGridDB for high-quality cover art based on the name of the game. If a publisher names a game weirdly on Xbox (like *"Call of Duty®: HQ - Cross-Gen Bundle"*), the search will fail.
 - **The Fix:** Use the **Game Title Overrides** in the Advanced section to map that messy title to a clean one (e.g., `Call of Duty®: HQ - Cross-Gen Bundle = Call of Duty`). The integration will instantly find the right art!
