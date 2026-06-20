@@ -1618,6 +1618,8 @@ class PCGamingSensor(RestoreSensor):
                 "game_logo_art": logo,
                 "game_icon_art": icon,
                 "game_dominant_color": active_state.attributes.get("game_dominant_color"),
+                "current_game": active_state.attributes.get("current_game"),
+                "last_played_game": active_state.attributes.get("last_played_game"),
                 "play_start_time": active_state.attributes.get("play_start_time")
             }
             self._attr_entity_picture = active_state.attributes.get("entity_picture")
@@ -1631,9 +1633,28 @@ class PCGamingSensor(RestoreSensor):
                 pretty_platform_name = PLATFORM_CONFIG.get(winning_platform, {}).get("name_suffix", winning_platform.title())
                 self._attr_icon = PLATFORM_CONFIG.get(winning_platform, {}).get("icon", "mdi:monitor")
                 
+                # --- AUTOMATIC LOCAL CACHE FAILSAFE (OFFLINE/RECENT) ---
+                import re
+                last_played = most_recent_state.attributes.get("last_played_game", "")
+                safe_game = re.sub(r'[^a-z0-9]', '_', str(last_played).lower())
+                safe_game = re.sub(r'_+', '_', safe_game).strip('_')
+                
+                hero = most_recent_state.attributes.get("game_hero_art") or f"/local/gaming_status_cache/{safe_game}_hero.png"
+                logo = most_recent_state.attributes.get("game_logo_art") or f"/local/gaming_status_cache/{safe_game}_logo.png"
+                icon = most_recent_state.attributes.get("game_icon_art") or f"/local/gaming_status_cache/{safe_game}_icon.png"
+                
+                cover = most_recent_state.attributes.get("game_cover_art")
+                if not cover or "akamaihd.net" in cover: 
+                    cover = f"/local/gaming_status_cache/{safe_game}_grid.png"
+
                 self._attr_extra_state_attributes = {
                     "secondary": most_recent_state.attributes.get("secondary", "Offline"),
                     "active_platform": pretty_platform_name,
+                    "game_cover_art": cover,
+                    "game_hero_art": hero,
+                    "game_logo_art": logo,
+                    "game_icon_art": icon,
+                    "game_dominant_color": most_recent_state.attributes.get("game_dominant_color"),
                     "last_online_valid_timestamp": most_recent_state.attributes.get("last_online_valid_timestamp"),
                     "last_played_game": most_recent_state.attributes.get("last_played_game"),
                     "play_start_time": None
