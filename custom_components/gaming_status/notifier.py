@@ -45,35 +45,44 @@ class GamingNotifier:
         self._startup_time: datetime | None = None
         self._triggered_parental_events: dict = {}
 
-        opts = self._entry.options
-        
-        from .const import OPT_ENABLE_NOTIFICATIONS, OPT_ENABLE_PARENTAL
-        self._enable_notifications = opts.get(OPT_ENABLE_NOTIFICATIONS, False)
-        self._enable_parental = opts.get(OPT_ENABLE_PARENTAL, False)
-
-        # Parse JSON exactly once at startup and cache in memory
-        self._cached_players = _load_json(opts.get(OPT_PLAYERS), {})
-        self._cached_endpoints = _load_json(opts.get(OPT_ENDPOINTS), {})
-        self._cached_weekly = _load_json(opts.get(OPT_WEEKLY_REPORT), {})
-        self._cached_parental = _load_json(opts.get(OPT_PARENTAL), {})
-        self._cached_discord_colors = _load_json(opts.get(OPT_DISCORD_COLORS), {})
-        
-        # Cache the user's preferred notification artwork style
-        self._cached_notify_artwork = opts.get(OPT_NOTIFY_ARTWORK, "game_cover_art")
-
-        raw_exclusions = _load_json(opts.get(OPT_GLOBAL_EXCLUSIONS), [])
-        self._cached_exclusions = [x.strip().lower() for x in raw_exclusions]
-
         # Instant O(1) lookup map (entity_id -> player_name)
+        # Built once at startup since entities require a full system reload to change
+        initial_players = _load_json(self._entry.options.get(OPT_PLAYERS), {})
         self._entity_player_map = {
             f"sensor.gaming_status_{p.lower().replace(' ', '_')}_master": p
-            for p in self._cached_players
+            for p in initial_players
         }
 
     # ------------------------------------------------------------------
-    # Optimized Getter Methods (Returns Cache Only)
+    # Dynamic Properties (The Ultimate Gatekeeper)
     # ------------------------------------------------------------------
 
+    @property
+    def _enable_notifications(self) -> bool:
+        from .const import OPT_ENABLE_NOTIFICATIONS
+        return self._entry.options.get(OPT_ENABLE_NOTIFICATIONS, False)
+
+    @property
+    def _enable_parental(self) -> bool:
+        from .const import OPT_ENABLE_PARENTAL
+        return self._entry.options.get(OPT_ENABLE_PARENTAL, False)
+
+    @property
+    def _cached_players(self) -> dict: return _load_json(self._entry.options.get(OPT_PLAYERS), {})
+    @property
+    def _cached_endpoints(self) -> dict: return _load_json(self._entry.options.get(OPT_ENDPOINTS), {})
+    @property
+    def _cached_weekly(self) -> dict: return _load_json(self._entry.options.get(OPT_WEEKLY_REPORT), {})
+    @property
+    def _cached_parental(self) -> dict: return _load_json(self._entry.options.get(OPT_PARENTAL), {})
+    @property
+    def _cached_discord_colors(self) -> dict: return _load_json(self._entry.options.get(OPT_DISCORD_COLORS), {})
+    @property
+    def _cached_notify_artwork(self) -> str: return self._entry.options.get(OPT_NOTIFY_ARTWORK, "game_cover_art")
+    @property
+    def _cached_exclusions(self) -> list: return [x.strip().lower() for x in _load_json(self._entry.options.get(OPT_GLOBAL_EXCLUSIONS), [])]
+    
+    # Keep legacy getters functioning to support older function calls
     def _players(self) -> dict: return self._cached_players
     def _endpoints(self) -> dict: return self._cached_endpoints
     def _weekly_report(self) -> dict: return self._cached_weekly

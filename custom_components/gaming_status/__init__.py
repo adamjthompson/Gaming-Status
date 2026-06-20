@@ -157,9 +157,15 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     if "notifier" in hass.data.get(DOMAIN, {}):
-        await hass.data[DOMAIN]["notifier"].async_stop()
+        try:
+            await hass.data[DOMAIN]["notifier"].async_stop()
+        except Exception as e:
+            _LOGGER.error("Gaming Status failed to stop notifier cleanly: %s", e)
         
     if "discord_bot" in hass.data.get(DOMAIN, {}):
-        await hass.data[DOMAIN]["discord_bot"].close()
+        try:
+            await hass.data[DOMAIN]["discord_bot"].close()
+        except Exception as e:
+            _LOGGER.error("Gaming Status failed to close Discord bot cleanly: %s", e)
 
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
