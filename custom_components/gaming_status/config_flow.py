@@ -441,6 +441,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         )
 
     async def async_step_player_details(self, user_input=None):
+        from .const import OPT_ENABLE_NOTIFICATIONS
+        
         players = _players(self._options)
         name = self._editing_player or ""
         existing = players.get(name, {})
@@ -449,6 +451,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         endpoint_options = [
             selector.SelectOptionDict(value=k, label=v["name"]) for k, v in endpoints.items()
         ]
+        
+        notifications_enabled = self._options.get(OPT_ENABLE_NOTIFICATIONS, False)
 
         if user_input is not None:
             ghosted_raw = user_input.get("ghosted_by", "")
@@ -461,8 +465,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 e.strip() for e in exclude_raw.split(",") if e.strip()
             ]
             
-            existing["notify_start_destinations"] = user_input.get("notify_start_destinations", [])
-            existing["notify_end_destinations"] = user_input.get("notify_end_destinations", [])
+            # Only update destinations if the UI actually displayed them
+            if notifications_enabled:
+                existing["notify_start_destinations"] = user_input.get("notify_start_destinations", [])
+                existing["notify_end_destinations"] = user_input.get("notify_end_destinations", [])
             
             players[name] = existing
             self._options[OPT_PLAYERS] = _dump_json(players)
@@ -473,7 +479,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
         schema_dict = {}
 
-        if endpoint_options:
+        if endpoint_options and notifications_enabled:
             schema_dict[vol.Optional("notify_start_destinations", default=existing.get("notify_start_destinations", []))] = (
                 selector.SelectSelector(
                     selector.SelectSelectorConfig(
@@ -734,6 +740,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         )
 
     async def async_step_parental_player(self, user_input=None):
+        from .const import OPT_ENABLE_NOTIFICATIONS
+        notifications_enabled = self._options.get(OPT_ENABLE_NOTIFICATIONS, False)
+        
         name = self._editing_player or ""
         parental = _parental(self._options)
         rules = parental.get(name, {})
@@ -753,19 +762,23 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         ]
 
         if user_input is not None:
+            # Preserve existing actions if the UI hides them, otherwise grab new user input
+            st_action_final = user_input.get("st_action_targets", st.get("action", [])) if notifications_enabled else st.get("action", [])
+            cf_action_final = user_input.get("cf_action_targets", cf.get("action", [])) if notifications_enabled else cf.get("action", [])
+            
             rules["screen_time"] = {
                 "enabled": user_input.get("st_enabled", False),
                 "weekday_minutes": user_input.get("st_weekday_minutes", 120),
                 "weekend_minutes": user_input.get("st_weekend_minutes", 180),
                 "repeat": int(user_input.get("st_repeat", "0")),
-                "action": user_input.get("st_action_targets", []),
+                "action": st_action_final,
             }
             rules["curfew"] = {
                 "enabled": user_input.get("cf_enabled", False),
                 "weekday": user_input.get("cf_weekday", "22:00"),
                 "weekend": user_input.get("cf_weekend", "23:00"),
                 "repeat": int(user_input.get("cf_repeat", "0")),
-                "action": user_input.get("cf_action_targets", []),
+                "action": cf_action_final,
             }
             parental[name] = rules
             self._options[OPT_PARENTAL] = _dump_json(parental)
@@ -795,7 +808,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             ),
         }
 
-        if endpoint_options:
+        if endpoint_options and notifications_enabled:
             schema_dict[vol.Optional("st_action_targets", default=st_action)] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=endpoint_options, 
@@ -813,7 +826,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             ),
         })
 
-        if endpoint_options:
+        if endpoint_options and notifications_enabled:
             schema_dict[vol.Optional("cf_action_targets", default=cf_action)] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=endpoint_options, 
