@@ -1004,33 +1004,40 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 
                 if normalized_new and not self._cover_fetch_attempted:
                     self._cover_fetch_attempted = True
-                    fetched = await utils.fetch_game_assets(self.hass, game_name_display)
-                    if fetched and any(fetched.values()):
-                        self._cached_game_cover = fetched.get("grid") or platform_data.get("game_cover_url")
-                        self._cached_game_hero = fetched.get("hero")
-                        self._cached_game_logo = fetched.get("logo")
-                        self._cached_game_icon = fetched.get("icon")
-                    else: 
+                    try:
+                        fetched = await utils.fetch_game_assets(self.hass, game_name_display)
+                        if fetched and any(fetched.values()):
+                            self._cached_game_cover = fetched.get("grid") or platform_data.get("game_cover_url")
+                            self._cached_game_hero = fetched.get("hero")
+                            self._cached_game_logo = fetched.get("logo")
+                            self._cached_game_icon = fetched.get("icon")
+                        else: 
+                            self._cached_game_cover = platform_data.get("game_cover_url")
+                    except Exception as e:
+                        _LOGGER.error("Artwork fetch failed for %s: %s", game_name_display, e)
                         self._cached_game_cover = platform_data.get("game_cover_url")
                         
                 if utils.ENABLE_VIBRANT_COLOR:
-                    if not self._cached_game_color and game_name_display in self._color_history_cache:
-                        self._cached_game_color = self._color_history_cache[game_name_display]
-                        
-                    art_to_use = self._cached_game_hero or self._cached_game_cover
-                    if not self._cached_game_color and art_to_use and "/local/" in art_to_use:
-                        local_suffix = art_to_use.split("/local/")[-1]
-                        local_path = self.hass.config.path("www", local_suffix)
-                        self._cached_game_color = await self.hass.async_add_executor_job(
-                            utils.extract_vibrant_color, local_path
-                        )
-                        
-                        if self._cached_game_color:
-                            self._color_history_cache[game_name_display] = self._cached_game_color
-                            if len(self._color_history_cache) > 50:
-                                oldest_game = next(iter(self._color_history_cache))
-                                del self._color_history_cache[oldest_game]
-                            self._store.async_delay_save(self._get_store_data, 5.0)
+                    try:
+                        if not self._cached_game_color and game_name_display in self._color_history_cache:
+                            self._cached_game_color = self._color_history_cache[game_name_display]
+                            
+                        art_to_use = self._cached_game_hero or self._cached_game_cover
+                        if not self._cached_game_color and art_to_use and "/local/" in art_to_use:
+                            local_suffix = art_to_use.split("/local/")[-1]
+                            local_path = self.hass.config.path("www", local_suffix)
+                            self._cached_game_color = await self.hass.async_add_executor_job(
+                                utils.extract_vibrant_color, local_path
+                            )
+                            
+                            if self._cached_game_color:
+                                self._color_history_cache[game_name_display] = self._cached_game_color
+                                if len(self._color_history_cache) > 50:
+                                    oldest_game = next(iter(self._color_history_cache))
+                                    del self._color_history_cache[oldest_game]
+                                self._store.async_delay_save(self._get_store_data, 5.0)
+                    except Exception as e:
+                        _LOGGER.error("Color extraction failed for %s: %s", game_name_display, e)
                         
                 if not self._cached_game_cover and platform_data.get("game_cover_url"): 
                     self._cached_game_cover = platform_data.get("game_cover_url")
