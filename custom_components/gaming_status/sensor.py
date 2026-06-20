@@ -1019,9 +1019,15 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         
                 if utils.ENABLE_VIBRANT_COLOR:
                     try:
-                        if not self._cached_game_color and game_name_display in self._color_history_cache:
+                        # 1. Check for Manual Override FIRST
+                        override = getattr(utils, "GAME_COLOR_OVERRIDES", {}).get(str(game_name_display).lower())
+                        if override:
+                            self._cached_game_color = override
+                        # 2. Check the Internal Cache SECOND
+                        elif not self._cached_game_color and game_name_display in self._color_history_cache:
                             self._cached_game_color = self._color_history_cache[game_name_display]
-                            
+                        
+                        # 3. ONLY extract if both are empty
                         art_to_use = self._cached_game_hero or self._cached_game_cover
                         if not self._cached_game_color and art_to_use and "/local/" in art_to_use:
                             local_suffix = art_to_use.split("/local/")[-1]
