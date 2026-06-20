@@ -420,8 +420,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             
             # If we have an app_id, we treat the state as the game name
             if app_id and state_clean not in ["offline", "online", "idle"]:
-                data["is_online"] = True
-                data["current_game"] = state
+                if self._is_game_active_elsewhere(state):
+                    data["is_online"] = False
+                else:
+                    data["is_online"] = True
+                    data["current_game"] = state
             elif is_globally_excluded or is_user_excluded: 
                 data["is_online"] = False
             else:
