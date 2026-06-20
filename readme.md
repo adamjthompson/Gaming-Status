@@ -10,7 +10,7 @@ Some of the key features are listed below.
 
 ## ✨ Features
 * **Unified Master Sensor:** Combines Xbox, PlayStation, Steam, and Custom PC clients into one clean "Master Status" sensor per person.
-* **Online/Offline Notifications** Receive Discord, SMS, and/or Mobile notifications when users start or finish playing a game.
+* **Online/Offline Notifications:** Receive Discord, SMS, and/or Mobile notifications when users start or finish playing a game.
 * **Parental Controls:** Track daily playtime and recieve notifications or trigger an automation or script when a limit or curfew is reached.
 * **Discord Rich Presence:** Track hundreds of standalone games, emulators, and Epic/EA/Ubisoft launchers automatically by hooking into Discord's Rich Presence status. Automatically ignores custom text statuses to prevent false positives.
 * **Custom PC Game Support:** Track non-platform games (like Epic Games, Minecraft, or Genshin Impact) using template funnels or binary sensors.
