@@ -88,7 +88,7 @@
       },
       "player_details": {
         "title": "Player Details | {player_name}",
-        "description": "Optional: Configure session notifications, ghost detection, and set per-player game exclusions.",
+        "description": "*Note: These settings are optional and can be left blank, if desired.*",
         "data": {
           "notify_start_destinations": "Session Start Notification(s)",
           "notify_end_destinations": "Session End Notification(s)",
