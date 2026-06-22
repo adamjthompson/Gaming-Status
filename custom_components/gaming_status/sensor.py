@@ -414,6 +414,16 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                                 found_sibling = True
                     if not found_sibling: data["is_online"] = False
 
+        elif self._gaming_type == "playnite":
+            if is_globally_excluded or is_user_excluded or is_basic_offline:
+                data["is_online"] = False
+            else:
+                data["is_online"] = True
+                # Adapter handles both direct MQTT JSON and custom HA Template states
+                if state_clean == "on":
+                    data["current_game"] = attrs.get("Name") or attrs.get("name") or "Unknown Playnite Game"
+                else:
+                    data["current_game"] = state
         elif self._gaming_type == "discord":
             # Allow Discord to track games if an application_id is present
             app_id = str(attrs.get("application_id", ""))
@@ -1819,13 +1829,13 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 ents.append(PersistentStatusSensor(hass, entity_id, platform, player_name, ghosted_by, exclude_games, active_settings, global_exclusions, available_avatars))
                 
                 # Register PC platforms in strict hierarchy order for the Sub-Master
-                if platform in ["custom", "steam", "discord"]:
+                if platform in ["playnite", "custom", "steam", "discord"]:
                     pc_platforms_present.append(f"sensor.gaming_status_{safe_owner}_{platform}")
 
         # Spawn PC Sub-Master if any PC platforms exist
         if pc_platforms_present:
-            # Sort the entities to ensure strict Double-Dip Priority: Custom -> Steam -> Discord
-            priority_order = {"custom": 0, "steam": 1, "discord": 2}
+            # Sort the entities to ensure strict Double-Dip Priority: Playnite -> Custom -> Steam -> Discord
+            priority_order = {"playnite": 0, "custom": 1, "steam": 2, "discord": 3}
             pc_platforms_present.sort(key=lambda x: priority_order.get(x.split("_")[-1], 99))
             ents.append(PCGamingSensor(hass, player_name, pc_platforms_present))
         else:

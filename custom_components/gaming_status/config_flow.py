@@ -136,7 +136,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         except NoURLAvailableError:
             smart_cache_default = False
 
-        smart_platforms = ["discord", "custom"]
+        smart_platforms = ["discord", "custom", "playnite"]
         if self.hass.config_entries.async_entries("steam_online"): smart_platforms.append("steam")
         if self.hass.config_entries.async_entries("xbox"): smart_platforms.append("xbox")
         if self.hass.config_entries.async_entries("playstation_network"): smart_platforms.append("playstation")
@@ -164,7 +164,8 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             selector.SelectOptionDict(value="playstation", label="PlayStation"),
                             selector.SelectOptionDict(value="discord", label="Discord"),
                             selector.SelectOptionDict(value="custom", label="Custom Tracker"),
-                        ],
+                            selector.SelectOptionDict(value="playnite", label="Playnite"),
+                            ],
                         multiple=True,
                         mode=selector.SelectSelectorMode.LIST
                     )
@@ -317,6 +318,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                                 selector.SelectOptionDict(value="playstation", label="PlayStation"),
                                 selector.SelectOptionDict(value="discord", label="Discord"),
                                 selector.SelectOptionDict(value="custom", label="Custom Tracker"),
+                                selector.SelectOptionDict(value="playnite", label="Playnite"),
                             ],
                             multiple=True,
                             mode=selector.SelectSelectorMode.LIST
@@ -1061,6 +1063,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         else:
             schema[_field("discord")] = str
         schema[_field("custom")] = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+        schema[_field("playnite")] = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
 
         if not is_new:
             schema[vol.Optional("delete_player", default=False)] = bool

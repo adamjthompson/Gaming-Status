@@ -58,7 +58,8 @@
           "xbox": "Xbox sensor",
           "playstation": "PlayStation sensor",
           "discord": "Discord Member",
-          "custom": "Custom / PC sensor"
+          "custom": "Custom / PC sensor",
+          "playnite": "Playnite sensor"
         },
         "data_description": {
           "player_name": "e.g. John",
@@ -66,7 +67,8 @@
           "xbox": "e.g. sensor.player_one_xbox_status",
           "playstation": "e.g. sensor.player_one_psn_online_status",
           "discord": "Select the Discord user from the dropdown.",
-          "custom": "e.g. sensor.player_one_active_pc_game"
+          "custom": "e.g. sensor.player_one_active_pc_game",
+          "playnite": "e.g. sensor.playnite_playing_game"
         }
       },
       "edit_player": {
@@ -78,6 +80,7 @@
           "playstation": "PlayStation sensor",
           "discord": "Discord Member",
           "custom": "Custom / PC sensor",
+          "playnite": "Playnite sensor",
           "delete_player": "Delete this player"
         },
         "data_description": {

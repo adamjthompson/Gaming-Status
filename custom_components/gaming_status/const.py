@@ -16,8 +16,13 @@ DEFAULT_MIN_SESSION_DURATION = 300
 ZOMBIE_ATTRIBUTES = ["grace_period_active", "xbox_last_seen_game", "debug_sync"]
 
 PLATFORM_CONFIG = {
+    "playnite": {
+        "icon": "mdi:gamepad-square", 
+        "name_suffix": "Playnite", 
+        "group": "PC"
+    },
     "custom": {
-        "icon": "mdi:controller", 
+        "icon": "mdi:gamepad-variant", 
         "name_suffix": "Custom", 
         "group": "PC"
     },
@@ -44,8 +49,8 @@ PLATFORM_CONFIG = {
     },
 }
 
-PLATFORM_PRIORITY = ["custom", "steam", "playstation", "xbox", "discord"]
-PLAYER_PLATFORMS = ["steam", "xbox", "playstation", "custom", "discord"]
+PLATFORM_PRIORITY = ["playnite", "custom", "steam", "playstation", "xbox", "discord"]
+PLAYER_PLATFORMS = ["steam", "xbox", "playstation", "playnite", "custom", "discord"]
 
 # ---------------------------------------------------------------------------
 # Menu option identifiers
@@ -69,7 +74,7 @@ OPT_TRANSITION_GRACE = "game_transition_grace_seconds"
 OPT_MIN_SESSION = "min_session_duration"
 
 OPT_ENABLED_PLATFORMS = "enabled_platforms"
-DEFAULT_ENABLED_PLATFORMS = ["steam", "xbox", "playstation", "discord", "custom"]
+DEFAULT_ENABLED_PLATFORMS = ["steam", "xbox", "playstation", "discord", "custom", "playnite"]
 OPT_ENABLE_NOTIFICATIONS = "enable_notifications"
 DEFAULT_ENABLE_NOTIFICATIONS = False
 OPT_ENABLE_PARENTAL = "enable_parental"
