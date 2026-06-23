@@ -424,6 +424,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     data["current_game"] = attrs.get("Name") or attrs.get("name") or "Unknown Playnite Game"
                 else:
                     data["current_game"] = state
+                
+                # Force the Playnite logo as the profile avatar when active
+                data["entity_picture"] = "https://playnite.link/applogo.png"
+                
         elif self._gaming_type == "discord":
             # Allow Discord to track games if an application_id is present
             app_id = str(attrs.get("application_id", ""))
