@@ -109,7 +109,7 @@ async def fetch_game_assets(hass, game_name):
     except NoURLAvailableError:
         base_url = ""
 
-    async def _ensure_dir():
+    def _ensure_dir():
         if not cache_dir.exists():
             cache_dir.mkdir(parents=True, exist_ok=True)
     await hass.async_add_executor_job(_ensure_dir)
