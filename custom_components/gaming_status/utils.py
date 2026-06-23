@@ -144,7 +144,7 @@ async def fetch_game_assets(hass, game_name):
                 except Exception as e:
                     _LOGGER.error("Failed to cache override for %s (%s): %s", game_name, asset_type, e)
             
-            assets[asset_type] = f"{base_url}/local/gaming_status_cache/{file_name}"
+            assets[asset_type] = f"/local/gaming_status_cache/{file_name}"
     
     def _update_cache(name, data_dict):
         final_dict = {k: assets[k] or data_dict.get(k) for k in assets}
@@ -415,3 +415,22 @@ def extract_vibrant_color(image_path):
         import logging
         logging.getLogger(__name__).warning(f"Failed to extract vibrant color from {image_path}: {e}")
         return None
+
+def get_cached_remote_url(game_name, asset_type="grid"):
+    """
+    Retrieve the original remote SteamGridDB URL from the cache,
+    bypassing the local file path. Useful for cloud webhooks like Discord
+    when Home Assistant lacks an external domain.
+    """
+    if not game_name:
+        return None
+        
+    cache_entry = ASSET_URL_CACHE.get(game_name)
+    if not cache_entry:
+        return None
+        
+    url = cache_entry.get(asset_type)
+    if url and "steamgriddb.com" in url:
+        return url
+        
+    return None

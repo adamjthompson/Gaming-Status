@@ -477,10 +477,35 @@ class GamingNotifier:
             # Auto-append the public HA domain so Discord can see cached files
             if image_url and image_url.startswith("/"):
                 try:
+                    from urllib.parse import urlparse
+                    import ipaddress
+                    import socket
+                    
                     base_url = get_url(self.hass, prefer_external=True)
+                    host = urlparse(base_url).hostname or ""
+                    
+                    # Resolve the hostname (IP, .local, or custom domain) to an actual IP address
+                    try:
+                        resolved_ip = socket.gethostbyname(host)
+                        is_local = ipaddress.ip_address(resolved_ip).is_private
+                    except Exception:
+                        # Failsafe if socket cannot resolve the host
+                        is_local = host.endswith((".local", ".lan", ".internal"))
+                        
+                    # If it's HTTP, resolves to a private IP, or is a local domain, trigger fallback
+                    if not base_url.startswith("https://") or is_local:
+                        raise ValueError("No external domain available")
+                        
                     image_url = f"{base_url.rstrip('/')}{image_url}"
                 except Exception:
-                    pass
+                    # Fallback: Ask the cache for the original SteamGridDB URL
+                    try:
+                        from .utils import get_cached_remote_url
+                        remote_url = get_cached_remote_url(new_game, self._cached_notify_artwork.split("_")[1])
+                        if remote_url:
+                            image_url = remote_url
+                    except Exception as e:
+                        _LOGGER.debug("Gaming Status: Remote image fallback failed: %s", e)
 
             for ep_id in start_dests:
                 dest = self._cached_endpoints.get(ep_id, {})
@@ -501,10 +526,35 @@ class GamingNotifier:
             # Auto-append the public HA domain so Discord can see cached files
             if image_url and image_url.startswith("/"):
                 try:
+                    from urllib.parse import urlparse
+                    import ipaddress
+                    import socket
+                    
                     base_url = get_url(self.hass, prefer_external=True)
+                    host = urlparse(base_url).hostname or ""
+                    
+                    # Resolve the hostname (IP, .local, or custom domain) to an actual IP address
+                    try:
+                        resolved_ip = socket.gethostbyname(host)
+                        is_local = ipaddress.ip_address(resolved_ip).is_private
+                    except Exception:
+                        # Failsafe if socket cannot resolve the host
+                        is_local = host.endswith((".local", ".lan", ".internal"))
+                        
+                    # If it's HTTP, resolves to a private IP, or is a local domain, trigger fallback
+                    if not base_url.startswith("https://") or is_local:
+                        raise ValueError("No external domain available")
+                        
                     image_url = f"{base_url.rstrip('/')}{image_url}"
                 except Exception:
-                    pass
+                    # Fallback: Ask the cache for the original SteamGridDB URL
+                    try:
+                        from .utils import get_cached_remote_url
+                        remote_url = get_cached_remote_url(old_game, self._cached_notify_artwork.split("_")[1])
+                        if remote_url:
+                            image_url = remote_url
+                    except Exception as e:
+                        _LOGGER.debug("Gaming Status: Remote image fallback failed: %s", e)
             
             for ep_id in end_dests:
                 # Pass the OLD state so the color is fully preserved!
