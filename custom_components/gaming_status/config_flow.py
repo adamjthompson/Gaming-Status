@@ -1062,8 +1062,13 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             )
         else:
             schema[_field("discord")] = str
-        schema[_field("custom")] = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
-        schema[_field("playnite")] = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+            
+        schema[_field("custom")] = selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="sensor")
+        )
+        schema[_field("playnite")] = selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="binary_sensor", integration="mqtt")
+        )
 
         if not is_new:
             schema[vol.Optional("delete_player", default=False)] = bool
