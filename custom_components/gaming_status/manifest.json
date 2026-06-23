@@ -12,5 +12,5 @@
     "Pillow",
     "nextcord"
   ],
-  "version": "3.0.3-alpha3"
+  "version": "3.0.5"
 }
