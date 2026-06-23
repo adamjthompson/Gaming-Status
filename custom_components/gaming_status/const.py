@@ -17,12 +17,12 @@ ZOMBIE_ATTRIBUTES = ["grace_period_active", "xbox_last_seen_game", "debug_sync"]
 
 PLATFORM_CONFIG = {
     "playnite": {
-        "icon": "mdi:gamepad-square", 
+        "icon": "mdi:controller", 
         "name_suffix": "Playnite", 
         "group": "PC"
     },
     "custom": {
-        "icon": "mdi:gamepad-variant", 
+        "icon": "mdi:gamepad-square", 
         "name_suffix": "Custom", 
         "group": "PC"
     },
@@ -43,7 +43,7 @@ PLATFORM_CONFIG = {
         "group": "PlayStation"
     },
     "discord": {
-        "icon": "mdi:controller", 
+        "icon": "mdi:gamepad-variant", 
         "name_suffix": "Discord", 
         "group": "PC"
     },
