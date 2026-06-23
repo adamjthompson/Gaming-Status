@@ -415,6 +415,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     if not found_sibling: data["is_online"] = False
 
         elif self._gaming_type == "playnite":
+            # Apply the persistent Playnite logo as a base default if no custom image exists
+            if not data.get("entity_picture"):
+                data["entity_picture"] = "https://playnite.link/applogo.png"
+
             if is_globally_excluded or is_user_excluded or is_basic_offline:
                 data["is_online"] = False
             else:
@@ -424,10 +428,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     data["current_game"] = attrs.get("Name") or attrs.get("name") or "Unknown Playnite Game"
                 else:
                     data["current_game"] = state
-                
-                # Force the Playnite logo as the profile avatar when active
-                data["entity_picture"] = "https://playnite.link/applogo.png"
-                
+
         elif self._gaming_type == "discord":
             # Allow Discord to track games if an application_id is present
             app_id = str(attrs.get("application_id", ""))
