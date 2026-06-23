@@ -1505,6 +1505,11 @@ class HistoryChartSensor(RestoreEntity, SensorEntity):
     def _async_master_changed(self, event):
         new_state = event.data.get("new_state")
         if new_state:
+            # Block database spikes if the master sensor is just restoring old data during startup
+            if new_state.state in [STATE_UNKNOWN, STATE_UNAVAILABLE, "Offline"] and not new_state.attributes.get("current_game"):
+                if float(new_state.attributes.get("total_daily_hours", 0.0)) > 0 and self._attr_native_value == 0.0:
+                    return
+
             daily_hours = new_state.attributes.get("total_daily_hours", 0.0)
             try:
                 daily_hours_float = float(daily_hours)

@@ -2,14 +2,14 @@
 
 # 🎮 Gaming Status for Home Assistant
 
-This is a powerful, unified custom integration for Home Assistant that tracks and consolidates gaming presence across Steam, Xbox Live, PlayStation Network, and custom PC clients into a single, clean dashboard sensor for each person in your household. It's super useful if you want to be able to track who is online, what they're playing, and for how long. 
+This is a powerful, unified custom integration for Home Assistant that tracks and consolidates gaming presence across Steam, Xbox Live, PlayStation Network, Discord, Playnite, and custom PC clients into a single, clean dashboard sensor for each person in your household / friend group. It's super useful if you want to be able to track who is online, what they're playing, and for how long. 
 
 I started developing this as a way to have persistent sensors since I was annoyed that the Xbox and Steam sensors would regularly flutter between online/offline status, making notifications and my gaming dashboard unreliable. This evolved into making master sensors instead of simply tracking each platform independently. Over time, this has grown into a much more complex integration that now tracks game time, records the last game played, provides cover art, allows for rich notifications through Discord and much, much more.
 
 Some of the key features are listed below.
 
 ## ✨ Features
-* **Unified Master Sensor:** Combines Xbox, PlayStation, Steam, Discord, and Custom PC clients into one clean "Master Status" sensor per person.
+* **Unified Master Sensor:** Combines Xbox, PlayStation, Steam, Discord, Playnite, and Custom PC clients into one clean "Master Status" sensor per person.
 * **Online/Offline Notifications:** Receive Discord, SMS, and/or Mobile notifications when users start or finish playing a game.
 * **Parental Controls:** Track daily playtime and recieve notifications or trigger an automation or script when a limit or curfew is reached.
 * **Discord Rich Presence:** Track hundreds of standalone games, emulators, and Epic/EA/Ubisoft launchers automatically by hooking into Discord's Rich Presence status. Automatically ignores custom text statuses to prevent false positives.
@@ -36,6 +36,7 @@ While not required for functionality, I recommend installing the following HACS 
 * [Gaming Status Cards](https://github.com/adamjthompson/Gaming-Status-Cards) - Easy to use companion dashboard cards, so you don't have to make your own.
 * [ApexCharts Card](https://github.com/RomRider/apexcharts-card) - For the stats and donut graph cards.
 * [Official Discord Integration](https://www.home-assistant.io/integrations/discord) - Requires setting up a Discord Bot. *REQUIRED if you want to use Discord for notifications.*
+* [Mosquitto Broker]() - Needed if you plan to use Playnite sensors for tracking other platforms, emulators, etc.
 * [HASS.Agent](https://www.hass-agent.io/2.2/getting-started/installation/#installing-hassagent) - Allows you to create custom sensors for otherwise untrackable games. Install both the PC app and the integration for Custom PC sensors. *Try using Discord tracking with Lanyard first, if possible.*
 
 ### Obtaining a SteamGridDB API Key
