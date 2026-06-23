@@ -136,7 +136,8 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         except NoURLAvailableError:
             smart_cache_default = False
 
-        smart_platforms = ["discord", "custom", "playnite"]
+        # Start with an empty list so Discord, Custom, and Playnite are unchecked by default
+        smart_platforms = []
         if self.hass.config_entries.async_entries("steam_online"): smart_platforms.append("steam")
         if self.hass.config_entries.async_entries("xbox"): smart_platforms.append("xbox")
         if self.hass.config_entries.async_entries("playstation_network"): smart_platforms.append("playstation")
