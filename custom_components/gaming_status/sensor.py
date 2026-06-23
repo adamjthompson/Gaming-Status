@@ -1039,9 +1039,19 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         
                         # 3. ONLY extract if both are empty
                         art_to_use = self._cached_game_hero or self._cached_game_cover
+                        
+                        # --- ADDED: LOCAL CACHE FAILSAFE FOR COLOR EXTRACTION ---
+                        if not art_to_use:
+                            safe_name_color = re.sub(r'[^a-z0-9]', '_', str(game_name_display).lower())
+                            safe_name_color = re.sub(r'_+', '_', safe_name_color).strip('_')
+                            art_to_use = f"/local/gaming_status_cache/{safe_name_color}_hero.png"
+                        # --------------------------------------------------------
+                        
                         if not self._cached_game_color and art_to_use and "/local/" in art_to_use:
                             local_suffix = art_to_use.split("/local/")[-1]
                             local_path = self.hass.config.path("www", local_suffix)
+                            
+                            # extract_vibrant_color will safely return None if this cached file doesn't actually exist
                             self._cached_game_color = await self.hass.async_add_executor_job(
                                 utils.extract_vibrant_color, local_path
                             )
