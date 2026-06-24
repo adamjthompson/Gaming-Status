@@ -58,7 +58,7 @@
           "xbox": "Xbox sensor",
           "playstation": "PlayStation sensor",
           "discord": "Discord Member",
-          "custom": "Custom / PC sensor",
+          "custom": "Custom sensor",
           "playnite": "Playnite sensor"
         },
         "data_description": {
@@ -79,7 +79,7 @@
           "xbox": "Xbox sensor",
           "playstation": "PlayStation sensor",
           "discord": "Discord Member",
-          "custom": "Custom / PC sensor",
+          "custom": "Custom sensor",
           "playnite": "Playnite sensor",
           "delete_player": "Delete this player"
         },
