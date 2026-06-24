@@ -547,137 +547,47 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 if "(" in clean and clean.endswith(")"): clean = clean.rsplit(" (", 1)[0].strip()
         return self._apply_title_override(clean)
 
-    def _write_common_attributes(self, secondary="", timer_status=None, game_cover=None):
+    async def _async_write_common_attributes(self, secondary="", timer_status=None, game_cover=None):
         if timer_status: self._attr_extra_state_attributes["timer_status"] = timer_status
         self._attr_extra_state_attributes["current_game"] = self._current_game
+        
+        import os
+        import re
         
         # Apply Automatic Local Cache Failsafe (Uniform with Master Sensor)
         safe_game = re.sub(r'[^a-z0-9]', '_', str(self._current_game).lower()) if self._current_game else ""
         safe_game = re.sub(r'_+', '_', safe_game).strip('_')
 
-        cover_fallback = f"/local/gaming_status_cache/{safe_game}_grid.png" if safe_game else None
-        hero_fallback = f"/local/gaming_status_cache/{safe_game}_hero.png" if safe_game else None
-        logo_fallback = f"/local/gaming_status_cache/{safe_game}_logo.png" if safe_game else None
-        icon_fallback = f"/local/gaming_status_cache/{safe_game}_icon.png" if safe_game else None
+        def _check_local_files():
+            """Runs strictly in a background thread to prevent Home Assistant from stalling."""
+            found_files = {}
+            if not safe_game: 
+                return found_files
+                
+            for suffix in ["grid", "hero", "logo", "icon"]:
+                file_name = f"{safe_game}_{suffix}.png"
+                full_path = self.hass.config.path("www", "gaming_status_cache", file_name)
+                
+                if os.path.exists(full_path):
+                    # Append mtime to bust the browser cache if the image is ever replaced
+                    mtime = os.path.getmtime(full_path)
+                    found_files[suffix] = f"/local/gaming_status_cache/{file_name}?v={mtime}"
+                    
+            return found_files
+
+        # Dispatch the blocking I/O safely to the executor pool
+        local_files = await self.hass.async_add_executor_job(_check_local_files)
 
         active_cover = game_cover or self._cached_game_cover
         if not active_cover or "akamaihd.net" in active_cover:
-            active_cover = cover_fallback
+            active_cover = local_files.get("grid")
 
         self._attr_extra_state_attributes["game_cover_art"] = active_cover
-        self._attr_extra_state_attributes["game_hero_art"] = self._cached_game_hero or hero_fallback
-        self._attr_extra_state_attributes["game_logo_art"] = self._cached_game_logo or logo_fallback
-        self._attr_extra_state_attributes["game_icon_art"] = self._cached_game_icon or icon_fallback
+        self._attr_extra_state_attributes["game_hero_art"] = self._cached_game_hero or local_files.get("hero")
+        self._attr_extra_state_attributes["game_logo_art"] = self._cached_game_logo or local_files.get("logo")
+        self._attr_extra_state_attributes["game_icon_art"] = self._cached_game_icon or local_files.get("icon")
         
         self._attr_extra_state_attributes["game_dominant_color"] = self._cached_game_color
-        if self._current_game:
-            override = getattr(utils, "GAME_COLOR_OVERRIDES", {}).get(str(self._current_game).lower())
-            if override:
-                self._attr_extra_state_attributes["game_dominant_color"] = override
-        
-        rolling_breakdown = dict(self._weekly_game_breakdown)
-        rolling_longest = dict(self._longest_session_details)
-        calendar_breakdown = dict(self._weekly_game_breakdown)
-        calendar_longest = dict(self._longest_session_details)
-        
-        now = dt_util.now()
-        local_now = dt_util.as_local(now)
-        current_week = local_now.strftime("%Y-%U")
-        
-        for date_str, day_data in self._play_history.items():
-            if isinstance(day_data, dict):
-                # OPTIMIZATION: Check for pre-calculated string first to avoid CPU-heavy date parsing in the 30s loop
-                calculated_week = day_data.get("week_str")
-                if not calculated_week:
-                    try:
-                        d_obj = datetime.strptime(date_str, "%Y-%m-%d")
-                        calculated_week = d_obj.strftime("%Y-%U")
-                    except Exception:
-                        pass
-
-                for g, secs in day_data.get("game_breakdown", {}).items():
-                    rolling_breakdown[g] = rolling_breakdown.get(g, 0) + secs
-                hist_longest = day_data.get("longest_session", {})
-                if hist_longest.get("duration", 0) > rolling_longest.get("duration", 0):
-                    rolling_longest = dict(hist_longest)
-                    
-                if calculated_week == current_week:
-                    for g, secs in day_data.get("game_breakdown", {}).items():
-                        calendar_breakdown[g] = calendar_breakdown.get(g, 0) + secs
-                    if hist_longest.get("duration", 0) > calendar_longest.get("duration", 0):
-                        calendar_longest = dict(hist_longest)
-
-        self._attr_extra_state_attributes["rolling_weekly_breakdown"] = rolling_breakdown
-        self._attr_extra_state_attributes["rolling_longest_session"] = rolling_longest
-        self._attr_extra_state_attributes["calendar_weekly_breakdown"] = calendar_breakdown
-        self._attr_extra_state_attributes["calendar_longest_session"] = calendar_longest
-        
-        self._attr_extra_state_attributes["weekly_game_breakdown"] = rolling_breakdown
-        self._attr_extra_state_attributes["longest_session_details"] = rolling_longest
-        
-        self._attr_extra_state_attributes["daily_play_time"] = self._daily_play_time
-        self._attr_extra_state_attributes["daily_play_time_formatted"] = _format_time(self._daily_play_time)
-        self._attr_extra_state_attributes["weekly_play_time"] = self._weekly_play_time
-        self._attr_extra_state_attributes["weekly_play_time_formatted"] = _format_time(self._weekly_play_time)
-        self._attr_extra_state_attributes["weekly_play_time_last_week"] = self._weekly_play_time_last_week
-        
-        live_avatar = self._local_avatar_path
-        remote_avatar = None
-        
-        if not live_avatar:
-            if self._gaming_type == "xbox":
-                if self._avatar_entity_id:
-                    xbox_img = self.hass.states.get(self._avatar_entity_id)
-                    if xbox_img and xbox_img.attributes.get("entity_picture"):
-                        remote_avatar = xbox_img.attributes.get("entity_picture")
-                if not remote_avatar:
-                    gamertag = _get_gamertag_from_entity(self._source_entity_id, "xbox")
-                    if gamertag:
-                        safe_tag = gamertag.lower().replace(" ", "_")
-                        xbox_img = self.hass.states.get(f"image.{safe_tag}_gamerpic")
-                        if xbox_img and xbox_img.attributes.get("entity_picture"):
-                            remote_avatar = xbox_img.attributes.get("entity_picture")
-            elif self._gaming_type == "playstation":
-                if self._avatar_entity_id:
-                    ps_img = self.hass.states.get(self._avatar_entity_id)
-                    if ps_img and ps_img.attributes.get("entity_picture"):
-                        remote_avatar = ps_img.attributes.get("entity_picture")
-                if not remote_avatar:
-                    try:
-                        object_id = self._source_entity_id.split('.')[1]
-                        if object_id.endswith("_online_status"):
-                            gamertag = object_id[:-14]
-                            ps_img = self.hass.states.get(f"image.{gamertag}_avatar")
-                            if ps_img and ps_img.attributes.get("entity_picture"):
-                                remote_avatar = ps_img.attributes.get("entity_picture")
-                    except Exception: pass
-            elif self._gaming_type == "steam":
-                state = self.hass.states.get(self._source_entity_id)
-                if state:
-                    remote_avatar = state.attributes.get("entity_picture")
-
-            if remote_avatar and remote_avatar.startswith("http"):
-                safe_name = re.sub(r'[^a-z0-9_]', '', self._owner_name.lower().replace(" ", "_"))
-                ext = remote_avatar.split('.')[-1].split('?')[0]
-                if len(ext) > 4 or not ext.isalnum(): 
-                    ext = "jpg"
-                cache_name = f"{self._gaming_type}_{safe_name}_avatar.{ext}"
-                self.hass.async_create_task(self._process_avatar_cache(remote_avatar, cache_name))
-                live_avatar = f"/local/gaming_status_cache/{cache_name}"
-            elif remote_avatar:
-                live_avatar = remote_avatar
-
-        if live_avatar: self._attr_entity_picture = live_avatar
-        self._attr_extra_state_attributes["entity_picture"] = self._attr_entity_picture
-        if self._last_online_valid_timestamp: self._attr_extra_state_attributes["last_online_valid_timestamp"] = str(self._last_online_valid_timestamp)
-        now = dt_util.now()
-        self._last_update_dt = now
-        total_rolling = self._cached_history_seconds + self._daily_play_time
-        self._attr_extra_state_attributes["rolling_weekly_hours"] = round(total_rolling / 3600, 2)
-        self._attr_extra_state_attributes["last_played_game"] = self._last_played_game
-        self._attr_extra_state_attributes["play_start_time"] = self._play_start_time
-        self._attr_extra_state_attributes["cached_game_cover"] = self._cached_game_cover
-        self._attr_extra_state_attributes["secondary"] = secondary
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
@@ -961,7 +871,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         else: secondary = f"Last seen {time_ago}"
                     else: secondary = "Offline"
                 else: secondary = "Offline"
-            self._write_common_attributes(secondary, timer_status=timer_status)
+            await self._async_write_common_attributes(secondary, timer_status=timer_status)
             if was_offline and timer_status == "Stopped (Offline)" and self._daily_play_time == old_daily and secondary == old_secondary: return
             self.async_write_ha_state()
         except Exception as e: _LOGGER.error("Error in _update_play_time for %s: %s", self.entity_id, e)
@@ -1069,7 +979,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         local_path = None
                         current_mtime = 0
                         if art_to_use and "/local/" in art_to_use:
-                            local_suffix = art_to_use.split("/local/")[-1]
+                            # Strip the ?v= timestamp cache-buster so the OS can find the actual file
+                            local_suffix = art_to_use.split("/local/")[-1].split("?")[0]
                             local_path = self.hass.config.path("www", local_suffix)
                             try:
                                 def _get_mtime():
@@ -1172,7 +1083,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             entity_pic = self._local_avatar_path
             if not entity_pic and platform_data.get("avatar_url"): entity_pic = platform_data.get("avatar_url")
             self._attr_entity_picture = entity_pic
-            self._write_common_attributes(secondary, game_cover=game_cover)
+            await self._async_write_common_attributes(secondary, game_cover=game_cover)
             self.async_write_ha_state()
         except Exception as e: _LOGGER.error("Error in _unified_update for %s: %s", self.entity_id, e)
 
@@ -1386,26 +1297,13 @@ class MasterGamingSensor(RestoreSensor):
             platform_key = self._platform_sensors.get(active_sensor_id, "gaming")
             pretty_platform_name = PLATFORM_CONFIG.get(platform_key, {}).get("name_suffix", platform_key.title())
             
-            # --- AUTOMATIC LOCAL CACHE FAILSAFE (ACTIVE) ---
-            import re
-            safe_game = re.sub(r'[^a-z0-9]', '_', str(active_state.state).lower())
-            safe_game = re.sub(r'_+', '_', safe_game).strip('_')
-            
-            hero = active_state.attributes.get("game_hero_art") or f"/local/gaming_status_cache/{safe_game}_hero.png"
-            logo = active_state.attributes.get("game_logo_art") or f"/local/gaming_status_cache/{safe_game}_logo.png"
-            icon = active_state.attributes.get("game_icon_art") or f"/local/gaming_status_cache/{safe_game}_icon.png"
-            
-            cover = active_state.attributes.get("game_cover_art")
-            if not cover or "akamaihd.net" in cover: 
-                cover = f"/local/gaming_status_cache/{safe_game}_grid.png"
-
             new_attrs = {
                 "secondary": active_state.attributes.get("secondary", ""),
                 "active_platform": pretty_platform_name, 
-                "game_cover_art": cover,
-                "game_hero_art": hero,
-                "game_logo_art": logo,
-                "game_icon_art": icon,
+                "game_cover_art": active_state.attributes.get("game_cover_art"),
+                "game_hero_art": active_state.attributes.get("game_hero_art"),
+                "game_logo_art": active_state.attributes.get("game_logo_art"),
+                "game_icon_art": active_state.attributes.get("game_icon_art"),
                 "game_dominant_color": active_state.attributes.get("game_dominant_color"),
                 "current_game": active_state.attributes.get("current_game"),
                 "play_start_time": active_state.attributes.get("play_start_time"),
@@ -1432,27 +1330,13 @@ class MasterGamingSensor(RestoreSensor):
                 pretty_name = PLATFORM_CONFIG.get(most_recent_key, {}).get("name_suffix", "Gaming")
                 new_entity_picture = most_recent_sensor.attributes.get("entity_picture")
                 
-                # --- AUTOMATIC LOCAL CACHE FAILSAFE (OFFLINE/RECENT) ---
-                import re
-                last_played = most_recent_sensor.attributes.get("last_played_game", "")
-                safe_game = re.sub(r'[^a-z0-9]', '_', str(last_played).lower())
-                safe_game = re.sub(r'_+', '_', safe_game).strip('_')
-                
-                hero = most_recent_sensor.attributes.get("game_hero_art") or f"/local/gaming_status_cache/{safe_game}_hero.png"
-                logo = most_recent_sensor.attributes.get("game_logo_art") or f"/local/gaming_status_cache/{safe_game}_logo.png"
-                icon = most_recent_sensor.attributes.get("game_icon_art") or f"/local/gaming_status_cache/{safe_game}_icon.png"
-                
-                cover = most_recent_sensor.attributes.get("game_cover_art")
-                if not cover or "akamaihd.net" in cover: 
-                    cover = f"/local/gaming_status_cache/{safe_game}_grid.png"
-
                 new_attrs = {
                     "secondary": most_recent_sensor.attributes.get("secondary", "Offline"),
                     "active_platform": pretty_name,
-                    "game_cover_art": cover,
-                    "game_hero_art": hero,
-                    "game_logo_art": logo,
-                    "game_icon_art": icon,
+                    "game_cover_art": most_recent_sensor.attributes.get("game_cover_art"),
+                    "game_hero_art": most_recent_sensor.attributes.get("game_hero_art"),
+                    "game_logo_art": most_recent_sensor.attributes.get("game_logo_art"),
+                    "game_icon_art": most_recent_sensor.attributes.get("game_icon_art"),
                     "game_dominant_color": most_recent_sensor.attributes.get("game_dominant_color"),
                     "last_played_game": most_recent_sensor.attributes.get("last_played_game"),
                     "last_online_valid_timestamp": most_recent_sensor.attributes.get("last_online_valid_timestamp"),
@@ -1687,26 +1571,13 @@ class PCGamingSensor(RestoreSensor):
             self._attr_icon = PLATFORM_CONFIG.get(winning_platform, {}).get("icon", "mdi:monitor")
             pretty_platform_name = PLATFORM_CONFIG.get(winning_platform, {}).get("name_suffix", winning_platform.title())
             
-            # AUTOMATIC LOCAL CACHE FAILSAFE
-            import re
-            safe_game = re.sub(r'[^a-z0-9]', '_', active_state.state.lower())
-            safe_game = re.sub(r'_+', '_', safe_game).strip('_')
-            
-            hero = active_state.attributes.get("game_hero_art") or f"/local/gaming_status_cache/{safe_game}_hero.png"
-            logo = active_state.attributes.get("game_logo_art") or f"/local/gaming_status_cache/{safe_game}_logo.png"
-            icon = active_state.attributes.get("game_icon_art") or f"/local/gaming_status_cache/{safe_game}_icon.png"
-            
-            cover = active_state.attributes.get("game_cover_art")
-            if not cover or "akamaihd.net" in cover: 
-                cover = f"/local/gaming_status_cache/{safe_game}_grid.png"
-
             self._attr_extra_state_attributes = {
                 "secondary": active_state.attributes.get("secondary", ""),
                 "active_platform": pretty_platform_name,
-                "game_cover_art": cover,
-                "game_hero_art": hero,
-                "game_logo_art": logo,
-                "game_icon_art": icon,
+                "game_cover_art": active_state.attributes.get("game_cover_art"),
+                "game_hero_art": active_state.attributes.get("game_hero_art"),
+                "game_logo_art": active_state.attributes.get("game_logo_art"),
+                "game_icon_art": active_state.attributes.get("game_icon_art"),
                 "game_dominant_color": active_state.attributes.get("game_dominant_color"),
                 "current_game": active_state.attributes.get("current_game"),
                 "last_played_game": active_state.attributes.get("last_played_game"),
@@ -1723,27 +1594,13 @@ class PCGamingSensor(RestoreSensor):
                 pretty_platform_name = PLATFORM_CONFIG.get(winning_platform, {}).get("name_suffix", winning_platform.title())
                 self._attr_icon = PLATFORM_CONFIG.get(winning_platform, {}).get("icon", "mdi:monitor")
                 
-                # --- AUTOMATIC LOCAL CACHE FAILSAFE (OFFLINE/RECENT) ---
-                import re
-                last_played = most_recent_state.attributes.get("last_played_game", "")
-                safe_game = re.sub(r'[^a-z0-9]', '_', str(last_played).lower())
-                safe_game = re.sub(r'_+', '_', safe_game).strip('_')
-                
-                hero = most_recent_state.attributes.get("game_hero_art") or f"/local/gaming_status_cache/{safe_game}_hero.png"
-                logo = most_recent_state.attributes.get("game_logo_art") or f"/local/gaming_status_cache/{safe_game}_logo.png"
-                icon = most_recent_state.attributes.get("game_icon_art") or f"/local/gaming_status_cache/{safe_game}_icon.png"
-                
-                cover = most_recent_state.attributes.get("game_cover_art")
-                if not cover or "akamaihd.net" in cover: 
-                    cover = f"/local/gaming_status_cache/{safe_game}_grid.png"
-
                 self._attr_extra_state_attributes = {
                     "secondary": most_recent_state.attributes.get("secondary", "Offline"),
                     "active_platform": pretty_platform_name,
-                    "game_cover_art": cover,
-                    "game_hero_art": hero,
-                    "game_logo_art": logo,
-                    "game_icon_art": icon,
+                    "game_cover_art": most_recent_state.attributes.get("game_cover_art"),
+                    "game_hero_art": most_recent_state.attributes.get("game_hero_art"),
+                    "game_logo_art": most_recent_state.attributes.get("game_logo_art"),
+                    "game_icon_art": most_recent_state.attributes.get("game_icon_art"),
                     "game_dominant_color": most_recent_state.attributes.get("game_dominant_color"),
                     "last_online_valid_timestamp": most_recent_state.attributes.get("last_online_valid_timestamp"),
                     "last_played_game": most_recent_state.attributes.get("last_played_game"),
