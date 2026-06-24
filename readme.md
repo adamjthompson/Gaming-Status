@@ -208,6 +208,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | game_hero_art | URL of hero art, either local or SteamGridDB |
 | game_logo_art | URL of logo art, either local or SteamGridDB |
 | game_icon_art | URL of icon art, either local or SteamGridDB |
+| game_dominant_color | The automatically extracted vibrant hex color from the game's artwork, or a manually assigned color |
 | current_game | Inherited from the most active underlying platform tracker |
 | play_start_time | Inherited from the most active underlying platform tracker |
 | last_played_game | Title of the most recent game detected across all tracked platforms |
@@ -231,6 +232,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | game_hero_art | URL of hero art, either local or SteamGridDB |
 | game_logo_art | URL of logo art, either local or SteamGridDB |
 | game_icon_art | URL of icon art, either local or SteamGridDB |
+| game_dominant_color | The automatically extracted vibrant hex color from the game's artwork, or a manually assigned color |
 
 **Rich Tracking & Analytics**
 | Attribute | Description |
