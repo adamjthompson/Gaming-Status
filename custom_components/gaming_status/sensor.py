@@ -547,7 +547,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 if "(" in clean and clean.endswith(")"): clean = clean.rsplit(" (", 1)[0].strip()
         return self._apply_title_override(clean)
 
-    async def _async_write_common_attributes(self, secondary="", timer_status=None, game_cover=None):
+    def _write_common_attributes(self, secondary="", timer_status=None, game_cover=None):
         if timer_status: self._attr_extra_state_attributes["timer_status"] = timer_status
         self._attr_extra_state_attributes["current_game"] = self._current_game
         
@@ -558,34 +558,30 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         safe_game = re.sub(r'[^a-z0-9]', '_', str(self._current_game).lower()) if self._current_game else ""
         safe_game = re.sub(r'_+', '_', safe_game).strip('_')
 
-        def _check_local_files():
-            """Runs strictly in a background thread to prevent Home Assistant from stalling."""
-            found_files = {}
-            if not safe_game: 
-                return found_files
-                
-            for suffix in ["grid", "hero", "logo", "icon"]:
-                file_name = f"{safe_game}_{suffix}.png"
-                full_path = self.hass.config.path("www", "gaming_status_cache", file_name)
-                
-                if os.path.exists(full_path):
-                    # Append mtime to bust the browser cache if the image is ever replaced
-                    mtime = os.path.getmtime(full_path)
-                    found_files[suffix] = f"/local/gaming_status_cache/{file_name}?v={mtime}"
-                    
-            return found_files
+        def _get_local_fallback(suffix):
+            if not safe_game: return None
+            # PREVENT 404s: Only return the path if the background download has actually finished!
+            file_name = f"{safe_game}_{suffix}.png"
+            full_path = self.hass.config.path("www", "gaming_status_cache", file_name)
+            if os.path.exists(full_path):
+                # Append mtime to bust the browser cache if the image is ever replaced
+                mtime = os.path.getmtime(full_path)
+                return f"/local/gaming_status_cache/{file_name}?v={mtime}"
+            return None
 
-        # Dispatch the blocking I/O safely to the executor pool
-        local_files = await self.hass.async_add_executor_job(_check_local_files)
+        cover_fallback = _get_local_fallback("grid")
+        hero_fallback = _get_local_fallback("hero")
+        logo_fallback = _get_local_fallback("logo")
+        icon_fallback = _get_local_fallback("icon")
 
         active_cover = game_cover or self._cached_game_cover
         if not active_cover or "akamaihd.net" in active_cover:
-            active_cover = local_files.get("grid")
+            active_cover = cover_fallback
 
         self._attr_extra_state_attributes["game_cover_art"] = active_cover
-        self._attr_extra_state_attributes["game_hero_art"] = self._cached_game_hero or local_files.get("hero")
-        self._attr_extra_state_attributes["game_logo_art"] = self._cached_game_logo or local_files.get("logo")
-        self._attr_extra_state_attributes["game_icon_art"] = self._cached_game_icon or local_files.get("icon")
+        self._attr_extra_state_attributes["game_hero_art"] = self._cached_game_hero or hero_fallback
+        self._attr_extra_state_attributes["game_logo_art"] = self._cached_game_logo or logo_fallback
+        self._attr_extra_state_attributes["game_icon_art"] = self._cached_game_icon or icon_fallback
         
         self._attr_extra_state_attributes["game_dominant_color"] = self._cached_game_color
 
@@ -871,7 +867,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         else: secondary = f"Last seen {time_ago}"
                     else: secondary = "Offline"
                 else: secondary = "Offline"
-            await self._async_write_common_attributes(secondary, timer_status=timer_status)
+            self._write_common_attributes(secondary, timer_status=timer_status)
             if was_offline and timer_status == "Stopped (Offline)" and self._daily_play_time == old_daily and secondary == old_secondary: return
             self.async_write_ha_state()
         except Exception as e: _LOGGER.error("Error in _update_play_time for %s: %s", self.entity_id, e)
@@ -1083,7 +1079,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             entity_pic = self._local_avatar_path
             if not entity_pic and platform_data.get("avatar_url"): entity_pic = platform_data.get("avatar_url")
             self._attr_entity_picture = entity_pic
-            await self._async_write_common_attributes(secondary, game_cover=game_cover)
+            self._write_common_attributes(secondary, game_cover=game_cover)
             self.async_write_ha_state()
         except Exception as e: _LOGGER.error("Error in _unified_update for %s: %s", self.entity_id, e)
 
