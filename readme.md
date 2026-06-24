@@ -36,7 +36,7 @@ While not required for functionality, I recommend installing the following HACS 
 * [Gaming Status Cards](https://github.com/adamjthompson/Gaming-Status-Cards) - Easy to use companion dashboard cards, so you don't have to make your own.
 * [ApexCharts Card](https://github.com/RomRider/apexcharts-card) - For the stats and donut graph cards.
 * [Official Discord Integration](https://www.home-assistant.io/integrations/discord) - Requires setting up a Discord Bot. *REQUIRED if you want to use Discord for notifications.*
-* [Mosquitto Broker]() - Needed if you plan to use Playnite sensors for tracking other platforms, emulators, etc.
+* [Mosquitto Broker](https://github.com/home-assistant/addons/tree/master/mosquitto) - Required if you plan to use Playnite for tracking games. You will also need an MQTT add-on installed in Playnite (such as [Playnite MQTT Client](https://playnite.link/addons.html#MQTTClient_90c44048-4f8f-43f7-a0c1-f8164bf1d7ef)) to broadcast your status to Home Assistant.
 * [HASS.Agent](https://www.hass-agent.io/2.2/getting-started/installation/#installing-hassagent) - Allows you to create custom sensors for otherwise untrackable games. Install both the PC app and the integration for Custom PC sensors. *Try using Discord tracking with Lanyard first, if possible.*
 
 ### Obtaining a SteamGridDB API Key
@@ -52,7 +52,9 @@ To display beautiful, high-resolution game covers on your dashboard, this integr
 ## 📥 Installation
 
 **Method 1: HACS (Recommended)**
-Installation is easiest via the [Home Assistant Community Store (HACS)](https://hacs.xyz/), which is the best place to get third-party integrations for Home Assistant. Once you have HACS set up, simply click the button below (requires My Homeassistant configured) or follow the [instructions for adding a custom repository](https://hacs.xyz/docs/faq/custom_repositories) and then the integration will be available to install like any other.
+Installation is easiest via the [Home Assistant Community Store (HACS)](https://hacs.xyz/). Gaming Status is a default repository in HACS, so you do not need to add any custom links! 
+
+Simply click the button below (requires My Home Assistant configured) to open the download page directly, or search for "Gaming Status" in HACS.
 
 [![Open HACS Repository](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=adamjthompson&repository=Gaming-Status&category=integration)
 
@@ -78,7 +80,7 @@ To configure your players, notifications, and rules, click the **Configure** but
 
 #### 1. Manage Players
 Add, edit, or delete the gamers in your household.
-* **Platform Sensors:** When adding a player, you simply select their respective integration sensors from the dropdowns. The integration will automatically filter your entities to show the correct Steam, Xbox (`_status`), PlayStation (`_online_status`), and Discord (`sensor.discord_user`) sensors. *(Note: To remove a previously assigned sensor, simply click the 'X' to clear the entity dropdown and click Submit. The integration will safely save the empty state and stop tracking that platform).*
+* **Platform Sensors:** When adding a player, you simply select their respective integration sensors from the dropdowns. The integration will automatically filter your entities to show the correct Steam (`sensor.steam_*`), Xbox (`sensor.*_status`), PlayStation (`sensor.*_online_status`), and Playnite (MQTT `binary_sensor.*_playnite_playing_game`) entities. *(Note: To remove a previously assigned sensor, simply click the 'X' to clear the entity dropdown and click Submit. The integration will safely save the empty state and stop tracking that platform).*
 * **Player Details:** After adding a player, you can configure:
   * **Session Notifications:** Select notification methods for when this specific player starts or stops gaming. *Note: These must be configured under Notifications.*
   * **Ghosted-by:** Enter comma-separated entity IDs (e.g., `sensor.gaming_status_player_two_steam`) for sensors that should take priority over this user's Xbox sensor.
@@ -112,7 +114,7 @@ Update your API keys and fine-tune text processing rules.
 
 #### 6. Global Settings
 These variables control how the integration handles platforms, caching, and network drops across all players.
-* **Enabled Platforms:** Select which gaming platforms to track (Steam, Xbox, PlayStation, Discord, Custom).
+* **Enabled Platforms:** Select which gaming platforms to track (Steam, Xbox, PlayStation, Discord, Playnite, and Custom).
 * **Master Toggles:** Enable or disable the Notifications and Parental Controls configuration hubs.
 * **Cache Settings:** Toggle local image caching, automatic vibrant color extraction, and configure background cleanup limits (Max Files & Max Days).
 * **Grace Periods (Network / Away / Transition):** Configure exactly how long the integration waits during network drops, idle statuses, or game switches before ending a session.
@@ -121,7 +123,7 @@ These variables control how the integration handles platforms, caching, and netw
 * **Remove Disabled Sensors:** Automatically deletes orphaned sensors from the registry if their platform is un-checked from the Enabled Platforms list.
 
 #### 7. PC Tracking & Discord Setup
-To provide the most accurate PC tracking possible, this integration can monitor Steam, Discord, and Custom clients simultaneously and output the result as one "PC" sensor. 
+To provide the most accurate PC tracking possible, this integration can monitor Steam, Discord, Playnite, and Custom clients simultaneously and output the result as one "PC" sensor. 
 
 **Setting up Discord Tracking:**
 Because Home Assistant does not natively track Rich Presence, this integration features a built-in Discord tracker. To use it, you must create a bot in the Developer Portal to read your server's statuses.
@@ -136,10 +138,18 @@ Because Home Assistant does not natively track Rich Presence, this integration f
 9. Finally, in Home Assistant, add the **Gaming Status** integration (or go to the Advanced menu if already installed) and make sure **Discord** is checked in the platforms list. Paste your Bot Token and Server ID. The integration will automatically fetch a list of your server members so you can easily assign them to your players from a dropdown menu!
 10. *Smart Application ID Filtering:* Once set up, the integration automatically ignores custom text statuses (like 'Eating dinner' or listening to Spotify). It strictly requires a verified Discord `application_id` to trigger, guaranteeing only legitimate gaming sessions are captured.
 
-**The PC Sub-Master Priority Logic:**
-If a player launches a game, it is very common for both Discord and Steam to track it simultaneously. To prevent double-counting your playtime hours and sending duplicate push notifications, the `sensor.gaming_status_XXXXX_pc` sensor uses strict **Smart Platform Yielding**. 
+**Setting up Playnite Tracking:**
+Playnite is an incredible open-source library manager that can track games across almost any PC launcher or emulator. To link it to Gaming Status, it utilizes MQTT.
+1. Ensure you have an MQTT Broker (like Mosquitto) installed and configured in Home Assistant.
+2. Open Playnite on your PC, navigate to the Add-ons menu, and install an MQTT broadcasting add-on (e.g., *MQTT Client*).
+3. Configure the add-on in Playnite with your Home Assistant MQTT broker IP address, username, and password.
+5. In Home Assistant, ensure the MQTT integration detects and creates this binary sensor.
+6. Go to the Gaming Status configuration, select Playnite as an Enabled Platform, and assign that new `binary_sensor` to your player! *By default, it may be named `binary_sensor.desktop_playnite_playnite_playing_game`.*
 
-Platforms are prioritized in this exact order: **Custom > Steam > Discord**.
+**The PC Sub-Master Priority Logic:**
+If a player launches a game, it is very common for multiple trackers (like Discord, Playnite, and Steam) to detect it simultaneously. To prevent double-counting your playtime hours and sending duplicate push notifications, the `sensor.gaming_status_XXXXX_pc` sensor uses strict **Smart Platform Yielding**. 
+
+Platforms are prioritized in this exact order: **Custom > Steam > Playnite > Discord**.
 * *Example:* If a player launches a Steam game, Discord will likely detect it first and claim the dashboard. Seconds later, when Steam wakes up and detects the same game, Discord will instantly pause its timer and yield control to Steam. 
 * *Result:* You get the lightning-fast notifications of Discord, but the pristine, deduplicated analytics of Steam!
 
@@ -152,8 +162,10 @@ Upon restart, the integration will instantly read your settings and generate the
 | sensor.gaming_status_XXXXX_steam | Sensor | Steam sensor for each added profile |
 | sensor.gaming_status_XXXXX_xbox | Sensor | Xbox sensor for each added profile |
 | sensor.gaming_status_XXXXX_playstation | Sensor | PlayStation sensor for each added profile |
-| sensor.gaming_status_XXXXX_discord | Sensor | Discord sensor powered by Lanyard for each added profile |
-| sensor.gaming_status_XXXXX_pc | Sensor | Sub-master sensor that automatically aggregates Steam, Discord, and Custom PC clients into a single unified PC state |
+| sensor.gaming_status_XXXXX_discord | Sensor | Discord sensor for each added profile |
+| sensor.gaming_status_XXXXX_playnite | Sensor | Playnite sensor for each added profile |
+| sensor.gaming_status_XXXXX_custom | Sensor | Custom sensor for each added profile |
+| sensor.gaming_status_XXXXX_pc | Sensor | Sub-master sensor that automatically aggregates Steam, Discord, Playnite, and Custom PC clients into a single unified PC state |
 | sensor.gaming_status_XXXXX_master | Sensor | Master sensor for each added profile that combines all added platforms into one "Online/Offline" status |
 | sensor.gaming_status_XXXXX_chart | Sensor | Daily game time mapped to the Long-Term Statistics database (Total Increasing) |
 | sensor.gaming_status_players_online | Sensor | Global sensor that tracks the total number of players currently online |

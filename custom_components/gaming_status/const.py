@@ -49,8 +49,7 @@ PLATFORM_CONFIG = {
     },
 }
 
-PLATFORM_PRIORITY = ["steam", "xbox", "playstation", "custom", "discord", "playnite"]
-PLAYER_PLATFORMS = ["steam", "xbox", "playstation", "custom", "discord", "playnite"]
+PLATFORM_PRIORITY = ["custom", "steam", "xbox", "playstation", "playnite", "discord"]PLAYER_PLATFORMS = ["custom", "steam", "xbox", "playstation", "playnite", "discord"]
 
 # ---------------------------------------------------------------------------
 # Menu option identifiers

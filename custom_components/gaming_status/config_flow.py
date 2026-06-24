@@ -1016,11 +1016,19 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             
             try:
                 registry = er.async_get(self.hass)
+                # Step 1: Run the strict suffix filter as normal
                 for entry in registry.entities.values():
                     if entry.domain == "sensor" and entry.platform == integration:
                         if suffix and not entry.entity_id.endswith(suffix):
                             continue
                         options.append(entry.entity_id)
+                
+                # Step 2: Safety Net. If strict filtering left us completely empty, 
+                # remove the restriction and pull all sensors for this integration.
+                if suffix and not options:
+                    for entry in registry.entities.values():
+                        if entry.domain == "sensor" and entry.platform == integration:
+                            options.append(entry.entity_id)
             except Exception:
                 pass
 
