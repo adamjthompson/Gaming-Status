@@ -551,10 +551,23 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         if timer_status: self._attr_extra_state_attributes["timer_status"] = timer_status
         self._attr_extra_state_attributes["current_game"] = self._current_game
         
-        self._attr_extra_state_attributes["game_cover_art"] = game_cover or self._cached_game_cover
-        self._attr_extra_state_attributes["game_hero_art"] = self._cached_game_hero
-        self._attr_extra_state_attributes["game_logo_art"] = self._cached_game_logo
-        self._attr_extra_state_attributes["game_icon_art"] = self._cached_game_icon
+        # Apply Automatic Local Cache Failsafe (Uniform with Master Sensor)
+        safe_game = re.sub(r'[^a-z0-9]', '_', str(self._current_game).lower()) if self._current_game else ""
+        safe_game = re.sub(r'_+', '_', safe_game).strip('_')
+
+        cover_fallback = f"/local/gaming_status_cache/{safe_game}_grid.png" if safe_game else None
+        hero_fallback = f"/local/gaming_status_cache/{safe_game}_hero.png" if safe_game else None
+        logo_fallback = f"/local/gaming_status_cache/{safe_game}_logo.png" if safe_game else None
+        icon_fallback = f"/local/gaming_status_cache/{safe_game}_icon.png" if safe_game else None
+
+        active_cover = game_cover or self._cached_game_cover
+        if not active_cover or "akamaihd.net" in active_cover:
+            active_cover = cover_fallback
+
+        self._attr_extra_state_attributes["game_cover_art"] = active_cover
+        self._attr_extra_state_attributes["game_hero_art"] = self._cached_game_hero or hero_fallback
+        self._attr_extra_state_attributes["game_logo_art"] = self._cached_game_logo or logo_fallback
+        self._attr_extra_state_attributes["game_icon_art"] = self._cached_game_icon or icon_fallback
         
         self._attr_extra_state_attributes["game_dominant_color"] = self._cached_game_color
         if self._current_game:

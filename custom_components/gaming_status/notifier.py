@@ -415,7 +415,12 @@ class GamingNotifier:
                     
                     # If the API successfully populated custom art (not just the fallback Akamai link), stop waiting!
                     art_check = refreshed_state.attributes.get("game_hero_art") or refreshed_state.attributes.get("game_cover_art")
+                    color_check = refreshed_state.attributes.get("game_dominant_color")
+                    
                     if art_check and "akamaihd.net" not in art_check:
+                        # If Discord is set to Game Color, wait an extra tick for the extraction algorithm to finish!
+                        if self._cached_discord_colors.get("mode") == "game" and not color_check:
+                            continue
                         break
                 else:
                     return # The game was closed instantly, abort notification
