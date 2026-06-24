@@ -1161,7 +1161,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     async def _cleanup_player_entities(self, player_name: str, platforms: list | None = None):
         """Forcefully remove entities from the registry when a player or platform is removed."""
         registry = er.async_get(self.hass)
-        safe_owner = player_name.lower().replace(" ", "_")
+        safe_owner = re.sub(r'[^a-z0-9_]', '_', player_name.lower().replace(" ", "_"))
         
         # If no specific platforms provided, remove ALL sensors for this player
         platforms_to_clean = platforms if platforms else ["steam", "xbox", "playstation", "discord", "custom", "master", "chart", "pc"]

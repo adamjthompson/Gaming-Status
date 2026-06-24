@@ -137,7 +137,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         
         config = PLATFORM_CONFIG[gaming_type]
         self._attr_icon = config["icon"]
-        safe_owner = self._owner_name.lower().replace(" ", "_")
+        safe_owner = re.sub(r'[^a-z0-9_]', '_', self._owner_name.lower().replace(" ", "_"))
         
         self._store = Store(hass, 1, f"gaming_status.{safe_owner}_{gaming_type}_history")
         
@@ -716,10 +716,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 _raw_color = None
             self._cached_game_color = _raw_color
             raw_color_history = stored_data.get("color_history_cache", {})
-            self._color_history_cache = {
-                k: v for k, v in raw_color_history.items()
-                if v and re.match(r'^#[0-9A-Fa-f]{6}$', str(v))
-            }
+            self._color_history_cache = {}
+            for k, v in raw_color_history.items():
+                if isinstance(v, dict) and "color" in v and re.match(r'^#[0-9A-Fa-f]{6}$', str(v["color"])):
+                    self._color_history_cache[k] = v
+                elif isinstance(v, str) and re.match(r'^#[0-9A-Fa-f]{6}$', str(v)):
+                    # Backwards compatibility for the old string-based cache
+                    self._color_history_cache[k] = {"color": v, "timestamp": 0}
         else:
             self._play_history = {}
             self._color_history_cache = {}
@@ -1038,36 +1041,63 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         override = getattr(utils, "GAME_COLOR_OVERRIDES", {}).get(str(game_name_display).lower())
                         if override:
                             self._cached_game_color = override
-                        # 2. Check the Internal Cache SECOND
-                        elif not self._cached_game_color and game_name_display in self._color_history_cache:
-                            self._cached_game_color = self._color_history_cache[game_name_display]
+                        
+                        # Prepare the local path early so we can check its OS timestamp
+                        art_to_use = self._cached_game_hero or self._cached_game_cover
+                        if not art_to_use:
+                            safe_name_color = re.sub(r'[^a-z0-9]', '_', str(game_name_display).lower())
+                            safe_name_color = re.sub(r'_+', '_', safe_name_color).strip('_')
+                            art_to_use = f"/local/gaming_status_cache/{safe_name_color}_hero.png"
+                        elif art_to_use.startswith("http"):
+                            safe_name_color = re.sub(r'[^a-z0-9]', '_', str(game_name_display).lower())
+                            safe_name_color = re.sub(r'_+', '_', safe_name_color).strip('_')
+                            art_to_use = f"/local/gaming_status_cache/{safe_name_color}_{'hero' if self._cached_game_hero else 'grid'}.png"
+
+                        local_path = None
+                        current_mtime = 0
+                        if art_to_use and "/local/" in art_to_use:
+                            local_suffix = art_to_use.split("/local/")[-1]
+                            local_path = self.hass.config.path("www", local_suffix)
+                            try:
+                                def _get_mtime():
+                                    return os.path.getmtime(local_path) if os.path.exists(local_path) else 0
+                                current_mtime = await self.hass.async_add_executor_job(_get_mtime)
+                            except Exception:
+                                pass
+
+                        # 2. Check the Internal Cache SECOND (with Timestamp Awareness)
+                        if not self._cached_game_color and game_name_display in self._color_history_cache:
+                            cached_data = self._color_history_cache[game_name_display]
+                            
+                            if isinstance(cached_data, dict):
+                                cached_color = cached_data.get("color")
+                                cached_time = cached_data.get("timestamp", 0)
+                            else:
+                                cached_color = cached_data
+                                cached_time = 0
+                                
+                            # If the physical file is newer than our cache, bypass to force re-extraction
+                            if current_mtime > 0 and current_mtime > cached_time:
+                                pass 
+                            else:
+                                self._cached_game_color = cached_color
                         
                         # 3. ONLY extract if both are empty
-                        art_to_use = self._cached_game_hero or self._cached_game_cover
-                        
-                        if not self._cached_game_color and art_to_use:
-                            # If it's a web URL, we know it was JUST fetched and cached locally.
-                            # Dynamically point the scanner to the freshly saved local file!
-                            if art_to_use.startswith("http"):
-                                safe_name_color = re.sub(r'[^a-z0-9]', '_', str(game_name_display).lower())
-                                safe_name_color = re.sub(r'_+', '_', safe_name_color).strip('_')
-                                art_to_use = f"/local/gaming_status_cache/{safe_name_color}_{'hero' if self._cached_game_hero else 'grid'}.png"
-
-                            if "/local/" in art_to_use:
-                                local_suffix = art_to_use.split("/local/")[-1]
-                                local_path = self.hass.config.path("www", local_suffix)
-                                
-                                # extract_vibrant_color will safely return None if this cached file doesn't actually exist
-                                self._cached_game_color = await self.hass.async_add_executor_job(
-                                    utils.extract_vibrant_color, local_path
-                                )
-                                
-                                if self._cached_game_color:
-                                    self._color_history_cache[game_name_display] = self._cached_game_color
-                                    if len(self._color_history_cache) > 50:
-                                        oldest_game = next(iter(self._color_history_cache))
-                                        del self._color_history_cache[oldest_game]
-                                    self._store.async_delay_save(self._get_store_data, 5.0)
+                        if not self._cached_game_color and local_path:
+                            # extract_vibrant_color will safely return None if this cached file doesn't actually exist
+                            self._cached_game_color = await self.hass.async_add_executor_job(
+                                utils.extract_vibrant_color, local_path
+                            )
+                            
+                            if self._cached_game_color:
+                                self._color_history_cache[game_name_display] = {
+                                    "color": self._cached_game_color,
+                                    "timestamp": current_mtime
+                                }
+                                if len(self._color_history_cache) > 50:
+                                    oldest_game = next(iter(self._color_history_cache))
+                                    del self._color_history_cache[oldest_game]
+                                self._store.async_delay_save(self._get_store_data, 5.0)
                     except Exception as e:
                         _LOGGER.error("Color extraction failed for %s: %s", game_name_display, e)
                         
@@ -1164,7 +1194,7 @@ class MasterGamingSensor(RestoreSensor):
         self.hass = hass
         self._profiles = profiles
         self._parental_rules = parental_rules or {}
-        safe_owner = name.lower().replace(" ", "_")
+        safe_owner = re.sub(r'[^a-z0-9_]', '_', name.lower().replace(" ", "_"))
         self._attr_name = f"{name} Gaming Status"
         self._attr_unique_id = f"gaming_status_{safe_owner}_master_v6"
         self.entity_id = f"sensor.gaming_status_{safe_owner}_master"
@@ -1535,7 +1565,7 @@ class GlobalOnlineCountSensor(SensorEntity):
         self._attr_native_value = 0
         self._master_sensors = []
         for player_name in players:
-            safe_owner = player_name.lower().replace(" ", "_")
+            safe_owner = re.sub(r'[^a-z0-9_]', '_', player_name.lower().replace(" ", "_"))
             self._master_sensors.append(f"sensor.gaming_status_{safe_owner}_master")
 
     async def async_added_to_hass(self):
