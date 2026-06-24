@@ -1005,8 +1005,11 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     # ---------------------------------------------------------------------------
 
     def _player_schema(self, existing: dict | None = None, is_new: bool = False) -> vol.Schema:
+        from .const import OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS
+        
         existing = existing or {}
         schema = {}
+        enabled_platforms = self._options.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
         
         if is_new:
             schema[vol.Required("player_name")] = str
@@ -1057,27 +1060,37 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 return vol.Optional(platform, description={"suggested_value": current})
             return vol.Optional(platform)
 
-        schema[_field("steam")] = _get_filtered_selector("steam_online", None, existing.get("steam", ""))
-        schema[_field("xbox")] = _get_filtered_selector("xbox", "_status", existing.get("xbox", ""))
-        schema[_field("playstation")] = _get_filtered_selector("playstation_network", "_online_status", existing.get("playstation", ""))
-        if self._discord_members:
-            dc_options = [selector.SelectOptionDict(value=m[0], label=f"{m[1]} ({m[0]})") for m in self._discord_members]
-            dc_options.insert(0, selector.SelectOptionDict(value="none", label="None"))
-            current_dc = existing.get("discord", "")
-            if current_dc and current_dc != "none" and not any(o["value"] == current_dc for o in dc_options):
-                dc_options.append(selector.SelectOptionDict(value=current_dc, label=f"Unknown ID ({current_dc})"))
-            schema[_field("discord")] = selector.SelectSelector(
-                selector.SelectSelectorConfig(options=dc_options, mode=selector.SelectSelectorMode.DROPDOWN)
-            )
-        else:
-            schema[_field("discord")] = str
+        if "steam" in enabled_platforms:
+            schema[_field("steam")] = _get_filtered_selector("steam_online", None, existing.get("steam", ""))
             
-        schema[_field("playnite")] = selector.EntitySelector(
-            selector.EntitySelectorConfig(domain="binary_sensor", integration="mqtt")
-        )
-        schema[_field("custom")] = selector.EntitySelector(
-            selector.EntitySelectorConfig(domain="sensor")
-        )
+        if "xbox" in enabled_platforms:
+            schema[_field("xbox")] = _get_filtered_selector("xbox", "_status", existing.get("xbox", ""))
+            
+        if "playstation" in enabled_platforms:
+            schema[_field("playstation")] = _get_filtered_selector("playstation_network", "_online_status", existing.get("playstation", ""))
+            
+        if "discord" in enabled_platforms:
+            if self._discord_members:
+                dc_options = [selector.SelectOptionDict(value=m[0], label=f"{m[1]} ({m[0]})") for m in self._discord_members]
+                dc_options.insert(0, selector.SelectOptionDict(value="none", label="None"))
+                current_dc = existing.get("discord", "")
+                if current_dc and current_dc != "none" and not any(o["value"] == current_dc for o in dc_options):
+                    dc_options.append(selector.SelectOptionDict(value=current_dc, label=f"Unknown ID ({current_dc})"))
+                schema[_field("discord")] = selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=dc_options, mode=selector.SelectSelectorMode.DROPDOWN)
+                )
+            else:
+                schema[_field("discord")] = str
+                
+        if "playnite" in enabled_platforms:
+            schema[_field("playnite")] = selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="binary_sensor", integration="mqtt")
+            )
+            
+        if "custom" in enabled_platforms:
+            schema[_field("custom")] = selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            )
 
         if not is_new:
             schema[vol.Optional("delete_player", default=False)] = bool
