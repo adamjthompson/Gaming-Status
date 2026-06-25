@@ -1580,19 +1580,22 @@ class PCGamingSensor(RestoreSensor):
             if not state: continue
 
             # Track most recent for offline fallback
-            ts_str = state.attributes.get("last_online_valid_timestamp")
-            if ts_str:
-                try:
-                    ts = parser.isoparse(ts_str)
-                    if ts.tzinfo is None: ts = ts.replace(tzinfo=timezone.utc)
-                    if most_recent_ts is None or ts > most_recent_ts:
-                        most_recent_ts = ts
-                        most_recent_state = state
-                except Exception: pass
+            # NEW: Only treat as an offline fallback if the integration isn't actively tracking a live or paused game
+            t_status = state.attributes.get("timer_status", "") or ""
+            if "Running" not in t_status and "Paused" not in t_status and "Active Elsewhere" not in t_status:
+                ts_str = state.attributes.get("last_online_valid_timestamp")
+                if ts_str:
+                    try:
+                        ts = parser.isoparse(ts_str)
+                        if ts.tzinfo is None: ts = ts.replace(tzinfo=timezone.utc)
+                        if most_recent_ts is None or ts > most_recent_ts:
+                            most_recent_ts = ts
+                            most_recent_state = state
+                    except Exception: pass
 
             # Set active state (respecting priority order)
             if not active_state and state.state.lower() not in ["offline", "unavailable", "unknown", "source missing"]:
-                # If the PC platform has yielded to a console, hide it from the PC Sub-Master!
+                # NEW: If the PC platform has yielded to a console, hide it from the PC Sub-Master!
                 if "Active Elsewhere" not in state.attributes.get("timer_status", ""):
                     active_state = state
 
