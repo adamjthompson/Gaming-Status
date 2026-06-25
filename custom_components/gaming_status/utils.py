@@ -431,8 +431,7 @@ def extract_vibrant_color(image_path):
             
             # Require minimum brightness and color saturation to be considered "vibrant"
             if max_val > 50 and min_val < 200 and saturation > 20:
-                # Group colors into much larger buckets (25) so gradients stick together and win!
-                color = (min(round(r/25)*25, 250), min(round(g/25)*25, 250), min(round(b/25)*25, 250))
+                color = (min(round(r/15)*15, 255), min(round(g/15)*15, 255), min(round(b/15)*15, 255))
                 color_counts[color] = color_counts.get(color, 0) + 1
                 
         if not color_counts:

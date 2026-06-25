@@ -571,9 +571,23 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     except Exception:
                         pass
                         
-                # Absolute fallback if the game was genuinely started during the HA downtime
+                # Absolute fallback if the game was genuinely started during the HA downtime.
+                # Only apply if the last valid online timestamp is recent (within the grace
+                # period), so stale offline players don't get a fresh start time on restart.
                 if not getattr(self, "_play_start_time", None) and timer_status in ("Running", "Paused (Grace Period)"):
-                    self._play_start_time = dt_util.now()
+                    is_recent = False
+                    if getattr(self, "_last_online_valid_timestamp", None):
+                        last_ts = _safe_parse_datetime(self._last_online_valid_timestamp)
+                        if last_ts:
+                            age = (dt_util.now() - last_ts).total_seconds()
+                            if age < self._active_settings.get("GRACE_PERIOD_SECONDS", 180):
+                                is_recent = True
+                    # If there is no previous timestamp at all, assume it is a brand new session
+                    elif not getattr(self, "_last_online_valid_timestamp", None):
+                        is_recent = True
+                        
+                    if is_recent:
+                        self._play_start_time = dt_util.now()
                     
             # PREVENT CRASHES: Ensure we only format datetime objects, not strings!
             if getattr(self, "_play_start_time", None):
@@ -585,7 +599,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         if timer_status: self._attr_extra_state_attributes["timer_status"] = timer_status
         self._attr_extra_state_attributes["current_game"] = self._current_game
         
-        # --- THE RESTORED BOTTOM HALF ---
         if secondary:
             self._attr_extra_state_attributes["secondary"] = secondary
             
@@ -614,12 +627,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         if not active_cover or "akamaihd.net" in active_cover:
             active_cover = cover_fallback
 
+        # Explicitly write artwork and color to the state so the master sensor can read them.
         self._attr_extra_state_attributes["game_cover_art"] = active_cover
         self._attr_extra_state_attributes["game_hero_art"] = self._cached_game_hero or hero_fallback
         self._attr_extra_state_attributes["game_logo_art"] = self._cached_game_logo or logo_fallback
         self._attr_extra_state_attributes["game_icon_art"] = self._cached_game_icon or icon_fallback
-        
         self._attr_extra_state_attributes["game_dominant_color"] = self._cached_game_color
+        self._attr_extra_state_attributes["cached_game_cover"] = self._cached_game_cover
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
