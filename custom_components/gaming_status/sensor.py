@@ -552,8 +552,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         import os
         import re
         
-        # --- SMART SELF HEALING: Recover true start time across HA reboots ---
-        if self._current_game and timer_status in ("Running", "Paused (Grace Period)"):
+        # --- IMPROVED SELF HEALING: Recover true start time across HA reboots ---
+        if self._current_game:
             if not getattr(self, "_play_start_time", None):
                 recovered_str = self._attr_extra_state_attributes.get("play_start_time")
                 
@@ -570,11 +570,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         pass
                         
                 # Absolute fallback if the game was genuinely started during the HA downtime
-                if not getattr(self, "_play_start_time", None):
+                if not getattr(self, "_play_start_time", None) and timer_status in ("Running", "Paused (Grace Period)"):
                     self._play_start_time = dt_util.now()
                     
             # Force update the attribute so the frontend sees it instantly
-            self._attr_extra_state_attributes["play_start_time"] = self._play_start_time.isoformat()
+            if getattr(self, "_play_start_time", None):
+                self._attr_extra_state_attributes["play_start_time"] = self._play_start_time.isoformat()
             
         if timer_status: self._attr_extra_state_attributes["timer_status"] = timer_status
         self._attr_extra_state_attributes["current_game"] = self._current_game
