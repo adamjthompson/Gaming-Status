@@ -175,7 +175,11 @@ async def fetch_game_assets(hass, game_name):
                 except Exception as e:
                     _LOGGER.error("Failed to cache override for %s (%s): %s", game_name, asset_type, e)
                 
-                assets[asset_type] = f"{base_url}/local/gaming_status_cache/{file_name}"
+                try:
+                    mt = int(await hass.async_add_executor_job(os.path.getmtime, file_path))
+                except Exception:
+                    mt = int(time.time())
+                assets[asset_type] = f"{base_url}/local/gaming_status_cache/{file_name}?v={mt}"
 
         def _update_cache(name, data_dict):
             final_dict = {k: assets[k] or data_dict.get(k) for k in assets}
@@ -252,8 +256,12 @@ async def fetch_game_assets(hass, game_name):
                                     if img_resp.status == 200:
                                         img_bytes = await img_resp.read()
                                         await hass.async_add_executor_job(lambda: file_path.write_bytes(img_bytes))
-                                    
-                            fetched_assets[asset_type] = f"{base_url}/local/gaming_status_cache/{file_name}"
+                            
+                            try:
+                                mt = int(await hass.async_add_executor_job(os.path.getmtime, file_path))
+                            except Exception:
+                                mt = int(time.time())
+                            fetched_assets[asset_type] = f"{base_url}/local/gaming_status_cache/{file_name}?v={mt}"
                                     
         except Exception as e:
             _LOGGER.error("Failed to fetch assets for %s: %s", game_name, e)
