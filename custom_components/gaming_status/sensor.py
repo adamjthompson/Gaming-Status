@@ -549,6 +549,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
     def _write_common_attributes(self, secondary="", timer_status=None, game_cover=None):
         from homeassistant.util import dt as dt_util
+        from datetime import datetime
         import os
         import re
         
@@ -565,7 +566,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         
                 if recovered_str:
                     try:
-                        self._play_start_time = dt_util.parse_datetime(recovered_str)
+                        # We successfully recovered the text string from the database
+                        self._play_start_time = recovered_str
                     except Exception:
                         pass
                         
@@ -573,44 +575,15 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 if not getattr(self, "_play_start_time", None) and timer_status in ("Running", "Paused (Grace Period)"):
                     self._play_start_time = dt_util.now()
                     
-            # Force update the attribute so the frontend sees it instantly
+            # PREVENT CRASHES: Ensure we only format datetime objects, not strings!
             if getattr(self, "_play_start_time", None):
-                self._attr_extra_state_attributes["play_start_time"] = self._play_start_time.isoformat()
+                if isinstance(self._play_start_time, datetime):
+                    self._attr_extra_state_attributes["play_start_time"] = self._play_start_time.isoformat()
+                else:
+                    self._attr_extra_state_attributes["play_start_time"] = str(self._play_start_time)
             
         if timer_status: self._attr_extra_state_attributes["timer_status"] = timer_status
         self._attr_extra_state_attributes["current_game"] = self._current_game
-        
-        # Apply Automatic Local Cache Failsafe (Uniform with Master Sensor)
-        safe_game = re.sub(r'[^a-z0-9]', '_', str(self._current_game).lower()) if self._current_game else ""
-        safe_game = re.sub(r'_+', '_', safe_game).strip('_')
-
-        def _get_local_fallback(suffix):
-            if not safe_game: return None
-            # Scan for all possible image extensions rather than hardcoding .png
-            for ext in ["png", "jpg", "jpeg", "webp", "ico", "gif"]:
-                file_name = f"{safe_game}_{suffix}.{ext}"
-                full_path = self.hass.config.path("www", "gaming_status_cache", file_name)
-                if os.path.exists(full_path):
-                    # Append mtime to bust the browser cache if the image is ever replaced
-                    mtime = os.path.getmtime(full_path)
-                    return f"/local/gaming_status_cache/{file_name}?v={mtime}"
-            return None
-
-        cover_fallback = _get_local_fallback("grid")
-        hero_fallback = _get_local_fallback("hero")
-        logo_fallback = _get_local_fallback("logo")
-        icon_fallback = _get_local_fallback("icon")
-
-        active_cover = game_cover or self._cached_game_cover
-        if not active_cover or "akamaihd.net" in active_cover:
-            active_cover = cover_fallback
-
-        self._attr_extra_state_attributes["game_cover_art"] = active_cover
-        self._attr_extra_state_attributes["game_hero_art"] = self._cached_game_hero or hero_fallback
-        self._attr_extra_state_attributes["game_logo_art"] = self._cached_game_logo or logo_fallback
-        self._attr_extra_state_attributes["game_icon_art"] = self._cached_game_icon or icon_fallback
-        
-        self._attr_extra_state_attributes["game_dominant_color"] = self._cached_game_color
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
@@ -830,6 +803,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
     @callback
     def _update_play_time(self, now=None):
         try:
+            # --- PREVENT CRASHES: Ensure restored JSON cache objects are dicts, not NoneTypes ---
+            if not isinstance(self._weekly_game_breakdown, dict): self._weekly_game_breakdown = {}
+            if not isinstance(self._longest_session_details, dict): self._longest_session_details = {"game": None, "duration": 0}
+            if not isinstance(self._play_history, dict): self._play_history = {}
+            
             was_offline = (self._attr_native_value.lower() == "offline")
             old_daily = self._daily_play_time
             old_secondary = self._attr_extra_state_attributes.get("secondary")

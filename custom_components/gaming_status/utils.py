@@ -172,7 +172,7 @@ async def fetch_game_assets(hass, game_name):
                     _LOGGER.error("Failed to cache override for %s (%s): %s", game_name, asset_type, e)
                 
                 assets[asset_type] = f"/local/gaming_status_cache/{file_name}"
-                      
+
         def _update_cache(name, data_dict):
             final_dict = {k: assets[k] or data_dict.get(k) for k in assets}
             ASSET_URL_CACHE[name] = final_dict
@@ -425,9 +425,14 @@ def extract_vibrant_color(image_path):
             fallback_b += b
             total_pixels += 1
             
-            # Masking: Ignore pixels that are too muddy or bright
-            if max(r, g, b) > 50 and min(r, g, b) < 200:
-                color = (min(round(r/10)*10, 250), min(round(g/10)*10, 250), min(round(b/10)*10, 250))
+            # Masking: Ignore pixels that are too dark, white, or grayscale
+            max_val, min_val = max(r, g, b), min(r, g, b)
+            saturation = max_val - min_val
+            
+            # Require minimum brightness and color saturation to be considered "vibrant"
+            if max_val > 50 and min_val < 200 and saturation > 20:
+                # Group colors into much larger buckets (25) so gradients stick together and win!
+                color = (min(round(r/25)*25, 250), min(round(g/25)*25, 250), min(round(b/25)*25, 250))
                 color_counts[color] = color_counts.get(color, 0) + 1
                 
         if not color_counts:
