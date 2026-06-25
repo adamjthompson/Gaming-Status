@@ -548,11 +548,36 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         return self._apply_title_override(clean)
 
     def _write_common_attributes(self, secondary="", timer_status=None, game_cover=None):
-        if timer_status: self._attr_extra_state_attributes["timer_status"] = timer_status
-        self._attr_extra_state_attributes["current_game"] = self._current_game
-        
+        from homeassistant.util import dt as dt_util
         import os
         import re
+        
+        # --- SMART SELF HEALING: Recover true start time across HA reboots ---
+        if self._current_game and timer_status in ("Running", "Paused (Grace Period)"):
+            if not getattr(self, "_play_start_time", None):
+                recovered_str = self._attr_extra_state_attributes.get("play_start_time")
+                
+                # If not in the current attributes, ask the HA state machine for the last known state
+                if not recovered_str and getattr(self, "entity_id", None):
+                    old_state = self.hass.states.get(self.entity_id)
+                    if old_state:
+                        recovered_str = old_state.attributes.get("play_start_time")
+                        
+                if recovered_str:
+                    try:
+                        self._play_start_time = dt_util.parse_datetime(recovered_str)
+                    except Exception:
+                        pass
+                        
+                # Absolute fallback if the game was genuinely started during the HA downtime
+                if not getattr(self, "_play_start_time", None):
+                    self._play_start_time = dt_util.now()
+                    
+            # Force update the attribute so the frontend sees it instantly
+            self._attr_extra_state_attributes["play_start_time"] = self._play_start_time.isoformat()
+            
+        if timer_status: self._attr_extra_state_attributes["timer_status"] = timer_status
+        self._attr_extra_state_attributes["current_game"] = self._current_game
         
         # Apply Automatic Local Cache Failsafe (Uniform with Master Sensor)
         safe_game = re.sub(r'[^a-z0-9]', '_', str(self._current_game).lower()) if self._current_game else ""
@@ -560,13 +585,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
         def _get_local_fallback(suffix):
             if not safe_game: return None
-            # PREVENT 404s: Only return the path if the background download has actually finished!
-            file_name = f"{safe_game}_{suffix}.png"
-            full_path = self.hass.config.path("www", "gaming_status_cache", file_name)
-            if os.path.exists(full_path):
-                # Append mtime to bust the browser cache if the image is ever replaced
-                mtime = os.path.getmtime(full_path)
-                return f"/local/gaming_status_cache/{file_name}?v={mtime}"
+            # Scan for all possible image extensions rather than hardcoding .png
+            for ext in ["png", "jpg", "jpeg", "webp", "ico", "gif"]:
+                file_name = f"{safe_game}_{suffix}.{ext}"
+                full_path = self.hass.config.path("www", "gaming_status_cache", file_name)
+                if os.path.exists(full_path):
+                    # Append mtime to bust the browser cache if the image is ever replaced
+                    mtime = os.path.getmtime(full_path)
+                    return f"/local/gaming_status_cache/{file_name}?v={mtime}"
             return None
 
         cover_fallback = _get_local_fallback("grid")
@@ -963,21 +989,26 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         
                         # Prepare the local path early so we can check its OS timestamp
                         art_to_use = self._cached_game_hero or self._cached_game_cover
-                        if not art_to_use:
-                            safe_name_color = re.sub(r'[^a-z0-9]', '_', str(game_name_display).lower())
-                            safe_name_color = re.sub(r'_+', '_', safe_name_color).strip('_')
-                            art_to_use = f"/local/gaming_status_cache/{safe_name_color}_hero.png"
-                        elif art_to_use.startswith("http"):
-                            safe_name_color = re.sub(r'[^a-z0-9]', '_', str(game_name_display).lower())
-                            safe_name_color = re.sub(r'_+', '_', safe_name_color).strip('_')
-                            art_to_use = f"/local/gaming_status_cache/{safe_name_color}_{'hero' if self._cached_game_hero else 'grid'}.png"
-
                         local_path = None
                         current_mtime = 0
+                        
+                        safe_name_color = re.sub(r'[^a-z0-9]', '_', str(game_name_display).lower())
+                        safe_name_color = re.sub(r'_+', '_', safe_name_color).strip('_')
+
                         if art_to_use and "/local/" in art_to_use:
                             # Strip the ?v= timestamp cache-buster so the OS can find the actual file
                             local_suffix = art_to_use.split("/local/")[-1].split("?")[0]
                             local_path = self.hass.config.path("www", local_suffix)
+                        else:
+                            # Dynamic extension fallback scanning
+                            target_suffix = "hero" if self._cached_game_hero else "grid"
+                            for ext in ["png", "jpg", "jpeg", "webp", "ico", "gif"]:
+                                test_path = self.hass.config.path("www", "gaming_status_cache", f"{safe_name_color}_{target_suffix}.{ext}")
+                                if os.path.exists(test_path):
+                                    local_path = test_path
+                                    break
+
+                        if local_path:
                             try:
                                 def _get_mtime():
                                     return os.path.getmtime(local_path) if os.path.exists(local_path) else 0

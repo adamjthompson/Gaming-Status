@@ -88,6 +88,7 @@ async def fetch_game_assets(hass, game_name):
     Prioritizes local custom overrides, then Memory Cache, then SteamGridDB.
     Custom overrides are downloaded to the local cache if they are external URLs.
     """
+    import asyncio
     global _MISSING_KEY_WARNED
     
     assets = {"grid": None, "hero": None, "logo": None, "icon": None}
@@ -100,42 +101,68 @@ async def fetch_game_assets(hass, game_name):
         ASSET_URL_CACHE.move_to_end(game_name)
         return ASSET_URL_CACHE[game_name]
 
-    # 1. Setup Session and Cache Directory early
-    session = async_get_clientsession(hass)
-    cache_dir = Path(hass.config.path("www/gaming_status_cache"))
-    
-    try:
-        base_url = get_url(hass, prefer_external=True)
-    except NoURLAvailableError:
-        base_url = ""
-
-    def _ensure_dir():
-        if not cache_dir.exists():
-            cache_dir.mkdir(parents=True, exist_ok=True)
-    await hass.async_add_executor_job(_ensure_dir)
+    # --- THE MEMORY LOCK ---
+    # Prevent race conditions by making simultaneous requests wait
+    if "gaming_status_locks" not in hass.data:
+        hass.data["gaming_status_locks"] = {}
         
-    # 2. Check Custom UI Overrides & Ensure Local Cache
-    search_name = game_name.strip().lower()
-    override_maps = {
-        "grid": CUSTOM_GRID_MAP, "hero": CUSTOM_HERO_MAP,
-        "logo": CUSTOM_LOGO_MAP, "icon": CUSTOM_ICON_MAP
-    }
-    
-    safe_file_prefix = re.sub(r'[^a-z0-9_]', '', game_name.lower().replace(" ", "_"))
+    if game_name in hass.data["gaming_status_locks"]:
+        # Another sensor is currently downloading this game! Wait for it to finish.
+        await hass.data["gaming_status_locks"][game_name].wait()
+        # The first downloader should have populated the cache, grab it and return!
+        if game_name in ASSET_URL_CACHE:
+            ASSET_URL_CACHE.move_to_end(game_name)
+            return ASSET_URL_CACHE[game_name]
+        return assets
+        
+    # Lock the game while we download it
+    lock = asyncio.Event()
+    hass.data["gaming_status_locks"][game_name] = lock
 
-    for asset_type, map_dict in override_maps.items():
-        if search_name in map_dict:
-            remote_url = safe_url(map_dict[search_name])
-            if not remote_url: continue
+    try:
+        # 1. Setup Session and Cache Directory early
+        session = async_get_clientsession(hass)
+        cache_dir = Path(hass.config.path("www/gaming_status_cache"))
+        
+        try:
+            base_url = get_url(hass, prefer_external=True)
+        except NoURLAvailableError:
+            base_url = ""
+
+        def _ensure_dir():
+            if not cache_dir.exists():
+                cache_dir.mkdir(parents=True, exist_ok=True)
+        await hass.async_add_executor_job(_ensure_dir)
             
-            # Determine extension
-            ext = remote_url.split('.')[-1].split('?')[0]
-            if len(ext) > 4: ext = "png"
-            file_name = f"{safe_file_prefix}_{asset_type}.{ext}"
-            file_path = cache_dir / file_name
+        # 2. Check Custom UI Overrides & Ensure Local Cache
+        search_name = game_name.strip().lower()
+        override_maps = {
+            "grid": CUSTOM_GRID_MAP, "hero": CUSTOM_HERO_MAP,
+            "logo": CUSTOM_LOGO_MAP, "icon": CUSTOM_ICON_MAP
+        }
+        
+        safe_file_prefix = re.sub(r'[^a-z0-9_]', '', game_name.lower().replace(" ", "_"))
+
+        for asset_type, map_dict in override_maps.items():
+            # Safety net: double-check the keys are lowercase just in case old data exists in the dictionary
+            safe_map = {k.lower(): v for k, v in map_dict.items()}
             
-            # Download if not already cached
-            if not file_path.exists():
+            if search_name in safe_map:
+                remote_url = safe_url(safe_map[search_name])
+                if not remote_url: continue
+                
+                # If the user provided a raw local path, map it directly without downloading!
+                if not remote_url.startswith("http"):
+                    assets[asset_type] = remote_url
+                    continue
+                
+                # Determine extension for external HTTP links
+                ext = remote_url.split('.')[-1].split('?')[0]
+                if len(ext) > 4: ext = "png"
+                file_name = f"{safe_file_prefix}_{asset_type}.{ext}"
+                file_path = cache_dir / file_name
+                
+                # ALWAYS download overrides to ensure the user's latest choice overwrites the old SteamGridDB file!
                 try:
                     async with session.get(remote_url, timeout=15) as img_resp:
                         if img_resp.status == 200:
@@ -143,89 +170,94 @@ async def fetch_game_assets(hass, game_name):
                             await hass.async_add_executor_job(lambda: file_path.write_bytes(img_bytes))
                 except Exception as e:
                     _LOGGER.error("Failed to cache override for %s (%s): %s", game_name, asset_type, e)
-            
-            assets[asset_type] = f"/local/gaming_status_cache/{file_name}"
-    
-    def _update_cache(name, data_dict):
-        final_dict = {k: assets[k] or data_dict.get(k) for k in assets}
-        ASSET_URL_CACHE[name] = final_dict
-        ASSET_URL_CACHE.move_to_end(name)
-        if len(ASSET_URL_CACHE) > MAX_CACHE_SIZE:
-            ASSET_URL_CACHE.popitem(last=False)
-            
-        # Fire off non-blocking cache cleanup whenever a NEW game enters RAM
-        if USE_LOCAL_CACHE:
-            hass.async_create_task(hass.async_add_executor_job(_clean_image_cache, cache_dir))
-            
-        return final_dict
-
-    # If the user provided ALL 4 custom images manually, skip the API entirely!
-    if all(assets.values()):
-        return _update_cache(game_name, assets)
-
-    if not STEAMGRIDDB_API_KEY:
-        if not _MISSING_KEY_WARNED:
-            _LOGGER.warning("[Gaming Status] SteamGridDB API key is not configured.")
-            _MISSING_KEY_WARNED = True
-        return _update_cache(game_name, assets)
-
-    # 4. Fetch from SteamGridDB
-    fetched_assets = {"grid": None, "hero": None, "logo": None, "icon": None}
-    headers = {"Authorization": f"Bearer {STEAMGRIDDB_API_KEY}"}
-
-    try:
-        safe_title = quote(game_name, safe='')
-        search_url = f"https://www.steamgriddb.com/api/v2/search/autocomplete/{safe_title}"
-        
-        async with session.get(search_url, headers=headers, timeout=10) as resp:
-            if resp.status != 200: return _update_cache(game_name, fetched_assets)
-            search_data = await resp.json()
-            
-        if not search_data.get("data"): return _update_cache(game_name, fetched_assets)
-            
-        game_id = search_data["data"][0]["id"]
-        endpoints = {
-            "grid": f"https://www.steamgriddb.com/api/v2/grids/game/{game_id}",
-            "hero": f"https://www.steamgriddb.com/api/v2/heroes/game/{game_id}",
-            "logo": f"https://www.steamgriddb.com/api/v2/logos/game/{game_id}",
-            "icon": f"https://www.steamgriddb.com/api/v2/icons/game/{game_id}"
-        }
-        
-        for asset_type, endpoint in endpoints.items():
-            if assets[asset_type]: continue # Already filled by override
                 
-            async with session.get(endpoint, headers=headers, timeout=10) as resp:
-                if resp.status == 200:
-                    asset_data = await resp.json()
-                    if asset_data.get("data"):
-                        # Scoring Algorithm
-                        def get_score(img):
-                            score = 0
-                            if img.get("style") == "official": score += 10
-                            if img.get("mime") == "image/png": score += 5
-                            return score
-                            
-                        best_art = sorted(asset_data["data"], key=get_score, reverse=True)[0]
-                        remote_url = best_art["url"]
-                        
-                        ext = remote_url.split('.')[-1].split('?')[0]
-                        if len(ext) > 4: ext = "png"
-                        
-                        file_name = f"{safe_file_prefix}_{asset_type}.{ext}"
-                        file_path = cache_dir / file_name
-                        
-                        if not file_path.exists():
-                            async with session.get(remote_url, timeout=15) as img_resp:
-                                if img_resp.status == 200:
-                                    img_bytes = await img_resp.read()
-                                    await hass.async_add_executor_job(lambda: file_path.write_bytes(img_bytes))
-                                
-                        fetched_assets[asset_type] = f"{base_url}/local/gaming_status_cache/{file_name}"
-                                
-    except Exception as e:
-        _LOGGER.error("Failed to fetch assets for %s: %s", game_name, e)
+                assets[asset_type] = f"/local/gaming_status_cache/{file_name}"
+                      
+        def _update_cache(name, data_dict):
+            final_dict = {k: assets[k] or data_dict.get(k) for k in assets}
+            ASSET_URL_CACHE[name] = final_dict
+            ASSET_URL_CACHE.move_to_end(name)
+            if len(ASSET_URL_CACHE) > MAX_CACHE_SIZE:
+                ASSET_URL_CACHE.popitem(last=False)
+                
+            # Fire off non-blocking cache cleanup whenever a NEW game enters RAM
+            if USE_LOCAL_CACHE:
+                hass.async_create_task(hass.async_add_executor_job(_clean_image_cache, cache_dir))
+                
+            return final_dict
 
-    return _update_cache(game_name, fetched_assets)
+        # If the user provided ALL 4 custom images manually, skip the API entirely!
+        if all(assets.values()):
+            return _update_cache(game_name, assets)
+
+        if not STEAMGRIDDB_API_KEY:
+            if not _MISSING_KEY_WARNED:
+                _LOGGER.warning("[Gaming Status] SteamGridDB API key is not configured.")
+                _MISSING_KEY_WARNED = True
+            return _update_cache(game_name, assets)
+
+        # 4. Fetch from SteamGridDB
+        fetched_assets = {"grid": None, "hero": None, "logo": None, "icon": None}
+        headers = {"Authorization": f"Bearer {STEAMGRIDDB_API_KEY}"}
+
+        try:
+            safe_title = quote(game_name, safe='')
+            search_url = f"https://www.steamgriddb.com/api/v2/search/autocomplete/{safe_title}"
+            
+            async with session.get(search_url, headers=headers, timeout=10) as resp:
+                if resp.status != 200: return _update_cache(game_name, fetched_assets)
+                search_data = await resp.json()
+                
+            if not search_data.get("data"): return _update_cache(game_name, fetched_assets)
+                
+            game_id = search_data["data"][0]["id"]
+            endpoints = {
+                "grid": f"https://www.steamgriddb.com/api/v2/grids/game/{game_id}",
+                "hero": f"https://www.steamgriddb.com/api/v2/heroes/game/{game_id}",
+                "logo": f"https://www.steamgriddb.com/api/v2/logos/game/{game_id}",
+                "icon": f"https://www.steamgriddb.com/api/v2/icons/game/{game_id}"
+            }
+            
+            for asset_type, endpoint in endpoints.items():
+                if assets[asset_type]: continue # Already filled by override
+                    
+                async with session.get(endpoint, headers=headers, timeout=10) as resp:
+                    if resp.status == 200:
+                        asset_data = await resp.json()
+                        if asset_data.get("data"):
+                            # Scoring Algorithm
+                            def get_score(img):
+                                score = 0
+                                if img.get("style") == "official": score += 10
+                                if img.get("mime") == "image/png": score += 5
+                                return score
+                                
+                            best_art = sorted(asset_data["data"], key=get_score, reverse=True)[0]
+                            remote_url = best_art["url"]
+                            
+                            ext = remote_url.split('.')[-1].split('?')[0]
+                            if len(ext) > 4: ext = "png"
+                            
+                            file_name = f"{safe_file_prefix}_{asset_type}.{ext}"
+                            file_path = cache_dir / file_name
+                            
+                            if not file_path.exists():
+                                async with session.get(remote_url, timeout=15) as img_resp:
+                                    if img_resp.status == 200:
+                                        img_bytes = await img_resp.read()
+                                        await hass.async_add_executor_job(lambda: file_path.write_bytes(img_bytes))
+                                    
+                            fetched_assets[asset_type] = f"{base_url}/local/gaming_status_cache/{file_name}"
+                                    
+        except Exception as e:
+            _LOGGER.error("Failed to fetch assets for %s: %s", game_name, e)
+
+        return _update_cache(game_name, fetched_assets)
+
+    finally:
+        # ALWAYS release the lock, even if the API throws an unexpected error
+        lock.set()
+        hass.data["gaming_status_locks"].pop(game_name, None)
 
 async def get_steamgriddb_game_cover(hass, game_name):
     """Backward compatibility wrapper."""
@@ -367,7 +399,7 @@ def _calculate_time_ago_v2(timestamp_val):
     except Exception as e: return None, f"Err: {e}"
 
 def safe_url(url):
-    if isinstance(url, str) and (url.startswith("https://") or url.startswith("/local/")):
+    if isinstance(url, str) and (url.startswith("http") or url.startswith("/")):
         return url
     return None
 

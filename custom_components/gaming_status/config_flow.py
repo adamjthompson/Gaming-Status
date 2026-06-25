@@ -865,7 +865,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 for item in raw.split(','):
                     if '=' in item:
                         k, v = item.split('=', 1)
-                        parsed_dict[k.strip()] = v.strip()
+                        # Force the key to lowercase so it always matches internally!
+                        parsed_dict[k.strip().lower()] = v.strip()
                 opts[key] = _dump_json(parsed_dict)
 
             if not errors:

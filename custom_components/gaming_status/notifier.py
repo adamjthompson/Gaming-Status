@@ -236,6 +236,10 @@ class GamingNotifier:
             else: service_data["target"] = target_id
 
         if ep_type == "Discord":
+            # Discord API strictly rejects relative local paths. If domain appending failed, strip the image to save the notification!
+            if image_url and not image_url.startswith("http"):
+                image_url = None
+                
             color = self._resolve_discord_color(event_type, state_obj)
             embed = {"color": color}
             
@@ -277,6 +281,39 @@ class GamingNotifier:
     # ------------------------------------------------------------------
     # Cover art resolution
     # ------------------------------------------------------------------
+
+    async def _make_external_url(self, image_url: str | None, game_name: str) -> str | None:
+        """Convert a local HA path into a public URL, or fallback to the remote SteamGridDB cache."""
+        if not image_url or not image_url.startswith("/"):
+            return image_url
+
+        try:
+            from urllib.parse import urlparse
+            import ipaddress
+            import socket
+            
+            base_url = get_url(self.hass, prefer_external=True)
+            host = urlparse(base_url).hostname or ""
+            
+            try:
+                resolved_ip = socket.gethostbyname(host)
+                is_local = ipaddress.ip_address(resolved_ip).is_private
+            except Exception:
+                is_local = host.endswith((".local", ".lan", ".internal"))
+                
+            if not base_url.startswith("https://") or is_local:
+                raise ValueError("No external domain available")
+                
+            return f"{base_url.rstrip('/')}{image_url}"
+            
+        except Exception:
+            try:
+                from .utils import get_cached_remote_url
+                target_type = "hero" if "hero" in self._cached_notify_artwork else "logo" if "logo" in self._cached_notify_artwork else "grid"
+                remote_url = await self.hass.async_add_executor_job(get_cached_remote_url, game_name, target_type)
+                return remote_url or image_url
+            except Exception as e:
+                return image_url
 
     async def _resolve_cover_art(
         self,
@@ -462,91 +499,25 @@ class GamingNotifier:
                 msg = f"{target_player} started playing"
                 display_title = new_game
 
-            image_url = await self._resolve_cover_art(
+            raw_url = await self._resolve_cover_art(
                 target_player, user_config, old_state, is_switch
             )
-
-            # Auto-append the public HA domain so Discord can see cached files
-            if image_url and image_url.startswith("/"):
-                try:
-                    from urllib.parse import urlparse
-                    import ipaddress
-                    import socket
-                    
-                    base_url = get_url(self.hass, prefer_external=True)
-                    host = urlparse(base_url).hostname or ""
-                    
-                    # Resolve the hostname (IP, .local, or custom domain) to an actual IP address
-                    try:
-                        resolved_ip = socket.gethostbyname(host)
-                        is_local = ipaddress.ip_address(resolved_ip).is_private
-                    except Exception:
-                        # Failsafe if socket cannot resolve the host
-                        is_local = host.endswith((".local", ".lan", ".internal"))
-                        
-                    # If it's HTTP, resolves to a private IP, or is a local domain, trigger fallback
-                    if not base_url.startswith("https://") or is_local:
-                        raise ValueError("No external domain available")
-                        
-                    image_url = f"{base_url.rstrip('/')}{image_url}"
-                except Exception:
-                    # Fallback: Ask the cache for the original SteamGridDB URL
-                    try:
-                        from .utils import get_cached_remote_url
-                        remote_url = get_cached_remote_url(new_game, self._cached_notify_artwork.split("_")[1])
-                        if remote_url:
-                            image_url = remote_url
-                    except Exception as e:
-                        _LOGGER.debug("Gaming Status: Remote image fallback failed: %s", e)
+            image_url = await self._make_external_url(raw_url, new_game)
 
             for ep_id in start_dests:
-                dest = self._cached_endpoints.get(ep_id, {})
-                discord_safe_url = image_url if (image_url or "").startswith("http") else None
-                effective_url = discord_safe_url if dest.get("type") == "Discord" else image_url
-                await self._send_to_endpoint(ep_id, message=msg, image_url=effective_url, game_title=display_title, event_type="start", state_obj=new_state)
+                await self._send_to_endpoint(ep_id, message=msg, image_url=image_url, game_title=display_title, event_type="start", state_obj=new_state)
 
         elif is_end:
             msg = f"{target_player} played for {duration_str}" if duration_str else f"{target_player} finished playing"
             
             if self._cached_notify_artwork == "none":
-                image_url = None
+                raw_url = None
             else:
-                image_url = old_state.attributes.get(self._cached_notify_artwork)
-                if not image_url:
-                    image_url = old_state.attributes.get("game_cover_art") or old_state.attributes.get("cached_game_cover")
+                raw_url = old_state.attributes.get(self._cached_notify_artwork)
+                if not raw_url:
+                    raw_url = old_state.attributes.get("game_cover_art") or old_state.attributes.get("cached_game_cover")
 
-            # Auto-append the public HA domain so Discord can see cached files
-            if image_url and image_url.startswith("/"):
-                try:
-                    from urllib.parse import urlparse
-                    import ipaddress
-                    import socket
-                    
-                    base_url = get_url(self.hass, prefer_external=True)
-                    host = urlparse(base_url).hostname or ""
-                    
-                    # Resolve the hostname (IP, .local, or custom domain) to an actual IP address
-                    try:
-                        resolved_ip = socket.gethostbyname(host)
-                        is_local = ipaddress.ip_address(resolved_ip).is_private
-                    except Exception:
-                        # Failsafe if socket cannot resolve the host
-                        is_local = host.endswith((".local", ".lan", ".internal"))
-                        
-                    # If it's HTTP, resolves to a private IP, or is a local domain, trigger fallback
-                    if not base_url.startswith("https://") or is_local:
-                        raise ValueError("No external domain available")
-                        
-                    image_url = f"{base_url.rstrip('/')}{image_url}"
-                except Exception:
-                    # Fallback: Ask the cache for the original SteamGridDB URL
-                    try:
-                        from .utils import get_cached_remote_url
-                        remote_url = get_cached_remote_url(old_game, self._cached_notify_artwork.split("_")[1])
-                        if remote_url:
-                            image_url = remote_url
-                    except Exception as e:
-                        _LOGGER.debug("Gaming Status: Remote image fallback failed: %s", e)
+            image_url = await self._make_external_url(raw_url, old_game)
             
             for ep_id in end_dests:
                 # Pass the OLD state so the color is fully preserved!
@@ -612,16 +583,10 @@ class GamingNotifier:
                             current_game = master_state.state if is_playing else None
                             parental_image = None
                             if current_game and self._cached_notify_artwork != "none":
-                                parental_image = master_state.attributes.get(self._cached_notify_artwork)
-                                if not parental_image:
-                                    parental_image = master_state.attributes.get("game_cover_art") or master_state.attributes.get("cached_game_cover")
-                                if parental_image and parental_image.startswith("/"):
-                                    try:
-                                        from homeassistant.helpers.network import get_url
-                                        base_url = get_url(self.hass, prefer_external=True)
-                                        parental_image = f"{base_url.rstrip('/')}{parental_image}"
-                                    except Exception:
-                                        parental_image = None
+                                raw_url = master_state.attributes.get(self._cached_notify_artwork)
+                                if not raw_url:
+                                    raw_url = master_state.attributes.get("game_cover_art") or master_state.attributes.get("cached_game_cover")
+                                parental_image = await self._make_external_url(raw_url, current_game)
 
                             action = st_rule.get("action", "none")
                             if not action or action == "none":
@@ -664,16 +629,10 @@ class GamingNotifier:
                             current_game = master_state.state if is_playing else None
                             parental_image = None
                             if current_game and self._cached_notify_artwork != "none":
-                                parental_image = master_state.attributes.get(self._cached_notify_artwork)
-                                if not parental_image:
-                                    parental_image = master_state.attributes.get("game_cover_art") or master_state.attributes.get("cached_game_cover")
-                                if parental_image and parental_image.startswith("/"):
-                                    try:
-                                        from homeassistant.helpers.network import get_url
-                                        base_url = get_url(self.hass, prefer_external=True)
-                                        parental_image = f"{base_url.rstrip('/')}{parental_image}"
-                                    except Exception:
-                                        parental_image = None
+                                raw_url = master_state.attributes.get(self._cached_notify_artwork)
+                                if not raw_url:
+                                    raw_url = master_state.attributes.get("game_cover_art") or master_state.attributes.get("cached_game_cover")
+                                parental_image = await self._make_external_url(raw_url, current_game)
 
                             action = cf_rule.get("action", "none")
                             if not action or action == "none":
