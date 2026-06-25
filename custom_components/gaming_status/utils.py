@@ -154,7 +154,10 @@ async def fetch_game_assets(hass, game_name):
                 
                 # If the user provided a raw local path, map it directly without downloading!
                 if not remote_url.startswith("http"):
-                    assets[asset_type] = remote_url
+                    if remote_url.startswith("/local/"):
+                        assets[asset_type] = f"{base_url}{remote_url}"
+                    else:
+                        assets[asset_type] = remote_url
                     continue
                 
                 # Determine extension for external HTTP links
@@ -172,7 +175,7 @@ async def fetch_game_assets(hass, game_name):
                 except Exception as e:
                     _LOGGER.error("Failed to cache override for %s (%s): %s", game_name, asset_type, e)
                 
-                assets[asset_type] = f"/local/gaming_status_cache/{file_name}"
+                assets[asset_type] = f"{base_url}/local/gaming_status_cache/{file_name}"
 
         def _update_cache(name, data_dict):
             final_dict = {k: assets[k] or data_dict.get(k) for k in assets}
@@ -271,6 +274,12 @@ async def get_steamgriddb_game_cover(hass, game_name):
 
 async def fetch_and_cache_image(hass, remote_url, file_name):
     """Generic helper to cache any remote image locally."""
+    from homeassistant.helpers.network import get_url, NoURLAvailableError
+    try:
+        base_url = get_url(hass, prefer_external=True)
+    except NoURLAvailableError:
+        base_url = ""
+        
     cache_dir = Path(hass.config.path("www/gaming_status_cache"))
     
     # 1. Safely wrap the mkdir command to avoid kwarg TypeErrors
@@ -284,7 +293,7 @@ async def fetch_and_cache_image(hass, remote_url, file_name):
     
     # 2. Return immediately if already cached
     if file_path.exists():
-        return f"/local/gaming_status_cache/{file_name}"
+        return f"{base_url}/local/gaming_status_cache/{file_name}"
         
     # 3. Download and save
     try:
@@ -298,7 +307,7 @@ async def fetch_and_cache_image(hass, remote_url, file_name):
                     file_path.write_bytes(img_bytes)
                     
                 await hass.async_add_executor_job(_write_img)
-                return f"/local/gaming_status_cache/{file_name}"
+                return f"{base_url}/local/gaming_status_cache/{file_name}"
     except Exception as e:
         _LOGGER.error("Failed to cache avatar %s: %s", remote_url, e)
         

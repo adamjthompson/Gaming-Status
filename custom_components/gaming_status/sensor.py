@@ -687,10 +687,15 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         )
 
         def _check_local_avatar():
+            from homeassistant.helpers.network import get_url
+            try:
+                base_url = get_url(self.hass, prefer_external=True)
+            except Exception:
+                base_url = ""
             safe_name = re.sub(r'[^a-z0-9_]', '', self._owner_name.lower().replace(" ", "_"))
             for ext in ['png', 'jpg']:
                 file_name = f"{self._gaming_type}_{safe_name}_avatar.{ext}"
-                if file_name in self._available_avatars: return f"/local/gaming_status/{file_name}"
+                if file_name in self._available_avatars: return f"{base_url}/local/gaming_status/{file_name}"
             return None
         self._local_avatar_path = _check_local_avatar()
 
@@ -990,6 +995,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         
                 # --- NEW BACKGROUND DISK SCAN (Runs ONLY once per game transition) ---
                 def _scan_local_disk():
+                    from homeassistant.helpers.network import get_url
+                    try:
+                        base_url = get_url(self.hass, prefer_external=True)
+                    except Exception:
+                        base_url = ""
                     res = {}
                     s_name = re.sub(r'[^a-z0-9]', '_', str(game_name_display).lower())
                     s_name = re.sub(r'_+', '_', s_name).strip('_')
@@ -998,7 +1008,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             f_path = self.hass.config.path("www", "gaming_status_cache", f"{s_name}_{sfx}.{e}")
                             if os.path.exists(f_path):
                                 mt = os.path.getmtime(f_path)
-                                res[sfx] = f"/local/gaming_status_cache/{s_name}_{sfx}.{e}?v={mt}"
+                                res[sfx] = f"{base_url}/local/gaming_status_cache/{s_name}_{sfx}.{e}?v={mt}"
                                 if sfx == "hero" or (sfx == "grid" and "color_path" not in res):
                                     res["color_path"] = f_path
                                     res["color_mtime"] = mt
@@ -1260,18 +1270,35 @@ class MasterGamingSensor(RestoreSensor):
                         most_recent_key = p_key
                 except Exception: pass
                 
-            if active_state: continue 
-        
             state_value = platform_state.state
             idle_states = PLATFORM_CONFIG.get(p_key, {}).get("idle_states", [])
             
-            # Only mark active if NOT offline/unknown AND NOT in the idle list
+            # Only process if NOT offline/unknown AND NOT in the idle list
             if (state_value.lower() not in ["offline", "source missing", "unavailable", "unknown"] and 
                 state_value not in idle_states):
-                # NEW: Ignore sensors that have yielded to higher-priority platforms
-                if "Active Elsewhere" not in platform_state.attributes.get("timer_status", ""):
-                    active_sensor_id = platform_sensor_id
-                    active_state = platform_state
+                
+                t_status = platform_state.attributes.get("timer_status", "")
+                
+                # Ignore sensors that have explicitly yielded to consoles
+                if "Active Elsewhere" not in t_status:
+                    if not active_state:
+                        active_sensor_id = platform_sensor_id
+                        active_state = platform_state
+                    else:
+                        active_t_status = active_state.attributes.get("timer_status", "")
+                        
+                        # Rule 1: A "Running" game ALWAYS beats a "Paused/Grace Period" game
+                        if "Running" in t_status and "Paused" in active_t_status:
+                            active_sensor_id = platform_sensor_id
+                            active_state = platform_state
+                            
+                        # Rule 2: If tied, the most recent play_start_time wins
+                        elif ("Running" in t_status and "Running" in active_t_status) or ("Paused" in t_status and "Paused" in active_t_status):
+                            new_start = _safe_parse_datetime(platform_state.attributes.get("play_start_time"))
+                            curr_start = _safe_parse_datetime(active_state.attributes.get("play_start_time"))
+                            if new_start and curr_start and new_start > curr_start:
+                                active_sensor_id = platform_sensor_id
+                                active_state = platform_state
         
         # --- Generate Formatted Rich Data Attributes ---
         # 1. Top Games Breakdowns
@@ -1598,11 +1625,25 @@ class PCGamingSensor(RestoreSensor):
                             most_recent_state = state
                     except Exception: pass
 
-            # Set active state (respecting priority order)
-            if not active_state and state.state.lower() not in ["offline", "unavailable", "unknown", "source missing"]:
-                # NEW: If the PC platform has yielded to a console, hide it from the PC Sub-Master!
-                if "Active Elsewhere" not in state.attributes.get("timer_status", ""):
-                    active_state = state
+            # Set active state (smart conflict resolution)
+            if state.state.lower() not in ["offline", "unavailable", "unknown", "source missing"]:
+                t_status = state.attributes.get("timer_status", "")
+                if "Active Elsewhere" not in t_status:
+                    if not active_state:
+                        active_state = state
+                    else:
+                        active_t_status = active_state.attributes.get("timer_status", "")
+                        
+                        # Rule 1: A "Running" game ALWAYS beats a "Paused/Grace Period" game
+                        if "Running" in t_status and "Paused" in active_t_status:
+                            active_state = state
+                            
+                        # Rule 2: If both are tied (both running or both paused), the most recent play_start_time wins
+                        elif ("Running" in t_status and "Running" in active_t_status) or ("Paused" in t_status and "Paused" in active_t_status):
+                            new_start = _safe_parse_datetime(state.attributes.get("play_start_time"))
+                            curr_start = _safe_parse_datetime(active_state.attributes.get("play_start_time"))
+                            if new_start and curr_start and new_start > curr_start:
+                                active_state = state
 
         if active_state:
             self._attr_native_value = active_state.state
