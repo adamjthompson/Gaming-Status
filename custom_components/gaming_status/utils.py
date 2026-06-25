@@ -141,7 +141,8 @@ async def fetch_game_assets(hass, game_name):
             "logo": CUSTOM_LOGO_MAP, "icon": CUSTOM_ICON_MAP
         }
         
-        safe_file_prefix = re.sub(r'[^a-z0-9_]', '', game_name.lower().replace(" ", "_"))
+        safe_file_prefix = re.sub(r'[^a-z0-9]', '_', str(game_name).lower())
+        safe_file_prefix = re.sub(r'_+', '_', safe_file_prefix).strip('_')
 
         for asset_type, map_dict in override_maps.items():
             # Safety net: double-check the keys are lowercase just in case old data exists in the dictionary

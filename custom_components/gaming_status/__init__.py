@@ -92,6 +92,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Gaming Status from a UI config entry."""
     hass.data.setdefault(DOMAIN, {})
 
+    # --- Stale Entity Registry Cleanup ---
+    from homeassistant.helpers import entity_registry as er
+    entity_reg = er.async_get(hass)
+    
+    stale_entities = [
+        entry_id
+        for entry_id, reg_entry in entity_reg.entities.items()
+        if reg_entry.platform == DOMAIN
+        and reg_entry.config_entry_id != entry.entry_id
+    ]
+    
+    for entity_entry_id in stale_entities:
+        _LOGGER.debug("Gaming Status: Removing stale entity registry entry %s", entity_entry_id)
+        entity_reg.async_remove(entity_entry_id)
+
     notifier = GamingNotifier(hass, entry)
     await notifier.async_start()
     hass.data[DOMAIN]["notifier"] = notifier

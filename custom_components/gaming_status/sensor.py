@@ -572,8 +572,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         pass
                         
                 # Absolute fallback if the game was genuinely started during the HA downtime.
-                # Only apply if the last valid online timestamp is recent (within the grace
-                # period), so stale offline players don't get a fresh start time on restart.
+                # Only apply if the last valid online timestamp is recent (within the grace period), so stale offline players don't get a fresh start time on restart.
                 if not getattr(self, "_play_start_time", None) and timer_status in ("Running", "Paused (Grace Period)"):
                     is_recent = False
                     if getattr(self, "_last_online_valid_timestamp", None):
@@ -601,37 +600,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         
         if secondary:
             self._attr_extra_state_attributes["secondary"] = secondary
-            
-        # Apply Automatic Local Cache Failsafe (Uniform with Master Sensor)
-        safe_game = re.sub(r'[^a-z0-9]', '_', str(self._current_game).lower()) if self._current_game else ""
-        safe_game = re.sub(r'_+', '_', safe_game).strip('_')
 
-        def _get_local_fallback(suffix):
-            if not safe_game: return None
-            # Scan for all possible image extensions rather than hardcoding .png
-            for ext in ["png", "jpg", "jpeg", "webp", "ico", "gif"]:
-                file_name = f"{safe_game}_{suffix}.{ext}"
-                full_path = self.hass.config.path("www", "gaming_status_cache", file_name)
-                if os.path.exists(full_path):
-                    # Append mtime to bust the browser cache if the image is ever replaced
-                    mtime = os.path.getmtime(full_path)
-                    return f"/local/gaming_status_cache/{file_name}?v={mtime}"
-            return None
-
-        cover_fallback = _get_local_fallback("grid")
-        hero_fallback = _get_local_fallback("hero")
-        logo_fallback = _get_local_fallback("logo")
-        icon_fallback = _get_local_fallback("icon")
-
-        active_cover = game_cover or self._cached_game_cover
-        if not active_cover or "akamaihd.net" in active_cover:
-            active_cover = cover_fallback
-
-        # Explicitly write artwork and color to the state so the master sensor can read them.
-        self._attr_extra_state_attributes["game_cover_art"] = active_cover
-        self._attr_extra_state_attributes["game_hero_art"] = self._cached_game_hero or hero_fallback
-        self._attr_extra_state_attributes["game_logo_art"] = self._cached_game_logo or logo_fallback
-        self._attr_extra_state_attributes["game_icon_art"] = self._cached_game_icon or icon_fallback
+        # Write artwork and color directly from RAM to the state machine. 
+        self._attr_extra_state_attributes["game_cover_art"] = game_cover or self._cached_game_cover
+        self._attr_extra_state_attributes["game_hero_art"] = self._cached_game_hero
+        self._attr_extra_state_attributes["game_logo_art"] = self._cached_game_logo
+        self._attr_extra_state_attributes["game_icon_art"] = self._cached_game_icon
         self._attr_extra_state_attributes["game_dominant_color"] = self._cached_game_color
         self._attr_extra_state_attributes["cached_game_cover"] = self._cached_game_cover
 
@@ -1009,6 +983,32 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         _LOGGER.error("Artwork fetch failed for %s: %s", game_name_display, e)
                         self._cached_game_cover = platform_data.get("game_cover_url")
                         
+                # --- NEW BACKGROUND DISK SCAN (Runs ONLY once per game transition) ---
+                def _scan_local_disk():
+                    res = {}
+                    s_name = re.sub(r'[^a-z0-9]', '_', str(game_name_display).lower())
+                    s_name = re.sub(r'_+', '_', s_name).strip('_')
+                    for sfx in ["grid", "hero", "logo", "icon"]:
+                        for e in ["png", "jpg", "jpeg", "webp", "ico", "gif"]:
+                            f_path = self.hass.config.path("www", "gaming_status_cache", f"{s_name}_{sfx}.{e}")
+                            if os.path.exists(f_path):
+                                mt = os.path.getmtime(f_path)
+                                res[sfx] = f"/local/gaming_status_cache/{s_name}_{sfx}.{e}?v={mt}"
+                                if sfx == "hero" or (sfx == "grid" and "color_path" not in res):
+                                    res["color_path"] = f_path
+                                    res["color_mtime"] = mt
+                                break
+                    return res
+                    
+                local_scan = await self.hass.async_add_executor_job(_scan_local_disk)
+                
+                # Apply local fallbacks to RAM if the API didn't provide them
+                if not self._cached_game_cover or "akamaihd.net" in self._cached_game_cover:
+                    self._cached_game_cover = local_scan.get("grid") or self._cached_game_cover
+                if not self._cached_game_hero: self._cached_game_hero = local_scan.get("hero")
+                if not self._cached_game_logo: self._cached_game_logo = local_scan.get("logo")
+                if not self._cached_game_icon: self._cached_game_icon = local_scan.get("icon")
+                        
                 if utils.ENABLE_VIBRANT_COLOR:
                     try:
                         # 1. Check for Manual Override FIRST
@@ -1016,34 +1016,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         if override:
                             self._cached_game_color = override
                         
-                        # Prepare the local path early so we can check its OS timestamp
-                        art_to_use = self._cached_game_hero or self._cached_game_cover
-                        local_path = None
-                        current_mtime = 0
-                        
-                        safe_name_color = re.sub(r'[^a-z0-9]', '_', str(game_name_display).lower())
-                        safe_name_color = re.sub(r'_+', '_', safe_name_color).strip('_')
-
-                        if art_to_use and "/local/" in art_to_use:
-                            # Strip the ?v= timestamp cache-buster so the OS can find the actual file
-                            local_suffix = art_to_use.split("/local/")[-1].split("?")[0]
-                            local_path = self.hass.config.path("www", local_suffix)
-                        else:
-                            # Dynamic extension fallback scanning
-                            target_suffix = "hero" if self._cached_game_hero else "grid"
-                            for ext in ["png", "jpg", "jpeg", "webp", "ico", "gif"]:
-                                test_path = self.hass.config.path("www", "gaming_status_cache", f"{safe_name_color}_{target_suffix}.{ext}")
-                                if os.path.exists(test_path):
-                                    local_path = test_path
-                                    break
-
-                        if local_path:
-                            try:
-                                def _get_mtime():
-                                    return os.path.getmtime(local_path) if os.path.exists(local_path) else 0
-                                current_mtime = await self.hass.async_add_executor_job(_get_mtime)
-                            except Exception:
-                                pass
+                        local_path = local_scan.get("color_path")
+                        current_mtime = local_scan.get("color_mtime", 0)
 
                         # 2. Check the Internal Cache SECOND (with Timestamp Awareness)
                         if not self._cached_game_color and game_name_display in self._color_history_cache:
@@ -1064,7 +1038,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         
                         # 3. ONLY extract if both are empty
                         if not self._cached_game_color and local_path:
-                            # extract_vibrant_color will safely return None if this cached file doesn't actually exist
                             self._cached_game_color = await self.hass.async_add_executor_job(
                                 utils.extract_vibrant_color, local_path
                             )
