@@ -729,7 +729,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 self._current_game = self._clean_restored_game_name(attrs.get("current_game"))
                 self._play_start_time = attrs.get("play_start_time")
             if self._attr_native_value and self._attr_native_value.lower() != "offline":
-                if "last seen" in self._attr_native_value.lower():
+                is_stale = False
+                if self._last_online_valid_timestamp:
+                    last_ts = _safe_parse_datetime(self._last_online_valid_timestamp)
+                    if last_ts and (dt_util.now() - last_ts).total_seconds() > self._active_settings["GRACE_PERIOD_SECONDS"]:
+                        is_stale = True
+                        
+                if "last seen" in self._attr_native_value.lower() or is_stale:
                     self._attr_native_value = "Offline"
                     self._current_game = None
                     self._play_start_time = None
@@ -850,8 +856,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if self._attr_native_value.lower() != "offline" and not self._current_game:
                 self._current_game = self._attr_native_value
                 if not self._play_start_time: 
-                    if self._last_state_change_ts: self._play_start_time = self._last_state_change_ts.isoformat()
-                    else: self._play_start_time = now_dt.isoformat()
+                    self._play_start_time = now_dt.isoformat()
             if self._current_game and not self._play_start_time: self._play_start_time = now_dt.isoformat()
             timer_status = "Inactive"
             secondary = ""

@@ -183,7 +183,9 @@ async def fetch_game_assets(hass, game_name):
                 
             # Fire off non-blocking cache cleanup whenever a NEW game enters RAM
             if USE_LOCAL_CACHE:
-                hass.async_create_task(hass.async_add_executor_job(_clean_image_cache, cache_dir))
+                async def _run_cleanup():
+                    await hass.async_add_executor_job(_clean_image_cache, cache_dir)
+                hass.async_create_task(_run_cleanup())
                 
             return final_dict
 
