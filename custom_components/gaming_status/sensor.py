@@ -1263,8 +1263,10 @@ class MasterGamingSensor(RestoreSensor):
             # Only mark active if NOT offline/unknown AND NOT in the idle list
             if (state_value.lower() not in ["offline", "source missing", "unavailable", "unknown"] and 
                 state_value not in idle_states):
-                active_sensor_id = platform_sensor_id
-                active_state = platform_state
+                # NEW: Ignore sensors that have yielded to higher-priority platforms
+                if "Active Elsewhere" not in platform_state.attributes.get("timer_status", ""):
+                    active_sensor_id = platform_sensor_id
+                    active_state = platform_state
         
         # --- Generate Formatted Rich Data Attributes ---
         # 1. Top Games Breakdowns
@@ -1590,7 +1592,9 @@ class PCGamingSensor(RestoreSensor):
 
             # Set active state (respecting priority order)
             if not active_state and state.state.lower() not in ["offline", "unavailable", "unknown", "source missing"]:
-                active_state = state
+                # If the PC platform has yielded to a console, hide it from the PC Sub-Master!
+                if "Active Elsewhere" not in state.attributes.get("timer_status", ""):
+                    active_state = state
 
         if active_state:
             self._attr_native_value = active_state.state
