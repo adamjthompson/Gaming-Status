@@ -58,7 +58,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         "last_online_valid_timestamp", "current_game", "timer_status",
         "weekly_game_breakdown", "longest_session_details",
         "rolling_weekly_breakdown", "rolling_longest_session",
-        "calendar_weekly_breakdown", "calendar_longest_session"
+        "calendar_weekly_breakdown", "calendar_longest_session",
+        "last_played_game", "daily_play_time", "weekly_play_time", "weekly_play_time_last_week" 
     })
 
     def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None, active_settings=None, global_exclusions=None, available_avatars=None):
