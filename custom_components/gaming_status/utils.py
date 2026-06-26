@@ -472,7 +472,7 @@ def extract_vibrant_color(image_path):
         
     except Exception as e:
         import logging
-        logging.getLogger(__name__).warning(f"Failed to extract vibrant color from {image_path}: {e}")
+        logging.getLogger(__name__).warning("Failed to extract vibrant color from %s: %s", image_path, e)
         return None
 
 def get_cached_remote_url(game_name, asset_type="grid"):
