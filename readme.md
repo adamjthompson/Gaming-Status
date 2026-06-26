@@ -37,7 +37,7 @@ While not required for functionality, I recommend installing the following HACS 
 * [ApexCharts Card](https://github.com/RomRider/apexcharts-card) - For the stats and donut graph cards.
 * [Official Discord Integration](https://www.home-assistant.io/integrations/discord) - Requires setting up a Discord Bot. *REQUIRED if you want to use Discord for notifications.*
 * [Mosquitto Broker](https://github.com/home-assistant/addons/tree/master/mosquitto) - Required if you plan to use Playnite for tracking games. You will also need an MQTT add-on installed in Playnite (such as [Playnite MQTT Client](https://playnite.link/addons.html#MQTTClient_90c44048-4f8f-43f7-a0c1-f8164bf1d7ef)) to broadcast your status to Home Assistant.
-* [HASS.Agent](https://www.hass-agent.io/2.2/getting-started/installation/#installing-hassagent) - Allows you to create custom sensors for otherwise untrackable games. Install both the PC app and the integration for Custom PC sensors. *Try using Discord tracking with Lanyard first, if possible.*
+* [HASS.Agent](https://www.hass-agent.io/2.2/getting-started/installation/#installing-hassagent) - Allows you to create custom sensors for otherwise untrackable games. Install both the PC app and the integration for Custom PC sensors. *Try using Discord tracking first, if possible, since HASS Agent sensors have to be created for each individually-tracked game.*
 
 ### Obtaining a SteamGridDB API Key
 To display beautiful, high-resolution game covers on your dashboard, this integration requires a free API key from SteamGridDB.
