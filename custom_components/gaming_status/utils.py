@@ -183,16 +183,19 @@ async def fetch_game_assets(hass, game_name):
 
         def _update_cache(name, data_dict):
             final_dict = {k: assets[k] or data_dict.get(k) for k in assets}
-            ASSET_URL_CACHE[name] = final_dict
-            ASSET_URL_CACHE.move_to_end(name)
-            if len(ASSET_URL_CACHE) > MAX_CACHE_SIZE:
-                ASSET_URL_CACHE.popitem(last=False)
+            
+            # ONLY cache to RAM if we successfully retrieved at least one image
+            if any(final_dict.values()):
+                ASSET_URL_CACHE[name] = final_dict
+                ASSET_URL_CACHE.move_to_end(name)
+                if len(ASSET_URL_CACHE) > MAX_CACHE_SIZE:
+                    ASSET_URL_CACHE.popitem(last=False)
                 
-            # Fire off non-blocking cache cleanup whenever a NEW game enters RAM
-            if USE_LOCAL_CACHE:
-                async def _run_cleanup():
-                    await hass.async_add_executor_job(_clean_image_cache, cache_dir)
-                hass.async_create_task(_run_cleanup())
+                # Fire off non-blocking cache cleanup whenever a NEW game enters RAM
+                if USE_LOCAL_CACHE:
+                    async def _run_cleanup():
+                        await hass.async_add_executor_job(_clean_image_cache, cache_dir)
+                    hass.async_create_task(_run_cleanup())
                 
             return final_dict
 
