@@ -65,6 +65,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
     def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None, active_settings=None, global_exclusions=None, available_avatars=None):
         
         # --- SILENT AUTO-CORRECTION FOR PLAYSTATION ---
+        # If the config flow 'safety net' forced the user to guess, catch wrong guesses here.
         if gaming_type == "playstation":
             if source_entity_id.endswith("_now_playing"):
                 source_entity_id = source_entity_id.replace("_now_playing", "_online_status")
