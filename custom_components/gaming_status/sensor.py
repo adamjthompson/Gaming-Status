@@ -602,12 +602,25 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._attr_extra_state_attributes["secondary"] = secondary
 
         # Write artwork and color directly from RAM to the state machine. 
-        self._attr_extra_state_attributes["game_cover_art"] = game_cover or self._cached_game_cover
-        self._attr_extra_state_attributes["game_hero_art"] = self._cached_game_hero
-        self._attr_extra_state_attributes["game_logo_art"] = self._cached_game_logo
-        self._attr_extra_state_attributes["game_icon_art"] = self._cached_game_icon
-        self._attr_extra_state_attributes["game_dominant_color"] = self._cached_game_color
-        self._attr_extra_state_attributes["cached_game_cover"] = self._cached_game_cover
+            self._attr_extra_state_attributes["game_cover_art"] = game_cover or self._cached_game_cover
+            self._attr_extra_state_attributes["game_hero_art"] = self._cached_game_hero
+            self._attr_extra_state_attributes["game_logo_art"] = self._cached_game_logo
+            self._attr_extra_state_attributes["game_icon_art"] = self._cached_game_icon
+            self._attr_extra_state_attributes["game_dominant_color"] = self._cached_game_color
+            self._attr_extra_state_attributes["cached_game_cover"] = self._cached_game_cover
+            
+            # --- CRITICAL FIX: Flush internal RAM variables to HA attributes ---
+            self._attr_extra_state_attributes["last_online_valid_timestamp"] = getattr(self, "_last_online_valid_timestamp", None)
+            self._attr_extra_state_attributes["last_played_game"] = getattr(self, "_last_played_game", None)
+            self._attr_extra_state_attributes["daily_play_time"] = getattr(self, "_daily_play_time", 0)
+            self._attr_extra_state_attributes["weekly_play_time"] = getattr(self, "_weekly_play_time", 0)
+            self._attr_extra_state_attributes["weekly_play_time_last_week"] = getattr(self, "_weekly_play_time_last_week", 0)
+            self._attr_extra_state_attributes["weekly_game_breakdown"] = getattr(self, "_weekly_game_breakdown", {})
+            self._attr_extra_state_attributes["longest_session_details"] = getattr(self, "_longest_session_details", {"game": None, "duration": 0})
+            
+            # Format times for the frontend UI
+            self._attr_extra_state_attributes["daily_play_time_formatted"] = utils._format_time(self._attr_extra_state_attributes["daily_play_time"])
+            self._attr_extra_state_attributes["weekly_play_time_formatted"] = utils._format_time(self._attr_extra_state_attributes["weekly_play_time"])
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
