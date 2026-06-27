@@ -22,7 +22,23 @@
           "discord_bot_token": "Discord Bot Token",
           "discord_server_id": "Discord Server ID"
         }
+      },
+      "first_player": {
+        "title": "Set up your first Player",
+        "description": "To track your gaming status, you need to create a player profile. Give the player a name and map any sensors you want to link to them.",
+        "data": {
+          "player_name": "Player Name",
+          "steam": "Steam Sensor",
+          "xbox": "Xbox Sensor",
+          "playstation": "PlayStation Sensor",
+          "discord": "Discord Profile",
+          "playnite": "Playnite Sensor",
+          "custom": "Custom Tracker"
+        }
       }
+    },
+    "error": {
+      "name_required": "You must provide a name for this player."
     },
     "abort": {
       "single_instance_allowed": "Only one instance of Gaming Status can be configured."
