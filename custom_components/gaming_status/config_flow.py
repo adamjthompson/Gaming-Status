@@ -307,6 +307,17 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             self._options = opts
             return await self._update_and_return()
 
+        # --- HARDWARE SAFETY NET ---
+        is_pi = False
+        try:
+            with open("/sys/firmware/devicetree/base/model", "r") as f:
+                if "Raspberry Pi" in f.read():
+                    is_pi = True
+        except Exception:
+            pass
+            
+        dynamic_color_default = False if is_pi else DEFAULT_EXTRACT_COLOR
+
         return self.async_show_form(
             step_id=MENU_GLOBAL_SETTINGS,
             data_schema=vol.Schema(
@@ -328,7 +339,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional(OPT_ENABLE_NOTIFICATIONS, default=opts.get(OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS)): bool,
                     vol.Optional(OPT_ENABLE_PARENTAL, default=opts.get(OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL)): bool,
                     vol.Optional(OPT_USE_CACHE, default=opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)): bool,
-                    vol.Optional(OPT_EXTRACT_COLOR, default=opts.get(OPT_EXTRACT_COLOR, DEFAULT_EXTRACT_COLOR)): bool,
+                    vol.Optional(OPT_EXTRACT_COLOR, default=opts.get(OPT_EXTRACT_COLOR, dynamic_color_default)): bool,
                     vol.Optional(OPT_CACHE_MAX_FILES, default=opts.get(OPT_CACHE_MAX_FILES, DEFAULT_CACHE_MAX_FILES)): vol.All(int, vol.Range(min=0)),
                     vol.Optional(OPT_CACHE_MAX_DAYS, default=opts.get(OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS)): vol.All(int, vol.Range(min=0)),
                     vol.Optional(OPT_GRACE_PERIOD, default=opts.get(OPT_GRACE_PERIOD, DEFAULT_GRACE_PERIOD_SECONDS)): vol.All(int, vol.Range(min=0)),

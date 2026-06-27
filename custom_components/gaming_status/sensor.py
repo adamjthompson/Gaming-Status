@@ -1754,7 +1754,20 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     utils.compile_title_cleanups()
     utils.STEAMGRIDDB_API_KEY = config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, "")
     utils.USE_LOCAL_CACHE = opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
-    utils.ENABLE_VIBRANT_COLOR = opts.get(OPT_EXTRACT_COLOR, DEFAULT_EXTRACT_COLOR)
+    
+    # --- HARDWARE SAFETY NET ---
+    # Detect Raspberry Pi hardware to prevent SD card I/O lockups during color extraction
+    is_pi = False
+    try:
+        with open("/sys/firmware/devicetree/base/model", "r") as f:
+            if "Raspberry Pi" in f.read():
+                is_pi = True
+    except Exception:
+        pass
+        
+    dynamic_color_default = False if is_pi else DEFAULT_EXTRACT_COLOR
+    utils.ENABLE_VIBRANT_COLOR = opts.get(OPT_EXTRACT_COLOR, dynamic_color_default)
+    
     utils.CACHE_MAX_FILES = opts.get(OPT_CACHE_MAX_FILES, DEFAULT_CACHE_MAX_FILES)
     utils.CACHE_MAX_DAYS = opts.get(OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS)
     global_exclusions = _load_opt_json(opts, OPT_GLOBAL_EXCLUSIONS, [])
