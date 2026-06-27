@@ -1048,17 +1048,18 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 if not self._cached_game_logo: self._cached_game_logo = local_scan.get("logo")
                 if not self._cached_game_icon: self._cached_game_icon = local_scan.get("icon")
                         
-                if utils.ENABLE_VIBRANT_COLOR:
+                # 1. ALWAYS Check for Manual Override FIRST (Costs zero CPU/Disk I/O)
+                override = getattr(utils, "GAME_COLOR_OVERRIDES", {}).get(str(game_name_display).lower())
+                if override:
+                    self._cached_game_color = override
+                
+                # 2. Only run the heavy background extraction if the feature is enabled
+                elif utils.ENABLE_VIBRANT_COLOR:
                     try:
-                        # 1. Check for Manual Override FIRST
-                        override = getattr(utils, "GAME_COLOR_OVERRIDES", {}).get(str(game_name_display).lower())
-                        if override:
-                            self._cached_game_color = override
-                        
                         local_path = local_scan.get("color_path")
                         current_mtime = local_scan.get("color_mtime", 0)
 
-                        # 2. Check the Internal Cache SECOND (with Timestamp Awareness)
+                        # 3. Check the Internal Cache SECOND (with Timestamp Awareness)
                         if not self._cached_game_color and game_name_display in self._color_history_cache:
                             cached_data = self._color_history_cache[game_name_display]
                             
