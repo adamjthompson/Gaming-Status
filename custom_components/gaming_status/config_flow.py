@@ -150,8 +150,8 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if "discord" in user_input.get(OPT_ENABLED_PLATFORMS, []):
                 return await self.async_step_discord_setup()
                 
-            # If no Discord, finish setup immediately
-            return self._create_entry_from_temp()
+            # If no Discord, proceed to First Player setup
+            return await self.async_step_first_player()
 
         from .const import OPT_ENABLED_PLATFORMS, OPT_ENABLE_NOTIFICATIONS, OPT_ENABLE_PARENTAL
         return self.async_show_form(
@@ -184,7 +184,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_discord_setup(self, user_input=None):
         if user_input is not None:
             self._temp_user_input.update(user_input)
-            return self._create_entry_from_temp()
+            return await self.async_step_first_player()
 
         return self.async_show_form(
             step_id="discord_setup",
@@ -192,6 +192,82 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_DISCORD_TOKEN, default=""): str,
                 vol.Optional(CONF_DISCORD_SERVER, default=""): str,
             }),
+        )
+
+    async def async_step_first_player(self, user_input=None):
+        """Force the user to create their first player before finishing the install."""
+        errors = {}
+
+        if user_input is not None:
+            name = user_input.get("player_name", "").strip()
+            if not name:
+                errors["player_name"] = "name_required"
+            else:
+                player_data = {}
+                for platform in PLAYER_PLATFORMS:
+                    val = user_input.get(platform)
+                    if val is not None:
+                        val = str(val).strip()
+                        if val and val.lower() != "none":
+                            player_data[platform] = val
+                
+                self._temp_user_input[OPT_PLAYERS] = _dump_json({name: player_data})
+                return self._create_entry_from_temp()
+
+        from .const import OPT_ENABLED_PLATFORMS
+        enabled_platforms = self._temp_user_input.get(OPT_ENABLED_PLATFORMS, [])
+        schema = {vol.Required("player_name", default="Player 1"): str}
+
+        def _get_filtered_selector(integration: str, suffix: str | None = None):
+            options = []
+            try:
+                registry = er.async_get(self.hass)
+                for entry in registry.entities.values():
+                    if entry.domain == "sensor" and entry.platform == integration:
+                        if suffix and not entry.entity_id.endswith(suffix):
+                            continue
+                        options.append(entry.entity_id)
+                if suffix and not options:
+                    for entry in registry.entities.values():
+                        if entry.domain == "sensor" and entry.platform == integration:
+                            options.append(entry.entity_id)
+            except Exception:
+                pass
+            options = sorted(list(set(options)))
+            options.insert(0, "none")
+            if len(options) > 1:
+                return selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=options, mode=selector.SelectSelectorMode.DROPDOWN, custom_value=True)
+                )
+            return selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", integration=integration))
+
+        if "steam" in enabled_platforms:
+            schema[vol.Optional("steam")] = _get_filtered_selector("steam_online", None)
+        if "xbox" in enabled_platforms:
+            schema[vol.Optional("xbox")] = _get_filtered_selector("xbox", "_status")
+        if "playstation" in enabled_platforms:
+            schema[vol.Optional("playstation")] = _get_filtered_selector("playstation_network", "_online_status")
+        if "discord" in enabled_platforms:
+            token = self._temp_user_input.get(CONF_DISCORD_TOKEN)
+            server_id = self._temp_user_input.get(CONF_DISCORD_SERVER)
+            dc_options = [selector.SelectOptionDict(value="none", label="None")]
+            if token and server_id:
+                members = await _fetch_discord_members(token, server_id)
+                for m in members:
+                    dc_options.append(selector.SelectOptionDict(value=m[0], label=f"{m[1]} ({m[0]})"))
+            
+            schema[vol.Optional("discord")] = selector.SelectSelector(
+                selector.SelectSelectorConfig(options=dc_options, mode=selector.SelectSelectorMode.DROPDOWN, custom_value=True)
+            )
+        if "playnite" in enabled_platforms:
+            schema[vol.Optional("playnite")] = selector.EntitySelector(selector.EntitySelectorConfig(domain="binary_sensor", integration="mqtt"))
+        if "custom" in enabled_platforms:
+            schema[vol.Optional("custom")] = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+
+        return self.async_show_form(
+            step_id="first_player",
+            data_schema=vol.Schema(schema),
+            errors=errors
         )
 
     def _create_entry_from_temp(self):
@@ -230,7 +306,6 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 # ---------------------------------------------------------------------------
 # Options flow
 # ---------------------------------------------------------------------------
-
 class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self._config_entry = config_entry
