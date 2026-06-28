@@ -220,7 +220,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         enabled_platforms = self._temp_user_input.get(OPT_ENABLED_PLATFORMS, [])
         schema = {vol.Required("player_name", default="Player 1"): str}
 
-        def _get_filtered_selector(integration: str, suffix: str | None = None):
+        def _get_filtered_selector(integration: str, suffix: str | tuple | None = None):
             options = []
             try:
                 registry = er.async_get(self.hass)
@@ -248,7 +248,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if "xbox" in enabled_platforms:
             schema[vol.Optional("xbox")] = _get_filtered_selector("xbox", "_status")
         if "playstation" in enabled_platforms:
-            schema[vol.Optional("playstation")] = _get_filtered_selector("playstation_network", "_online_status")
+            schema[vol.Optional("playstation")] = _get_filtered_selector("playstation_network", ("_online_status", "_onlinestatus"))
         if "discord" in enabled_platforms:
             token = self._temp_user_input.get(CONF_DISCORD_TOKEN)
             server_id = self._temp_user_input.get(CONF_DISCORD_SERVER)

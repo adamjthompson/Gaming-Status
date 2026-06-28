@@ -69,7 +69,16 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         if gaming_type == "playstation":
             for wrong_suffix in ["_now_playing", "_online_id"]:
                 if wrong_suffix in source_entity_id:
-                    source_entity_id = source_entity_id.replace(wrong_suffix, "_online_status")
+                    base_id = source_entity_id.replace(wrong_suffix, "")
+                    try:
+                        # Ask the registry which one the user actually has
+                        registry = er.async_get(hass)
+                        if registry.async_get(base_id + "_onlinestatus"):
+                            source_entity_id = base_id + "_onlinestatus"
+                        else:
+                            source_entity_id = base_id + "_online_status"
+                    except Exception:
+                        source_entity_id = base_id + "_online_status"
                     break
         elif gaming_type == "xbox":
             for wrong_suffix in ["_now_playing", "_last_online"]:
