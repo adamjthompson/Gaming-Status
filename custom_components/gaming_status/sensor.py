@@ -1560,6 +1560,8 @@ class HistoryChartSensor(RestoreEntity, SensorEntity):
     _attr_should_poll = False
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_native_unit_of_measurement = "h"
+    _attr_icon = "mdi:chart-bar"
+    
     def __init__(self, hass, name):
         self.hass = hass
         safe_owner = name.lower().replace(" ", "_")
