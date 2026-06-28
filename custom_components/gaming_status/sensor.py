@@ -167,7 +167,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         
         self._desired_entity_id = f"sensor.gaming_status_{safe_owner}_{gaming_type}"
         self.entity_id = self._desired_entity_id
-        self._attr_unique_id = f"gaming_status_{source_entity_id}_tracker_v6"
+        self._attr_unique_id = f"gaming_status_{safe_owner}_{source_entity_id}_tracker_v6"
         self._attr_name = f"{self._owner_name} {config['name_suffix']}"
 
     @property
@@ -1827,13 +1827,14 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     
     # --- HARDWARE SAFETY NET ---
     # Detect Raspberry Pi hardware to prevent SD card I/O lockups during color extraction
-    is_pi = False
-    try:
-        with open("/sys/firmware/devicetree/base/model", "r") as f:
-            if "Raspberry Pi" in f.read():
-                is_pi = True
-    except Exception:
-        pass
+    def _check_is_pi():
+        try:
+            with open("/sys/firmware/devicetree/base/model", "r") as f:
+                return "Raspberry Pi" in f.read()
+        except Exception:
+            return False
+            
+    is_pi = await hass.async_add_executor_job(_check_is_pi)
         
     dynamic_color_default = False if is_pi else DEFAULT_EXTRACT_COLOR
     utils.ENABLE_VIBRANT_COLOR = opts.get(OPT_EXTRACT_COLOR, dynamic_color_default)
