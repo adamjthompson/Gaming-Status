@@ -1857,6 +1857,28 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     ents = []
     registry = er.async_get(hass)
     
+    # --- UNIQUE ID MIGRATION (Self-Healing Duplicates Fix) ---
+    for player_name, player_data in players.items():
+        safe_owner = re.sub(r'[^a-z0-9_]', '_', player_name.lower().replace(" ", "_"))
+        for platform in PLAYER_PLATFORMS:
+            source_entity_id = player_data.get(platform)
+            if source_entity_id:
+                old_unique_id = f"gaming_status_{source_entity_id}_tracker_v6"
+                new_unique_id = f"gaming_status_{safe_owner}_{source_entity_id}_tracker_v6"
+                
+                old_ent_id = registry.async_get_entity_id("sensor", DOMAIN, old_unique_id)
+                new_ent_id = registry.async_get_entity_id("sensor", DOMAIN, new_unique_id)
+                
+                if old_ent_id:
+                    # If HA created a "_2" ghost during the bad boot, kill it
+                    if new_ent_id and old_ent_id != new_ent_id:
+                        registry.async_remove(new_ent_id)
+                    # Safely migrate the original entity to the new unique ID format
+                    try:
+                        registry.async_update_entity(old_ent_id, new_unique_id=new_unique_id)
+                    except Exception:
+                        pass
+
     # --- AUTOMATIC LEGACY SENSOR PURGE (DATABASE & RAM GHOSTS) ---
     
     # Step 1: Registry Purge by Legacy Unique ID
