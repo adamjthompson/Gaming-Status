@@ -447,9 +447,15 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     elif "_onlinestatus" in self._source_entity_id:
                         sibling_id = self._source_entity_id.replace("_onlinestatus", "_now_playing")
                 
+                _LOGGER.debug("PSN Debug [%s]: Base State: %s, Sibling ID: %s", self._owner_name, state, sibling_id)
+                
                 # Check the sibling FIRST. A valid game overrides an offline base state.
                 if sibling_id:
                     sibling_state = self.hass.states.get(sibling_id)
+                    
+                    if sibling_state:
+                        _LOGGER.debug("PSN Debug [%s]: Sibling State: %s, Sibling Attrs: %s", self._owner_name, sibling_state.state, sibling_state.attributes)
+
                     if sibling_state and sibling_state.state.lower() not in ["unknown", "unavailable", "unknown game", "none", "", "offline"]:
                         sibling_val = sibling_state.state
                         is_excluded_sib = False
@@ -803,8 +809,21 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 is_stale = False
                 if self._last_online_valid_timestamp:
                     last_ts = _safe_parse_datetime(self._last_online_valid_timestamp)
-                    if last_ts and (dt_util.now() - last_ts).total_seconds() > self._active_settings["GRACE_PERIOD_SECONDS"]:
-                        is_stale = True
+                    if last_ts:
+                        now_dt = dt_util.now()
+                        # Safeguard 1: Force identical timezone awareness
+                        if last_ts.tzinfo is None: 
+                            last_ts = last_ts.replace(tzinfo=now_dt.tzinfo)
+                        else: 
+                            last_ts = last_ts.astimezone(now_dt.tzinfo)
+                        
+                        # Safeguard 2: Catch Raspberry Pi negative boot-clock drift
+                        delta_seconds = (now_dt - last_ts).total_seconds()
+                        if delta_seconds < 0:
+                            _LOGGER.warning("Negative time delta detected for %s. System clock may be out of sync.", self.entity_id)
+                            is_stale = False
+                        elif delta_seconds > self._active_settings["GRACE_PERIOD_SECONDS"]:
+                            is_stale = True
                         
                 if "last seen" in self._attr_native_value.lower() or is_stale:
                     self._attr_native_value = "Offline"
