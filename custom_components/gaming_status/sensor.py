@@ -357,34 +357,33 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         g_name = parts[1]
                         if "(" in g_name and g_name.endswith(")"): g_name = g_name.rsplit(" (", 1)[0]
                         data["xbox_last_seen_game"] = self._apply_title_override(g_name)
-            elif is_basic_offline or state_clean in ["online", "home"]: data["is_online"] = False
             else:
-                potential_game = state
                 found_sibling = False
-                
-                # 1. Try to use the dedicated _now_playing sibling for the clean game name and official cover art
                 sibling_id = self._now_playing_entity_id
                 if not sibling_id:
-                    # Fallback string guessing if device registry lookup failed
                     if "_status" in self._source_entity_id:
                         sibling_id = self._source_entity_id.replace("_status", "_now_playing")
+                        
+                potential_game = state
                 
+                # Check the sibling FIRST. A valid game overrides an offline base state.
                 if sibling_id:
                     sibling_state = self.hass.states.get(sibling_id)
-                    if sibling_state and sibling_state.state.lower() not in ["unknown", "unavailable", "none", ""]:
+                    if sibling_state and sibling_state.state.lower() not in ["unknown", "unavailable", "none", "", "offline"]:
                         potential_game = sibling_state.state
-                        # The official Xbox _now_playing sensor natively provides the game's official logo!
                         if sibling_state.attributes.get("entity_picture"):
                             data["game_cover_url"] = sibling_state.attributes.get("entity_picture")
                         found_sibling = True
 
-                # Legacy fallback for older custom Xbox integrations
                 if attrs.get("game_queue_games") and not found_sibling: 
                     potential_game = attrs.get("game_queue_games")[0]
                     
                 potential_game = get_base_game_name(potential_game)
                 
-                if self._is_ghost_session(potential_game) or self._is_game_active_elsewhere(potential_game):
+                # If they are just online/home, AND we found no game in the sibling/queue, they are offline
+                if not found_sibling and (is_basic_offline or state_clean in ["online", "home"]):
+                    data["is_online"] = False
+                elif self._is_ghost_session(potential_game) or self._is_game_active_elsewhere(potential_game):
                     data["is_online"] = False 
                 else:
                     data["is_online"] = True
@@ -428,36 +427,40 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
             if is_globally_excluded or is_user_excluded: data["is_online"] = False
             elif state_clean.startswith("last seen") or state_clean.startswith("last online"): data["is_online"] = False
-            elif is_basic_offline: data["is_online"] = False
             else:
-                if attrs.get("title_name"):
-                    data["current_game"] = attrs.get("title_name")
-                    data["game_cover_url"] = attrs.get("title_image")
-                    data["is_online"] = True
-                elif state.lower() == "playing": data["is_online"] = False
-                else:
-                    found_sibling = False
-                    # 1. Use Dynamic Registry Sibling
-                    sibling_id = self._now_playing_entity_id
-                    # 2. Fallback to String Guessing
-                    if not sibling_id:
-                        if "_online_status" in self._source_entity_id:
-                            sibling_id = self._source_entity_id.replace("_online_status", "_now_playing")
-                        elif "_onlinestatus" in self._source_entity_id:
-                            sibling_id = self._source_entity_id.replace("_onlinestatus", "_now_playing")
-                    
-                    if sibling_id:
-                        sibling_state = self.hass.states.get(sibling_id)
-                        if sibling_state and sibling_state.state.lower() not in ["unknown", "unavailable", "unknown game", "none", ""]:
-                            sibling_val = sibling_state.state
-                            is_excluded_sib = False
-                            if sibling_val.lower() in self._global_exclusions_lower: is_excluded_sib = True
-                            if not is_excluded_sib:
-                                data["current_game"] = sibling_val
-                                data["is_online"] = True
-                                data["game_cover_url"] = sibling_state.attributes.get("entity_picture")
-                                found_sibling = True
-                    if not found_sibling: data["is_online"] = False
+                found_sibling = False
+                # 1. Use Dynamic Registry Sibling
+                sibling_id = self._now_playing_entity_id
+                # 2. Fallback to String Guessing
+                if not sibling_id:
+                    if "_online_status" in self._source_entity_id:
+                        sibling_id = self._source_entity_id.replace("_online_status", "_now_playing")
+                    elif "_onlinestatus" in self._source_entity_id:
+                        sibling_id = self._source_entity_id.replace("_onlinestatus", "_now_playing")
+                
+                # Check the sibling FIRST. A valid game overrides an offline base state.
+                if sibling_id:
+                    sibling_state = self.hass.states.get(sibling_id)
+                    if sibling_state and sibling_state.state.lower() not in ["unknown", "unavailable", "unknown game", "none", "", "offline"]:
+                        sibling_val = sibling_state.state
+                        is_excluded_sib = False
+                        if sibling_val.lower() in self._global_exclusions_lower: is_excluded_sib = True
+                        if not is_excluded_sib:
+                            data["current_game"] = sibling_val
+                            data["is_online"] = True
+                            data["game_cover_url"] = sibling_state.attributes.get("entity_picture")
+                            found_sibling = True
+                            
+                # If no sibling game, check attributes, then fallback to base state
+                if not found_sibling:
+                    if attrs.get("title_name"):
+                        data["current_game"] = attrs.get("title_name")
+                        data["game_cover_url"] = attrs.get("title_image")
+                        data["is_online"] = True
+                    elif is_basic_offline: 
+                        data["is_online"] = False
+                    else:
+                        data["is_online"] = False
 
         elif self._gaming_type == "playnite":
             # Apply the persistent Playnite logo as a base default if no custom image exists
@@ -833,9 +836,17 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     if "_online_status" in self._source_entity_id:
                         sibling_id = self._source_entity_id.replace("_online_status", "_now_playing")
                         entities_to_watch.append(sibling_id)
+                    elif "_onlinestatus" in self._source_entity_id:
+                        sibling_id = self._source_entity_id.replace("_onlinestatus", "_now_playing")
+                        entities_to_watch.append(sibling_id)
+                        
                     object_id = self._source_entity_id.split('.')[1]
                     if object_id.endswith("_online_status"):
                         gamertag = object_id[:-14]
+                        image_entity = f"image.{gamertag}_avatar"
+                        entities_to_watch.append(image_entity)
+                    elif object_id.endswith("_onlinestatus"):
+                        gamertag = object_id[:-13]
                         image_entity = f"image.{gamertag}_avatar"
                         entities_to_watch.append(image_entity)
                 except Exception: pass
