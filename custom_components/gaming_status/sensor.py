@@ -360,8 +360,30 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             elif is_basic_offline or state_clean in ["online", "home"]: data["is_online"] = False
             else:
                 potential_game = state
-                if attrs.get("game_queue_games"): potential_game = attrs.get("game_queue_games")[0]
+                found_sibling = False
+                
+                # 1. Try to use the dedicated _now_playing sibling for the clean game name and official cover art
+                sibling_id = self._now_playing_entity_id
+                if not sibling_id:
+                    # Fallback string guessing if device registry lookup failed
+                    if "_status" in self._source_entity_id:
+                        sibling_id = self._source_entity_id.replace("_status", "_now_playing")
+                
+                if sibling_id:
+                    sibling_state = self.hass.states.get(sibling_id)
+                    if sibling_state and sibling_state.state.lower() not in ["unknown", "unavailable", "none", ""]:
+                        potential_game = sibling_state.state
+                        # The official Xbox _now_playing sensor natively provides the game's official logo!
+                        if sibling_state.attributes.get("entity_picture"):
+                            data["game_cover_url"] = sibling_state.attributes.get("entity_picture")
+                        found_sibling = True
+
+                # Legacy fallback for older custom Xbox integrations
+                if attrs.get("game_queue_games") and not found_sibling: 
+                    potential_game = attrs.get("game_queue_games")[0]
+                    
                 potential_game = get_base_game_name(potential_game)
+                
                 if self._is_ghost_session(potential_game) or self._is_game_active_elsewhere(potential_game):
                     data["is_online"] = False 
                 else:
