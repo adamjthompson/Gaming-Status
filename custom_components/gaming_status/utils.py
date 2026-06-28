@@ -338,7 +338,9 @@ def _get_gamertag_from_entity(source_entity_id, platform):
         object_id = source_entity_id.split('.')[1]
         if platform == "steam" and object_id.startswith("steam_"): return object_id[6:]
         if platform == "xbox" and "_status" in object_id: return object_id.split("_status")[0]
-        if platform == "playstation" and "_online_status" in object_id: return object_id.split("_online_status")[0]
+        if platform == "playstation":
+            if "_online_status" in object_id: return object_id.split("_online_status")[0]
+            if "_onlinestatus" in object_id: return object_id.split("_onlinestatus")[0]
     except Exception: pass
     try: return source_entity_id.split('.')[1]
     except Exception: return "unknown"

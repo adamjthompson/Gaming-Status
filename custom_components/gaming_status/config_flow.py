@@ -204,14 +204,16 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["player_name"] = "name_required"
             else:
                 player_data = {}
-                for platform in PLAYER_PLATFORMS:
+                platforms = ["steam", "xbox", "playstation", "discord", "playnite", "custom"]
+                for platform in platforms:
                     val = user_input.get(platform)
                     if val is not None:
                         val = str(val).strip()
                         if val and val.lower() != "none":
                             player_data[platform] = val
                 
-                self._temp_user_input[OPT_PLAYERS] = _dump_json({name: player_data})
+                from .const import OPT_PLAYERS
+                self._temp_user_input[OPT_PLAYERS] = json.dumps({name: player_data})
                 return self._create_entry_from_temp()
 
         from .const import OPT_ENABLED_PLATFORMS
@@ -242,7 +244,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", integration=integration))
 
         if "steam" in enabled_platforms:
-            schema[vol.Optional("steam")] = _get_filtered_selector("steam_online", None)
+            schema[vol.Optional("steam")] = _get_filtered_selector("steam", None)
         if "xbox" in enabled_platforms:
             schema[vol.Optional("xbox")] = _get_filtered_selector("xbox", "_status")
         if "playstation" in enabled_platforms:
@@ -277,11 +279,12 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         dc_token = user_input.get(CONF_DISCORD_TOKEN, "").strip()
         dc_server = user_input.get(CONF_DISCORD_SERVER, "").strip()
         
-        from .const import OPT_ENABLED_PLATFORMS, OPT_ENABLE_NOTIFICATIONS, OPT_ENABLE_PARENTAL
+        from .const import OPT_ENABLED_PLATFORMS, OPT_ENABLE_NOTIFICATIONS, OPT_ENABLE_PARENTAL, OPT_PLAYERS
         use_cache = user_input.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
         enabled_platforms = user_input.get(OPT_ENABLED_PLATFORMS, [])
         enable_notifications = user_input.get(OPT_ENABLE_NOTIFICATIONS, False)
         enable_parental = user_input.get(OPT_ENABLE_PARENTAL, False)
+        players = user_input.get(OPT_PLAYERS, "{}")
         
         return self.async_create_entry(
             title="Gaming Status",
@@ -294,7 +297,8 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 OPT_USE_CACHE: use_cache,
                 OPT_ENABLED_PLATFORMS: enabled_platforms,
                 OPT_ENABLE_NOTIFICATIONS: enable_notifications,
-                OPT_ENABLE_PARENTAL: enable_parental
+                OPT_ENABLE_PARENTAL: enable_parental,
+                OPT_PLAYERS: players
             },
         )
     
@@ -1101,7 +1105,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         if is_new:
             schema[vol.Required("player_name")] = str
 
-        def _get_filtered_selector(integration: str, suffix: str | None = None, current_val: str = ""):
+        def _get_filtered_selector(integration: str, suffix: str | tuple | None = None, current_val: str = ""):
             options = []
             
             try:
@@ -1154,7 +1158,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             schema[_field("xbox")] = _get_filtered_selector("xbox", "_status", existing.get("xbox", ""))
             
         if "playstation" in enabled_platforms:
-            schema[_field("playstation")] = _get_filtered_selector("playstation_network", "_online_status", existing.get("playstation", ""))
+            schema[_field("playstation")] = _get_filtered_selector("playstation_network", ("_online_status", "_onlinestatus"), existing.get("playstation", ""))
             
         if "discord" in enabled_platforms:
             if self._discord_members:

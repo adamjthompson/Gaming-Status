@@ -392,8 +392,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             else:
                 try:
                     object_id = self._source_entity_id.split('.')[1]
+                    gamertag = None
                     if object_id.endswith("_online_status"):
                         gamertag = object_id[:-14]
+                    elif object_id.endswith("_onlinestatus"):
+                        gamertag = object_id[:-13]
+                        
+                    if gamertag:
                         image_state = self.hass.states.get(f"image.{gamertag}_avatar")
                         if image_state and image_state.attributes.get("entity_picture"):
                             data["avatar_url"] = image_state.attributes.get("entity_picture")
@@ -413,8 +418,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     # 1. Use Dynamic Registry Sibling
                     sibling_id = self._now_playing_entity_id
                     # 2. Fallback to String Guessing
-                    if not sibling_id and "_online_status" in self._source_entity_id:
-                        sibling_id = self._source_entity_id.replace("_online_status", "_now_playing")
+                    if not sibling_id:
+                        if "_online_status" in self._source_entity_id:
+                            sibling_id = self._source_entity_id.replace("_online_status", "_now_playing")
+                        elif "_onlinestatus" in self._source_entity_id:
+                            sibling_id = self._source_entity_id.replace("_onlinestatus", "_now_playing")
                     
                     if sibling_id:
                         sibling_state = self.hass.states.get(sibling_id)
