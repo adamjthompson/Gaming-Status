@@ -1260,7 +1260,8 @@ class MasterGamingSensor(RestoreSensor):
         "remaining_play_time_minutes",
         "weekly_breakdown", "platform_split", "longest_session",
         "rolling_weekly_breakdown", "calendar_weekly_breakdown",
-        "rolling_longest_session", "calendar_longest_session"
+        "rolling_longest_session", "calendar_longest_session",
+        "raw_rolling_breakdown", "raw_calendar_breakdown"
     })
     
     def __init__(self, hass, name, profiles, parental_rules=None):
