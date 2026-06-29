@@ -303,6 +303,18 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         if not game_name: return game_name
         return utils.GAME_TITLE_OVERRIDES.get(str(game_name).strip().lower(), game_name)
 
+    def _sanitize_game_title(self, title: str) -> str:
+        """
+        Strips special characters, trademarks, and extra spaces from game titles 
+        so different platforms (Steam, Discord, Xbox) match perfectly.
+        """
+        if not title: return title
+        # 1. Replace colons, dashes, and registered/trademark symbols with a space
+        clean_title = re.sub(r'[:\-™®©]', ' ', str(title))
+        # 2. Replace multiple spaces with a single space and strip trailing whitespace
+        clean_title = re.sub(r'\s+', ' ', clean_title).strip()
+        return clean_title
+
     def _get_platform_data(self, state, attrs):
         data = { "is_online": False, "current_game": None, "game_cover_url": None, "last_online_timestamp": None, "gamertag": None, "avatar_url": None, "game_id": None, "offline_reason": "standard" }
         state_clean = str(state).lower().strip()
@@ -517,9 +529,16 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 data["avatar_url"] = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.png"
 
         if data.get("is_online") and data.get("current_game"):
-            data["current_game"] = self._apply_title_override(get_base_game_name(data["current_game"]))
-            if _normalize_game_name(data["current_game"]) in (self._global_exclusions_lower | self._exclude_games): 
+            # STEP 1 & 2: Get base name and apply manual overrides
+            current_title = self._apply_title_override(get_base_game_name(data["current_game"]))
+            
+            # STEP 3: Check Exclusions BEFORE sanitizing (so exact text matches still work)
+            if _normalize_game_name(current_title) in (self._global_exclusions_lower | self._exclude_games): 
                 data["is_online"], data["current_game"] = False, None
+            else:
+                # STEP 4: Sanitize the final string to unify punctuation across platforms
+                data["current_game"] = self._sanitize_game_title(current_title)
+                
         return data
 
     def _handle_game_transition(self, new_game_name, explicit_end_time=None):
@@ -609,7 +628,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 parts = clean.split(": ")
                 clean = parts[-1].strip()
                 if "(" in clean and clean.endswith(")"): clean = clean.rsplit(" (", 1)[0].strip()
-        return self._apply_title_override(clean)
+                
+        # Apply overrides first, then sanitize the result
+        return self._sanitize_game_title(self._apply_title_override(clean))
 
     def _write_common_attributes(self, secondary="", timer_status=None, game_cover=None):
         
@@ -1068,7 +1089,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if platform_data.get("current_game"):
                 raw_game_name = platform_data["current_game"]
                 raw_game_name = self._apply_title_override(raw_game_name)
-                game_name_display = _format_game_name_for_display(raw_game_name)
+                
+                # Sanitize the final display name as a last line of defense
+                game_name_display = self._sanitize_game_title(_format_game_name_for_display(raw_game_name))
                 normalized_new = _normalize_game_name(game_name_display)
                 normalized_current = _normalize_game_name(self._current_game) if self._current_game else None
                 if normalized_new == normalized_current and self._play_start_time:
