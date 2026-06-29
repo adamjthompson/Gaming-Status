@@ -674,7 +674,18 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._attr_extra_state_attributes["daily_play_time"] = getattr(self, "_daily_play_time", 0)
         self._attr_extra_state_attributes["weekly_play_time"] = getattr(self, "_weekly_play_time", 0)
         self._attr_extra_state_attributes["weekly_play_time_last_week"] = getattr(self, "_weekly_play_time_last_week", 0)
-        self._attr_extra_state_attributes["weekly_game_breakdown"] = getattr(self, "_weekly_game_breakdown", {})
+
+        # Build the true rolling 7-day breakdown from history + today
+        rolling_breakdown = dict(getattr(self, "_weekly_game_breakdown", {}))
+        if hasattr(self, "_play_history"):
+            for day_data in self._play_history.values():
+                if isinstance(day_data, dict) and "game_breakdown" in day_data:
+                    for game, secs in day_data["game_breakdown"].items():
+                        rolling_breakdown[game] = rolling_breakdown.get(game, 0) + secs
+
+        self._attr_extra_state_attributes["weekly_game_breakdown"] = rolling_breakdown
+        self._attr_extra_state_attributes["rolling_weekly_breakdown"] = rolling_breakdown
+        self._attr_extra_state_attributes["calendar_weekly_breakdown"] = rolling_breakdown
         self._attr_extra_state_attributes["longest_session_details"] = getattr(self, "_longest_session_details", {"game": None, "duration": 0})
         
         # Format times for the frontend UI
@@ -1398,9 +1409,11 @@ class MasterGamingSensor(RestoreSensor):
         # 1. Top Games Breakdowns
         sort_rolling = dict(sorted(master_rolling_breakdown.items(), key=lambda item: item[1], reverse=True))
         fmt_rolling_breakdown = {k: utils._format_time(v) for k, v in sort_rolling.items() if v >= 60}
+        raw_rolling_breakdown = {k: round(v / 3600, 2) for k, v in sort_rolling.items() if v >= 60} # For Charting
         
         sort_calendar = dict(sorted(master_calendar_breakdown.items(), key=lambda item: item[1], reverse=True))
         fmt_calendar_breakdown = {k: utils._format_time(v) for k, v in sort_calendar.items() if v >= 60}
+        raw_calendar_breakdown = {k: round(v / 3600, 2) for k, v in sort_calendar.items() if v >= 60} # For Charting
         
         # 2. Platform Split (Percentages)
         platform_split = {}
@@ -1476,6 +1489,8 @@ class MasterGamingSensor(RestoreSensor):
                 "weekly_breakdown": fmt_rolling_breakdown,
                 "rolling_weekly_breakdown": fmt_rolling_breakdown,
                 "calendar_weekly_breakdown": fmt_calendar_breakdown,
+                "raw_rolling_breakdown": raw_rolling_breakdown,
+                "raw_calendar_breakdown": raw_calendar_breakdown,
                 "platform_split": platform_split,
                 "longest_session": rolling_longest_text,
                 "rolling_longest_session": rolling_longest_text,
@@ -1507,6 +1522,8 @@ class MasterGamingSensor(RestoreSensor):
                     "weekly_breakdown": fmt_rolling_breakdown,
                     "rolling_weekly_breakdown": fmt_rolling_breakdown,
                     "calendar_weekly_breakdown": fmt_calendar_breakdown,
+                    "raw_rolling_breakdown": raw_rolling_breakdown,
+                    "raw_calendar_breakdown": raw_calendar_breakdown,
                     "platform_split": platform_split,
                     "longest_session": rolling_longest_text,
                     "rolling_longest_session": rolling_longest_text,
@@ -1535,6 +1552,8 @@ class MasterGamingSensor(RestoreSensor):
                     "weekly_breakdown": fmt_rolling_breakdown,
                     "rolling_weekly_breakdown": fmt_rolling_breakdown,
                     "calendar_weekly_breakdown": fmt_calendar_breakdown,
+                    "raw_rolling_breakdown": raw_rolling_breakdown,
+                    "raw_calendar_breakdown": raw_calendar_breakdown,
                     "platform_split": platform_split,
                     "longest_session": rolling_longest_text,
                     "rolling_longest_session": rolling_longest_text,
