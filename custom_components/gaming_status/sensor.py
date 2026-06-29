@@ -54,12 +54,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
     _unrecorded_attributes = frozenset({
         "secondary", "daily_play_time_formatted", "weekly_play_time_formatted",
         "game_cover_art", "game_hero_art", "game_logo_art", "game_icon_art",
-        "entity_picture", "cached_game_cover", 
+        "entity_picture", "cached_game_cover",
         "last_online_valid_timestamp", "current_game", "timer_status",
         "weekly_game_breakdown", "longest_session_details",
         "rolling_weekly_breakdown", "rolling_longest_session",
         "calendar_weekly_breakdown", "calendar_longest_session",
-        "last_played_game", "daily_play_time", "weekly_play_time", "weekly_play_time_last_week" 
+        "last_played_game", "daily_play_time", "weekly_play_time", "weekly_play_time_last_week",
+        "play_history",
     })
 
     def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None, active_settings=None, global_exclusions=None, available_avatars=None):
@@ -692,6 +693,16 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._attr_extra_state_attributes["daily_play_time_formatted"] = utils._format_time(self._attr_extra_state_attributes["daily_play_time"])
         self._attr_extra_state_attributes["weekly_play_time_formatted"] = utils._format_time(self._attr_extra_state_attributes["weekly_play_time"])
 
+        # Expose per-day game breakdown for history cards
+        today_str = dt_util.as_local(dt_util.now()).strftime("%Y-%m-%d")
+        history_attr = {}
+        if hasattr(self, "_play_history"):
+            for date_str, day_data in self._play_history.items():
+                if isinstance(day_data, dict):
+                    history_attr[date_str] = day_data.get("game_breakdown", {})
+        history_attr[today_str] = dict(getattr(self, "_weekly_game_breakdown", {}))
+        self._attr_extra_state_attributes["play_history"] = history_attr
+
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
         
@@ -1261,7 +1272,8 @@ class MasterGamingSensor(RestoreSensor):
         "weekly_breakdown", "platform_split", "longest_session",
         "rolling_weekly_breakdown", "calendar_weekly_breakdown",
         "rolling_longest_session", "calendar_longest_session",
-        "raw_rolling_breakdown", "raw_calendar_breakdown"
+        "raw_rolling_breakdown", "raw_calendar_breakdown",
+        "play_history",
     })
     
     def __init__(self, hass, name, profiles, parental_rules=None):
@@ -1318,6 +1330,7 @@ class MasterGamingSensor(RestoreSensor):
         # Trackers for the new Dual-Window Rich Data attributes
         master_rolling_breakdown = {}
         master_calendar_breakdown = {}
+        master_history = {}
         platform_totals = {}
         max_rolling_duration = 0
         max_rolling_game = None
@@ -1351,6 +1364,13 @@ class MasterGamingSensor(RestoreSensor):
             c_breakdown = platform_state.attributes.get("calendar_weekly_breakdown", {})
             for game, duration in c_breakdown.items():
                 master_calendar_breakdown[game] = master_calendar_breakdown.get(game, 0) + duration
+
+            # Aggregate per-day game history
+            for date_str, game_breakdown in platform_state.attributes.get("play_history", {}).items():
+                if isinstance(game_breakdown, dict):
+                    day = master_history.setdefault(date_str, {})
+                    for game, seconds in game_breakdown.items():
+                        day[game] = day.get(game, 0) + int(seconds)
                 
             # Find Longest Sessions
             r_longest = platform_state.attributes.get("rolling_longest_session", {})
@@ -1561,8 +1581,10 @@ class MasterGamingSensor(RestoreSensor):
                     "calendar_longest_session": calendar_longest_text
                 }
 
-        if (self._attr_native_value == new_state_value and 
-            self._attr_icon == new_icon and 
+        new_attrs["play_history"] = master_history
+
+        if (self._attr_native_value == new_state_value and
+            self._attr_icon == new_icon and
             self._attr_entity_picture == new_entity_picture and
             self._attr_extra_state_attributes == new_attrs): return
 
