@@ -1618,60 +1618,7 @@ class MasterGamingSensor(RestoreSensor):
         self.async_write_ha_state()
 
 # ------------------------------------------------------------------
-# 3. HISTORY CHART & SETUP
-# ------------------------------------------------------------------
-
-class HistoryChartSensor(RestoreEntity, SensorEntity):
-    _attr_should_poll = False
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
-    _attr_native_unit_of_measurement = "h"
-    _attr_icon = "mdi:chart-bar"
-    
-    def __init__(self, hass, name):
-        self.hass = hass
-        safe_owner = name.lower().replace(" ", "_")
-        self._attr_name = f"{name} Chart"
-        self._attr_unique_id = f"gaming_status_{safe_owner}_chart_v7"
-        self.entity_id = f"sensor.gaming_status_{safe_owner}_chart"
-        self._master_sensor_id = f"sensor.gaming_status_{safe_owner}_master"
-        self._attr_native_value = 0.0
-
-    async def async_added_to_hass(self):
-        await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        if last_state:
-            try: self._attr_native_value = float(last_state.state)
-            except ValueError: self._attr_native_value = 0.0
-        self.async_on_remove(async_track_state_change_event(self.hass, [self._master_sensor_id], self._async_master_changed))
-        master_state = self.hass.states.get(self._master_sensor_id)
-        if master_state:
-            daily_hours = master_state.attributes.get("total_daily_hours", 0.0)
-            try:
-                daily_hours_float = float(daily_hours)
-                if self._attr_native_value != daily_hours_float:
-                    self._attr_native_value = daily_hours_float
-                    self.async_write_ha_state()
-            except (ValueError, TypeError): pass
-
-    @callback
-    def _async_master_changed(self, event):
-        new_state = event.data.get("new_state")
-        if new_state:
-            # Block database spikes if the master sensor is just restoring old data during startup
-            if new_state.state in [STATE_UNKNOWN, STATE_UNAVAILABLE, "Offline"] and not new_state.attributes.get("current_game"):
-                if float(new_state.attributes.get("total_daily_hours", 0.0)) > 0 and self._attr_native_value == 0.0:
-                    return
-
-            daily_hours = new_state.attributes.get("total_daily_hours", 0.0)
-            try:
-                daily_hours_float = float(daily_hours)
-                if self._attr_native_value != daily_hours_float:
-                    self._attr_native_value = daily_hours_float
-                    self.async_write_ha_state()
-            except (ValueError, TypeError): pass
-
-# ------------------------------------------------------------------
-# 4. GLOBAL ONLINE COUNT SENSOR
+# 3. GLOBAL ONLINE COUNT SENSOR
 # ------------------------------------------------------------------
 
 class GlobalOnlineCountSensor(SensorEntity):
@@ -1713,7 +1660,7 @@ class GlobalOnlineCountSensor(SensorEntity):
         self.async_write_ha_state()
 
 # ------------------------------------------------------------------
-# 5. PC SUB-MASTER SENSOR
+# 4. PC SUB-MASTER SENSOR
 # ------------------------------------------------------------------
 
 class PCGamingSensor(RestoreSensor):
@@ -1949,7 +1896,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     # --- AUTOMATIC LEGACY SENSOR PURGE (DATABASE & RAM GHOSTS) ---
     
     # Step 1: Registry Purge by Legacy Unique ID
-    legacy_tags = ("_tracker_v5", "_master_v5", "_chart_v161", "_pc_status_v1", "global_players_online_count_v1", "_chart_v6")
+    legacy_tags = ("_tracker_v5", "_master_v5", "_chart_v161", "_pc_status_v1", "global_players_online_count_v1", "_chart_v6", "_chart_v7")
     for entity in er.async_entries_for_config_entry(registry, config_entry.entry_id):
         if entity.unique_id.endswith(legacy_tags) or entity.unique_id in legacy_tags:
             try: registry.async_remove(entity.entity_id)
@@ -1994,8 +1941,6 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             # Map legacy suffix exceptions to the new clean standard using precise slicing
             if entity.entity_id.endswith("_gaming_status"):
                 new_id = new_id[:-14] + "_master"  # -14 removes exactly "_gaming_status"
-            elif entity.entity_id.endswith("_daily_gaming_hours_chart"):
-                new_id = new_id[:-25] + "_chart"   # -25 removes exactly "_daily_gaming_hours_chart"
             elif entity.entity_id == "sensor.players_online":
                 new_id = "sensor.gaming_status_players_online"
                 
@@ -2044,10 +1989,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             if registry.async_get(target_id):
                 registry.async_remove(target_id)
 
-        ents.extend([
-            MasterGamingSensor(hass, player_name, player_data, rules),
-            HistoryChartSensor(hass, player_name),
-        ])
+        ents.append(MasterGamingSensor(hass, player_name, player_data, rules))
 
     ents.append(GlobalOnlineCountSensor(hass, players))
     async_add_entities(ents)

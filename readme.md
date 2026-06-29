@@ -34,7 +34,6 @@ This integration acts as a "wrapper" that intelligently processes data from your
 While not required for functionality, I recommend installing the following HACS for the most robust dashboard cards:
 * [SteamGridDB API Key](https://www.steamgriddb.com/) - Provides artwork for games. *This is not REQUIRED, but it is HIGHLY recommended!*
 * [Gaming Status Cards](https://github.com/adamjthompson/Gaming-Status-Cards) - Easy to use companion dashboard cards, so you don't have to make your own.
-* [ApexCharts Card](https://github.com/RomRider/apexcharts-card) - For the stats and donut graph cards.
 * [Official Discord Integration](https://www.home-assistant.io/integrations/discord) - Requires setting up a Discord Bot. *REQUIRED if you want to use Discord for notifications.*
 * [Mosquitto Broker](https://github.com/home-assistant/addons/tree/master/mosquitto) - Required if you plan to use Playnite for tracking games. You will also need an MQTT add-on installed in Playnite (such as [Playnite MQTT Client](https://playnite.link/addons.html#MQTTClient_90c44048-4f8f-43f7-a0c1-f8164bf1d7ef)) to broadcast your status to Home Assistant.
 * [HASS.Agent](https://www.hass-agent.io/2.2/getting-started/installation/#installing-hassagent) - Allows you to create custom sensors for otherwise untrackable games. Install both the PC app and the integration for Custom PC sensors. *Try using Discord tracking first, if possible, since HASS Agent sensors have to be created for each individually-tracked game.*
@@ -149,7 +148,7 @@ Playnite is an incredible open-source library manager that can track games acros
 **The PC Sub-Master Priority Logic:**
 If a player launches a game, it is very common for multiple trackers (like Discord, Playnite, and Steam) to detect it simultaneously. To prevent double-counting your playtime hours and sending duplicate push notifications, the `sensor.gaming_status_XXXXX_pc` sensor uses strict **Smart Platform Yielding**. 
 
-Platforms are prioritized in this exact order: **Custom > Steam > Playnite > Discord**.
+Platforms are prioritized in this exact order: **Playnite > Custom > Steam > Discord**.
 * *Example:* If a player launches a Steam game, Discord will likely detect it first and claim the dashboard. Seconds later, when Steam wakes up and detects the same game, Discord will instantly pause its timer and yield control to Steam. 
 * *Result:* You get the lightning-fast notifications of Discord, but the pristine, deduplicated analytics of Steam!
 
@@ -167,7 +166,6 @@ Upon restart, the integration will instantly read your settings and generate the
 | sensor.gaming_status_XXXXX_custom | Sensor | Custom sensor for each added profile |
 | sensor.gaming_status_XXXXX_pc | Sensor | Sub-master sensor that automatically aggregates Steam, Discord, Playnite, and Custom PC clients into a single unified PC state |
 | sensor.gaming_status_XXXXX_master | Sensor | Master sensor for each added profile that combines all added platforms into one "Online/Offline" status |
-| sensor.gaming_status_XXXXX_chart | Sensor | Daily game time mapped to the Long-Term Statistics database (Total Increasing) |
 | sensor.gaming_status_players_online | Sensor | Global sensor that tracks the total number of players currently online |
 | binary_sensor.gaming_status_anyone_gaming | Binary Sensor | Useful for showing or hiding cards |
 
@@ -185,10 +183,13 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | weekly_breakdown | A copy of 'calendar_weekly_breakdown', for backward-compatibility |
 | calendar_weekly_breakdown | Consolidated dictionary of all games played across all platforms for the week, formatted as human-readable strings (e.g., "5h 30m") and resetting each Sunday at midnight |
 | rolling_weekly_breakdown | Consolidated dictionary of all games played across all platforms, formatted as human-readable strings (e.g., "5h 30m") as a rolling 7-day total |
+| raw_rolling_breakdown | Dictionary of game names to total hours (float) over the rolling 7-day window, used by the Gaming Status Cards for chart rendering |
+| raw_calendar_breakdown | Dictionary of game names to total hours (float) for the current calendar week, used by the Gaming Status Cards for chart rendering |
 | platform_split | A dictionary showing the percentage of total weekly hours spent on each platform (e.g., {"Steam": "55%"}) |
 | longest_session | A copy of 'calendar_longest_session', for backward-compatibility |
 | calendar_longest_session | A formatted string showing the game title and duration of the longest session across all platforms for the week, resetting each Sunday at midnight |
 | rolling_longest_session | A formatted string showing the game title and duration of the longest session across all platforms, tracking only the last seven days |
+| play_history | Per-day, per-game playtime aggregated across all platforms: `{"YYYY-MM-DD": {"Game Title": seconds, ...}}`. Used by the Gaming Status Cards for chart rendering |
 
 **Parental/Limit Controls**
 | Attribute | Description |
@@ -244,7 +245,8 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | weekly_play_time_formatted | Human-readable weekly time |
 | weekly_play_time_last_week | Total seconds played in the previous week |
 | last_played_game | Title of the most recently closed game detected on this specific platform |
-| weekly_game_breakdown | A dictionary mapping game names to their playtime durations |
+| weekly_game_breakdown | A dictionary mapping game names to their total playtime in seconds across all recorded days |
+| play_history | Per-day, per-game playtime for this platform: `{"YYYY-MM-DD": {"Game Title": seconds, ...}}` |
 | longest_session_details | A copy of 'calendar_longest session', for backward compatibility |
 | calendar_longest_session | A dictionary containing the game title and duration (in seconds) of the longest session recorded during the calendar week (resets on Sunday at midnight) |
 | rolling_longest_session | A dictionary containing the game title and duration (in seconds) of the longest session recorded over the last seven day period |
@@ -255,7 +257,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | active_games | A comma-separated string of the games currently being played by online players |
 
 ### Note
-Several of these attributes (e.g., the artwork URLs, weekly_breakdown, longest_session_details) are explicitly added to `_unrecorded_attributes` in the classes. This is a deliberate performance optimization to prevent Home Assistant from saving these frequently changing values into the long-term database (recorder), which keeps your `home-assistant_v2.db` file from growing excessively large.
+Several of these attributes (e.g., the artwork URLs, weekly_breakdown, longest_session_details, play_history, raw_rolling_breakdown, raw_calendar_breakdown) are explicitly added to `_unrecorded_attributes` in the classes. This is a deliberate performance optimization to prevent Home Assistant from saving these frequently changing values into the long-term database (recorder), which keeps your `home-assistant_v2.db` file from growing excessively large.
 
 ## ❓ What Next?
 Once everything is up and running (with sensors showing up from the integration), try playing a game for at least 5 minutes to make sure the online status is reflected in the `_master` sensors. *Note that, by default, sessions shorter than 300 seconds (5 minutes) are discarded and do not count toward the total playtime hours.* If the sensors are working correctly, try some of the following! If not, see the [troubleshooting](docs/troubleshooting.md) documentation.
@@ -263,7 +265,7 @@ Once everything is up and running (with sensors showing up from the integration)
 - Add some sweet displays to your [dashboard](https://github.com/adamjthompson/Gaming-Status-Cards#1-gaming-status---list), showing who's online and what they're playing
 - Set up Discord, SMS, and/or Mobile [notifications](docs/notifications.md) for when users start, stop, and switch games
 - Add a [slideshow](https://github.com/adamjthompson/Gaming-Status-Cards#2-gaming-status---slideshow) to your dashboard or wallpanel display to see what's being played
-- Add a [graph](https://github.com/adamjthompson/Gaming-Status-Cards#3-gaming-status---chart) to chart weekly game time
+- Add a [weekly hours chart](https://github.com/adamjthompson/Gaming-Status-Cards) or a [per-game breakdown chart](https://github.com/adamjthompson/Gaming-Status-Cards) to visualize playtime trends across your household
 - Add [custom sensors](docs/advanced.md#tracking-standalone-pc-games-hassagent-setup) to track PC games not logged by Steam or Xbox sensors
 - Use a [sensor](docs/advanced.md#the-is-anyone-gaming-binary-sensor-for-automations) to track whether or not anyone is gaming (useful for automations or contextual card display)
 - Check out other [advanced setup options](docs/advanced.md) for features like preventing tracking of games by the wrong players and per-user game exclusions
