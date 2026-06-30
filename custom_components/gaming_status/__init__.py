@@ -122,7 +122,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             intents.members = True
             intents.presences = True
             
-            bot = nextcord.Client(loop=hass.loop, intents=intents)
+            bot = nextcord.Client(intents=intents)
             
             def _dispatch(member):
                 activity_name = None

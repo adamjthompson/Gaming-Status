@@ -1670,7 +1670,7 @@ class PCGamingSensor(RestoreSensor):
     def __init__(self, hass, name, pc_entities):
         self.hass = hass
         self._pc_entities = pc_entities
-        safe_owner = name.lower().replace(" ", "_")
+        safe_owner = re.sub(r'[^a-z0-9_]', '_', name.lower().replace(" ", "_"))
         self._attr_name = f"{name} PC"
         self._attr_unique_id = f"gaming_status_{safe_owner}_pc_v2"
         self.entity_id = f"sensor.gaming_status_{safe_owner}_pc"
@@ -1893,8 +1893,32 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     except Exception:
                         pass
 
+    # --- PC SENSOR UNIQUE ID SANITIZATION MIGRATION ---
+    # PCGamingSensor formerly used an unsanitized safe_owner (only spaces replaced),
+    # so player names with &, -, etc. produced invalid unique IDs. Migrate them now.
+    for player_name in players.keys():
+        old_safe = player_name.lower().replace(" ", "_")
+        new_safe = re.sub(r'[^a-z0-9_]', '_', player_name.lower().replace(" ", "_"))
+        if old_safe == new_safe:
+            continue
+        old_uid = f"gaming_status_{old_safe}_pc_v2"
+        new_uid = f"gaming_status_{new_safe}_pc_v2"
+        old_eid = registry.async_get_entity_id("sensor", DOMAIN, old_uid)
+        if old_eid:
+            ghost = registry.async_get_entity_id("sensor", DOMAIN, new_uid)
+            if ghost and ghost != old_eid:
+                registry.async_remove(ghost)
+            try:
+                registry.async_update_entity(
+                    old_eid,
+                    new_unique_id=new_uid,
+                    new_entity_id=f"sensor.gaming_status_{new_safe}_pc"
+                )
+            except Exception:
+                pass
+
     # --- AUTOMATIC LEGACY SENSOR PURGE (DATABASE & RAM GHOSTS) ---
-    
+
     # Step 1: Registry Purge by Legacy Unique ID
     legacy_tags = ("_tracker_v5", "_master_v5", "_chart_v161", "_pc_status_v1", "global_players_online_count_v1", "_chart_v6", "_chart_v7")
     for entity in er.async_entries_for_config_entry(registry, config_entry.entry_id):
@@ -1905,7 +1929,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     # Step 2: Hard RAM & Registry Purge by Exact Legacy Name
     legacy_entity_ids = ["sensor.players_online", "binary_sensor.anyone_gaming"]
     for player_name in players.keys():
-        safe_owner = player_name.lower().replace(" ", "_")
+        safe_owner = re.sub(r'[^a-z0-9_]', '_', player_name.lower().replace(" ", "_"))
         legacy_entity_ids.extend([
             f"sensor.{safe_owner}_gaming_status",
             f"sensor.{safe_owner}_daily_gaming_hours_chart",
@@ -1956,7 +1980,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         ghosted_by = player_data.get("ghosted_by", [])
         exclude_games = player_data.get("exclude_games", [])
         rules = parental_rules.get(player_name, {})
-        safe_owner = player_name.lower().replace(" ", "_")
+        safe_owner = re.sub(r'[^a-z0-9_]', '_', player_name.lower().replace(" ", "_"))
 
         # --- ORPHANED SENSOR GARBAGE COLLECTION ---
         if remove_disabled:
