@@ -485,10 +485,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         data["current_game"] = attrs.get("title_name")
                         data["game_cover_url"] = attrs.get("title_image")
                         data["is_online"] = True
-                    elif is_basic_offline: 
-                        data["is_online"] = False
-                    else:
-                        data["is_online"] = False
 
         elif self._gaming_type == "playnite":
             # Apply the persistent Playnite logo as a base default if no custom image exists
