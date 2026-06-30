@@ -25,7 +25,7 @@ Some of the key features are listed below.
 * **Custom Avatars:** Automatically pulls live gamer pictures from platform APIs, with the option to easily override missing or incorrect images with your own local images.
 
 ## ⚠️ Prerequisites
-This integration acts as a "wrapper" that intelligently processes data from your existing integrations. Before installing, ensure you have any necessary base integrations installed and working in Home Assistant. Not all are required, but you'll need at least ONE official integration installed:
+This integration acts as a "wrapper" that intelligently processes data from your existing integrations. Before installing, ensure you have any necessary base integrations installed and working in Home Assistant. Not all are required, but I recommend having at least ONE official integration installed. Discord and Playnite can also be used for game tracking with or without the other integrations, but they are more complicated to set up:
 * [Official PlayStation Network Integration](https://www.home-assistant.io/integrations/playstation_network)
 * [Official Steam Integration](https://www.home-assistant.io/integrations/steam_online)
 * [Official Xbox Integration](https://www.home-assistant.io/integrations/xbox)
@@ -35,8 +35,8 @@ While not required for functionality, I recommend installing the following HACS 
 * [SteamGridDB API Key](https://www.steamgriddb.com/) - Provides artwork for games. *This is not REQUIRED, but it is HIGHLY recommended!*
 * [Gaming Status Cards](https://github.com/adamjthompson/Gaming-Status-Cards) - Easy to use companion dashboard cards, so you don't have to make your own.
 * [Official Discord Integration](https://www.home-assistant.io/integrations/discord) - Requires setting up a Discord Bot. *REQUIRED if you want to use Discord for notifications.*
-* [Mosquitto Broker](https://github.com/home-assistant/addons/tree/master/mosquitto) - Required if you plan to use Playnite for tracking games. You will also need an MQTT add-on installed in Playnite (such as [Playnite MQTT Client](https://playnite.link/addons.html#MQTTClient_90c44048-4f8f-43f7-a0c1-f8164bf1d7ef)) to broadcast your status to Home Assistant.
-* [HASS.Agent](https://www.hass-agent.io/2.2/getting-started/installation/#installing-hassagent) - Allows you to create custom sensors for otherwise untrackable games. Install both the PC app and the integration for Custom PC sensors. *Try using Discord tracking first, if possible, since HASS Agent sensors have to be created for each individually-tracked game.*
+* [Mosquitto Broker](https://github.com/home-assistant/addons/tree/master/mosquitto) - *REQUIRED if you plan to use Playnite for tracking games.* You will also need an MQTT add-on installed in Playnite (such as [Playnite MQTT Client](https://playnite.link/addons.html#MQTTClient_90c44048-4f8f-43f7-a0c1-f8164bf1d7ef)) to broadcast your status to Home Assistant.
+* [HASS.Agent](https://www.hass-agent.io/2.2/getting-started/installation/#installing-hassagent) - Allows you to create custom sensors for otherwise untrackable games. Install both the PC app and the integration for Custom PC sensors. *Try using Discord or Playnite tracking first, if possible, since HASS Agent sensors have to be individually created for each tracked game.*
 
 ### Obtaining a SteamGridDB API Key
 To display beautiful, high-resolution game covers on your dashboard, this integration requires a free API key from SteamGridDB.
