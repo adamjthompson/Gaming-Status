@@ -1,10 +1,10 @@
 {
   "domain": "gaming_status",
   "name": "Gaming Status",
+  "after_dependencies": ["playstation_network", "xbox", "steam"],
   "codeowners": ["@adamjthompson"],
   "config_flow": true,
   "dependencies": [],
-  "after_dependencies": ["playstation_network", "xbox", "steam"],
   "documentation": "https://github.com/adamjthompson/Gaming-Status",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/adamjthompson/Gaming-Status/issues",
