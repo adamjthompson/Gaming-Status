@@ -387,13 +387,14 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             return await self._update_and_return()
 
         # --- HARDWARE SAFETY NET ---
-        is_pi = False
-        try:
-            with open("/sys/firmware/devicetree/base/model", "r") as f:
-                if "Raspberry Pi" in f.read():
-                    is_pi = True
-        except Exception:
-            pass
+        def _check_is_pi():
+            try:
+                with open("/sys/firmware/devicetree/base/model", "r") as f:
+                    return "Raspberry Pi" in f.read()
+            except Exception:
+                return False
+
+        is_pi = await self.hass.async_add_executor_job(_check_is_pi)
             
         dynamic_color_default = False if is_pi else DEFAULT_EXTRACT_COLOR
 
