@@ -57,8 +57,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         "entity_picture", "cached_game_cover",
         "last_online_valid_timestamp", "current_game", "timer_status",
         "weekly_game_breakdown", "longest_session_details",
-        "rolling_weekly_breakdown", "rolling_longest_session",
-        "calendar_weekly_breakdown", "calendar_longest_session",
+        "rolling_weekly_breakdown", "rolling_longest_session_details",
+        "calendar_weekly_breakdown", "calendar_longest_session_details",
         "last_played_game", "daily_play_time", "weekly_play_time", "weekly_play_time_last_week",
         "play_history",
     })
@@ -306,7 +306,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         return clean_title
 
     def _get_platform_data(self, state, attrs):
-        data = { "is_online": False, "current_game": None, "game_cover_url": None, "last_online_timestamp": None, "gamertag": None, "avatar_url": None, "game_id": None, "offline_reason": "standard" }
+        data = { "is_online": False, "current_game": None, "game_cover_url": None, "gamertag": None, "avatar_url": None, "offline_reason": "standard" }
         state_clean = str(state).lower().strip()
         if state_clean in ["none", ""]: return None
         normalized_state = state_clean.lower()
@@ -356,9 +356,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     app_id = str(attrs.get("app_id") or attrs.get("game_id") or "")
                     if app_id and app_id.isdigit(): data["game_cover_url"] = f"https://cdn.cloudflare.steamstatic.com/steam/apps/{app_id}/library_hero.jpg"
             
-            if attrs.get("last_logoff"): data["last_online_timestamp"] = attrs.get("last_logoff")
-            elif attrs.get("last_online"): data["last_online_timestamp"] = attrs.get("last_online")
-
         elif self._gaming_type == "xbox":
             if is_globally_excluded or is_user_excluded: data["is_online"] = False
             elif state_clean.startswith("last seen"):
@@ -371,10 +368,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         data["xbox_last_seen_game"] = self._apply_title_override(g_name)
             else:
                 found_sibling = False
-                sibling_id = self._now_playing_entity_id
-                if not sibling_id:
-                    if "_status" in self._source_entity_id:
-                        sibling_id = self._source_entity_id.replace("_status", "_now_playing")
+                sibling_id = self._source_entity_id.replace("_status", "_now_playing") if "_status" in self._source_entity_id else None
                         
                 potential_game = state
                 
@@ -648,18 +642,43 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._attr_extra_state_attributes["weekly_play_time"] = getattr(self, "_weekly_play_time", 0)
         self._attr_extra_state_attributes["weekly_play_time_last_week"] = getattr(self, "_weekly_play_time_last_week", 0)
 
-        # Build the true rolling 7-day breakdown from history + today
+        # Build rolling 7-day and calendar-week breakdowns from history + today
         rolling_breakdown = dict(getattr(self, "_weekly_game_breakdown", {}))
+        local_today = dt_util.as_local(dt_util.now()).date()
+        week_start = local_today - timedelta(days=local_today.weekday())
+        calendar_breakdown = dict(getattr(self, "_weekly_game_breakdown", {}))
+
+        today_longest = getattr(self, "_longest_session_details", {"game": None, "duration": 0})
+        rolling_longest = dict(today_longest)
+        calendar_longest = dict(today_longest)
+
         if hasattr(self, "_play_history"):
-            for day_data in self._play_history.values():
-                if isinstance(day_data, dict) and "game_breakdown" in day_data:
+            for date_str, day_data in self._play_history.items():
+                if not isinstance(day_data, dict):
+                    continue
+                in_cal_week = False
+                try:
+                    in_cal_week = parser.parse(date_str).date() >= week_start
+                except Exception:
+                    pass
+                if "game_breakdown" in day_data:
                     for game, secs in day_data["game_breakdown"].items():
                         rolling_breakdown[game] = rolling_breakdown.get(game, 0) + secs
+                        if in_cal_week:
+                            calendar_breakdown[game] = calendar_breakdown.get(game, 0) + secs
+                hist_longest = day_data.get("longest_session", {})
+                if isinstance(hist_longest, dict):
+                    if hist_longest.get("duration", 0) > rolling_longest.get("duration", 0):
+                        rolling_longest = hist_longest
+                    if in_cal_week and hist_longest.get("duration", 0) > calendar_longest.get("duration", 0):
+                        calendar_longest = hist_longest
 
         self._attr_extra_state_attributes["weekly_game_breakdown"] = rolling_breakdown
         self._attr_extra_state_attributes["rolling_weekly_breakdown"] = rolling_breakdown
-        self._attr_extra_state_attributes["calendar_weekly_breakdown"] = rolling_breakdown
-        self._attr_extra_state_attributes["longest_session_details"] = getattr(self, "_longest_session_details", {"game": None, "duration": 0})
+        self._attr_extra_state_attributes["calendar_weekly_breakdown"] = calendar_breakdown
+        self._attr_extra_state_attributes["longest_session_details"] = today_longest
+        self._attr_extra_state_attributes["rolling_longest_session_details"] = rolling_longest
+        self._attr_extra_state_attributes["calendar_longest_session_details"] = calendar_longest
         
         # Format times for the frontend UI
         self._attr_extra_state_attributes["daily_play_time_formatted"] = utils._format_time(self._attr_extra_state_attributes["daily_play_time"])
@@ -978,6 +997,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     else: secondary = "Offline"
                 else: secondary = "Offline"
             self._write_common_attributes(secondary, timer_status=timer_status)
+            self._last_update_dt = now_dt
             if was_offline and timer_status == "Stopped (Offline)" and self._daily_play_time == old_daily and secondary == old_secondary: return
             self.async_write_ha_state()
         except Exception as e: _LOGGER.error("Error in _update_play_time for %s: %s", self.entity_id, e)
@@ -1321,13 +1341,13 @@ class MasterGamingSensor(RestoreSensor):
                         day[game] = day.get(game, 0) + int(seconds)
                 
             # Find Longest Sessions
-            r_longest = platform_state.attributes.get("rolling_longest_session", {})
+            r_longest = platform_state.attributes.get("rolling_longest_session_details", {})
             r_dur = r_longest.get("duration", 0)
             if r_dur > max_rolling_duration:
                 max_rolling_duration = r_dur
                 max_rolling_game = r_longest.get("game")
                 
-            c_longest = platform_state.attributes.get("calendar_longest_session", {})
+            c_longest = platform_state.attributes.get("calendar_longest_session_details", {})
             c_dur = c_longest.get("duration", 0)
             if c_dur > max_calendar_duration:
                 max_calendar_duration = c_dur
