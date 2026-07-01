@@ -456,7 +456,17 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             
             # If we have an app_id, we treat the state as the game name
             if app_id and state_clean not in ["offline", "online", "idle"]:
-                if self._is_game_active_elsewhere(state):
+                # Suppress Discord if a console is currently active — Discord surfaces stale
+                # console-game data (e.g. the last PS5 game) via its platform integrations,
+                # and that data is unreliable when a console session is live.
+                console_active = False
+                for _cp in ["playstation", "xbox"]:
+                    _cid = self._desired_entity_id.replace(f"_{self._gaming_type}", f"_{_cp}")
+                    _cs = self.hass.states.get(_cid)
+                    if _cs and str(_cs.state).lower() not in ["offline", "unavailable", "unknown", "source missing", "none", ""]:
+                        console_active = True
+                        break
+                if self._is_game_active_elsewhere(state) or console_active:
                     data["is_online"] = False
                 else:
                     data["is_online"] = True
@@ -801,13 +811,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 self._daily_play_time_yesterday = int(float(attrs.get("daily_play_time_yesterday") or 0))
                 self._last_reset_date = attrs.get("last_reset_date")
                 self._last_weekly_reset = attrs.get("last_weekly_reset")
-            try:
-                self._daily_play_time = int(float(attrs.get("daily_play_time") or 0))
-                self._weekly_play_time = int(float(attrs.get("weekly_play_time") or 0))
-                self._weekly_play_time_last_week = int(float(attrs.get("weekly_play_time_last_week") or 0))
-            except Exception:
-                self._daily_play_time = 0
-                self._weekly_play_time = 0
+                try:
+                    self._daily_play_time = int(float(attrs.get("daily_play_time") or 0))
+                    self._weekly_play_time = int(float(attrs.get("weekly_play_time") or 0))
+                    self._weekly_play_time_last_week = int(float(attrs.get("weekly_play_time_last_week") or 0))
+                except Exception:
+                    self._daily_play_time = 0
+                    self._weekly_play_time = 0
             if attrs.get("current_game") and attrs.get("play_start_time"):
                 self._current_game = self._clean_restored_game_name(attrs.get("current_game"))
                 self._play_start_time = attrs.get("play_start_time")
@@ -1632,6 +1642,9 @@ class PCGamingSensor(RestoreSensor):
             
         # Start listening for live changes
         self.async_on_remove(async_track_state_change_event(self.hass, self._pc_entities, self._async_pc_changed))
+        # Periodic poll as a safety net — catches any state change events that were missed
+        # during startup, reload, or edge cases (custom/playnite sensors can be slow to fire)
+        self.async_on_remove(async_track_time_interval(self.hass, self._async_pc_poll, timedelta(seconds=30)))
         await self._update_pc_state()
 
         # FORCE UPDATE: Wait for HA to finish booting, pause 5 seconds, then check platforms again
@@ -1639,7 +1652,7 @@ class PCGamingSensor(RestoreSensor):
         async def _force_delayed_update(event=None):
             await asyncio.sleep(5)
             await self._update_pc_state()
-            
+
         # OPTIMIZATION: Allow Hot-Reloads to work without full system reboots
         if self.hass.is_running:
             self.hass.async_create_task(_force_delayed_update())
@@ -1648,6 +1661,10 @@ class PCGamingSensor(RestoreSensor):
 
     @callback
     def _async_pc_changed(self, event):
+        self.hass.async_create_task(self._update_pc_state())
+
+    @callback
+    def _async_pc_poll(self, now=None):
         self.hass.async_create_task(self._update_pc_state())
 
     async def _update_pc_state(self):
@@ -1751,8 +1768,46 @@ class PCGamingSensor(RestoreSensor):
                             break
                 self._attr_entity_picture = fallback_pic
 
+        # Aggregate play time and history from all PC platform sensors
+        total_daily = 0
+        total_weekly = 0
+        total_weekly_last = 0
+        merged_rolling = {}
+        merged_calendar = {}
+        merged_history = {}
+
+        for entity_id in self._pc_entities:
+            state = self.hass.states.get(entity_id)
+            if not state:
+                continue
+            attrs = state.attributes
+            try:
+                total_daily += int(attrs.get("daily_play_time") or 0)
+                total_weekly += int(attrs.get("weekly_play_time") or 0)
+                total_weekly_last += int(attrs.get("weekly_play_time_last_week") or 0)
+            except (ValueError, TypeError):
+                pass
+            for game, secs in attrs.get("rolling_weekly_breakdown", {}).items():
+                merged_rolling[game] = merged_rolling.get(game, 0) + secs
+            for game, secs in attrs.get("calendar_weekly_breakdown", {}).items():
+                merged_calendar[game] = merged_calendar.get(game, 0) + secs
+            for date_str, day_breakdown in attrs.get("play_history", {}).items():
+                if not isinstance(day_breakdown, dict):
+                    continue
+                if date_str not in merged_history:
+                    merged_history[date_str] = {}
+                for game, secs in day_breakdown.items():
+                    merged_history[date_str][game] = merged_history[date_str].get(game, 0) + secs
+
+        self._attr_extra_state_attributes["daily_play_time"] = total_daily
+        self._attr_extra_state_attributes["weekly_play_time"] = total_weekly
+        self._attr_extra_state_attributes["weekly_play_time_last_week"] = total_weekly_last
+        self._attr_extra_state_attributes["rolling_weekly_breakdown"] = merged_rolling
+        self._attr_extra_state_attributes["calendar_weekly_breakdown"] = merged_calendar
+        self._attr_extra_state_attributes["play_history"] = merged_history
+
         self.async_write_ha_state()
-        
+
 async def async_setup_entry(hass, config_entry, async_add_entities):
     opts = config_entry.options
     active_settings = {
