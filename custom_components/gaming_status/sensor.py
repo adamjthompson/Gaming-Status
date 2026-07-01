@@ -149,7 +149,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._last_reset_date = None
         self._last_weekly_reset = None
         self._last_session_play_time = 0
-        
+        self._session_ticks_persistent = {}
+
         config = PLATFORM_CONFIG[gaming_type]
         self._attr_icon = config["icon"]
         safe_owner = re.sub(r'[^a-z0-9_]', '_', self._owner_name.lower().replace(" ", "_"))
@@ -184,6 +185,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 "last_session_play_time": self._last_session_play_time,
                 "weekly_game_breakdown": self._weekly_game_breakdown,
                 "longest_session_details": self._longest_session_details,
+                "session_ticks": self._session_ticks_persistent,
                 "daily_play_time": getattr(self, "_daily_play_time", 0),
                 "weekly_play_time": getattr(self, "_weekly_play_time", 0),
                 "weekly_play_time_last_week": getattr(self, "_weekly_play_time_last_week", 0)
@@ -506,31 +508,42 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 if start_dt.tzinfo is None: start_dt = start_dt.replace(tzinfo=actual_end_time.tzinfo)
                 else: start_dt = start_dt.astimezone(actual_end_time.tzinfo)
                 session_seconds = (actual_end_time - start_dt).total_seconds()
+                session_ticks = self._session_ticks_persistent.get(self._current_game, 0)
                 if session_seconds <= self._active_settings["MIN_SESSION_DURATION"]:
                     discarded_session = True
-                    self._daily_play_time = max(0, int((self._daily_play_time or 0) - session_seconds))
-                    self._weekly_play_time = max(0, int((self._weekly_play_time or 0) - session_seconds))
-                    
+                    # Remove only what was actually accumulated via ticks for this segment.
+                    self._daily_play_time = max(0, int((self._daily_play_time or 0) - session_ticks))
+                    self._weekly_play_time = max(0, int((self._weekly_play_time or 0) - session_ticks))
                     if self._current_game in self._weekly_game_breakdown:
-                        self._weekly_game_breakdown[self._current_game] = max(0, self._weekly_game_breakdown[self._current_game] - int(session_seconds))
+                        self._weekly_game_breakdown[self._current_game] = max(0, self._weekly_game_breakdown[self._current_game] - session_ticks)
                         if self._weekly_game_breakdown[self._current_game] == 0:
                             del self._weekly_game_breakdown[self._current_game]
-                            
                     if getattr(self, "_backup_last_session_time", None) is not None and self._backup_last_session_time > 0:
                         self._last_session_play_time = self._backup_last_session_time
                     if getattr(self, "_backup_last_online_timestamp", None) is not None:
                         self._last_online_valid_timestamp = self._backup_last_online_timestamp
                     if getattr(self, "_backup_last_played_game", None) is not None:
                         self._last_played_game = self._backup_last_played_game
-                elif session_seconds > 0: self._last_session_play_time = int(session_seconds)
+                elif session_seconds > 0:
+                    self._last_session_play_time = int(session_seconds)
+                    # Reconcile wall-clock vs accumulated ticks. Any gap (HA restarts,
+                    # event loop delays) is added to the breakdown so the chart matches
+                    # the session time shown on the card.
+                    gap = int(session_seconds) - session_ticks
+                    if gap > 0:
+                        self._weekly_game_breakdown[self._current_game] = self._weekly_game_breakdown.get(self._current_game, 0) + gap
+                        self._daily_play_time = int((self._daily_play_time or 0) + gap)
+                        self._weekly_play_time = int((self._weekly_play_time or 0) + gap)
         if not new_game_name:
             if not discarded_session: self._last_game_stopped_timestamp = actual_end_time.isoformat()
             elif getattr(self, "_backup_last_game_stopped_timestamp", None) is not None: self._last_game_stopped_timestamp = self._backup_last_game_stopped_timestamp
             self._current_game = None
             self._play_start_time = None
+            self._session_ticks_persistent = {}
         else:
             self._current_game = new_game_name
             self._play_start_time = now.isoformat()
+            self._session_ticks_persistent = {}
             prev_game = self._last_played_game
             prev_stop = self._last_game_stopped_timestamp
             can_resurrect = False
@@ -546,6 +559,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 if self._last_session_play_time > 0:
                     resumed_start = now - timedelta(seconds=self._last_session_play_time)
                     self._play_start_time = resumed_start.isoformat()
+                    # Seed session ticks with the previous segment's time so the
+                    # reconciliation at merged session end doesn't re-add already-stored time.
+                    self._session_ticks_persistent[new_game_name] = self._last_session_play_time
             self._backup_last_session_time = self._last_session_play_time
             self._backup_last_online_timestamp = self._last_online_valid_timestamp
             self._backup_last_played_game = self._last_played_game
@@ -732,7 +748,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._last_session_play_time = int(internal.get("last_session_play_time", 0))
             self._weekly_game_breakdown = internal.get("weekly_game_breakdown", {})
             self._longest_session_details = internal.get("longest_session_details", {"game": None, "duration": 0})
-            
+            self._session_ticks_persistent = internal.get("session_ticks", {})
+
             # Restore live running tallies from JSON backup if RAM wipe occurs
             self._daily_play_time = int(internal.get("daily_play_time", 0))
             self._weekly_play_time = int(internal.get("weekly_play_time", 0))
@@ -976,7 +993,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     self._weekly_play_time = int((self._weekly_play_time or 0) + delta_seconds)
                     
                     self._weekly_game_breakdown[self._current_game] = self._weekly_game_breakdown.get(self._current_game, 0) + int(delta_seconds)
-                    
+                    self._session_ticks_persistent[self._current_game] = self._session_ticks_persistent.get(self._current_game, 0) + int(delta_seconds)
+
                     timer_status = "Running"
                 else: timer_status = f"Paused ({block_reason})"
                 session_seconds, play_time_text = self._get_session_info()
@@ -1041,6 +1059,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         self._daily_play_time = int((self._daily_play_time or 0) + missed_seconds)
                         self._weekly_play_time = int((self._weekly_play_time or 0) + missed_seconds)
                         self._weekly_game_breakdown[self._current_game] = self._weekly_game_breakdown.get(self._current_game, 0) + int(missed_seconds)
+                        self._session_ticks_persistent[self._current_game] = self._session_ticks_persistent.get(self._current_game, 0) + int(missed_seconds)
                 if self._temp_offline_start is not None:
                     self._temp_offline_start = None
                     self._store.async_delay_save(self._get_store_data, 5.0)
