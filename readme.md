@@ -79,7 +79,7 @@ To configure your players, notifications, and rules, click the **Configure** but
 
 #### 1. Manage Players
 Add, edit, or delete the gamers in your household.
-* **Platform Sensors:** When adding a player, you simply select their respective integration sensors from the dropdowns. The integration will automatically filter your entities to show the correct Steam (`sensor.steam_*`), Xbox (`sensor.*_status`), PlayStation (`sensor.*_online_status`), and Playnite (MQTT `binary_sensor.*_playnite_playing_game`) entities. *(Note: To remove a previously assigned sensor, simply click the 'X' to clear the entity dropdown and click Submit. The integration will safely save the empty state and stop tracking that platform).*
+* **Platform Sensors:** When adding a player, you simply select their respective integration sensors from the dropdowns. The integration will automatically filter your entities to show the correct Steam (`sensor.steam_*`), Xbox (`sensor.*_status`), PlayStation (`sensor.*_now_playing`), and Playnite (MQTT `binary_sensor.*_playnite_playing_game`) entities. *(Note: To remove a previously assigned sensor, simply click the 'X' to clear the entity dropdown and click Submit. The integration will safely save the empty state and stop tracking that platform).*
 * **Player Details:** After adding a player, you can configure:
   * **Session Notifications:** Select notification methods for when this specific player starts or stops gaming. *Note: These must be configured under Notifications.*
   * **Ghosted-by:** Enter comma-separated entity IDs (e.g., `sensor.gaming_status_player_two_steam`) for sensors that should take priority over this user's Xbox sensor.
@@ -180,15 +180,15 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | total_weekly_hours | Sum of weekly hours across all platforms (float) |
 | rolling_weekly_hours | Sum of rolling hours across all platforms |
 | total_weekly_hours_last_week | Sum of last week's hours |
-| weekly_breakdown | A copy of 'calendar_weekly_breakdown', for backward-compatibility |
-| calendar_weekly_breakdown | Consolidated dictionary of all games played across all platforms for the week, formatted as human-readable strings (e.g., "5h 30m") and resetting each Sunday at midnight |
+| weekly_breakdown | A copy of `rolling_weekly_breakdown`, retained for backward-compatibility |
+| calendar_weekly_breakdown | Consolidated dictionary of all games played across all platforms for the current calendar week (Monday–Sunday), formatted as human-readable strings (e.g., "5h 30m") |
 | rolling_weekly_breakdown | Consolidated dictionary of all games played across all platforms, formatted as human-readable strings (e.g., "5h 30m") as a rolling 7-day total |
 | raw_rolling_breakdown | Dictionary of game names to total hours (float) over the rolling 7-day window, used by the Gaming Status Cards for chart rendering |
 | raw_calendar_breakdown | Dictionary of game names to total hours (float) for the current calendar week, used by the Gaming Status Cards for chart rendering |
 | platform_split | A dictionary showing the percentage of total weekly hours spent on each platform (e.g., {"Steam": "55%"}) |
-| longest_session | A copy of 'calendar_longest_session', for backward-compatibility |
-| calendar_longest_session | A formatted string showing the game title and duration of the longest session across all platforms for the week, resetting each Sunday at midnight |
-| rolling_longest_session | A formatted string showing the game title and duration of the longest session across all platforms, tracking only the last seven days |
+| longest_session | A copy of `rolling_longest_session`, retained for backward-compatibility |
+| calendar_longest_session | A formatted string showing the game title and duration of the longest single session across all platforms for the current calendar week (e.g., "DELTARUNE (1h 24m)") |
+| rolling_longest_session | A formatted string showing the game title and duration of the longest single session across all platforms over the rolling 7-day window |
 | play_history | Per-day, per-game playtime aggregated across all platforms: `{"YYYY-MM-DD": {"Game Title": seconds, ...}}`. Used by the Gaming Status Cards for chart rendering |
 
 **Parental/Limit Controls**
@@ -240,16 +240,16 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | --- | --- |
 | icon | Icon to match the current platform |
 | daily_play_time | Total seconds played today |
-| daily_play_time_formatted | Human-readable daily time (e.g., "1h 13m") |
-| weekly_play_time | Total seconds played this week |
-| weekly_play_time_formatted | Human-readable weekly time |
+| weekly_play_time | Total seconds played this calendar week |
 | weekly_play_time_last_week | Total seconds played in the previous week |
 | last_played_game | Title of the most recently closed game detected on this specific platform |
-| weekly_game_breakdown | A dictionary mapping game names to their total playtime in seconds across all recorded days |
+| weekly_game_breakdown | Dictionary mapping game names to total seconds over the rolling 7-day window (alias of `rolling_weekly_breakdown`) |
+| rolling_weekly_breakdown | Dictionary mapping game names to total seconds over the rolling 7-day window |
+| calendar_weekly_breakdown | Dictionary mapping game names to total seconds for the current calendar week (Monday–Sunday) |
 | play_history | Per-day, per-game playtime for this platform: `{"YYYY-MM-DD": {"Game Title": seconds, ...}}` |
-| longest_session_details | A copy of 'calendar_longest session', for backward compatibility |
-| calendar_longest_session | A dictionary containing the game title and duration (in seconds) of the longest session recorded during the calendar week (resets on Sunday at midnight) |
-| rolling_longest_session | A dictionary containing the game title and duration (in seconds) of the longest session recorded over the last seven day period |
+| longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session today; resets at midnight |
+| rolling_longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session over the rolling 7-day window |
+| calendar_longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session in the current calendar week |
 
 ### Attributes for Players Online Sensor
 | Attribute | Description |
@@ -257,7 +257,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | active_games | A comma-separated string of the games currently being played by online players |
 
 ### Note
-Several of these attributes (e.g., the artwork URLs, weekly_breakdown, longest_session_details, play_history, raw_rolling_breakdown, raw_calendar_breakdown) are explicitly added to `_unrecorded_attributes` in the classes. This is a deliberate performance optimization to prevent Home Assistant from saving these frequently changing values into the long-term database (recorder), which keeps your `home-assistant_v2.db` file from growing excessively large.
+Several of these attributes (e.g., artwork URLs, breakdown dictionaries, session detail dicts, and `play_history`) are explicitly added to `_unrecorded_attributes` in the sensor classes. This is a deliberate performance optimization to prevent Home Assistant from saving these frequently-changing or large values into the long-term database (recorder), which keeps your `home-assistant_v2.db` file from growing excessively large.
 
 ## ❓ What Next?
 Once everything is up and running (with sensors showing up from the integration), try playing a game for at least 5 minutes to make sure the online status is reflected in the `_master` sensors. *Note that, by default, sessions shorter than 300 seconds (5 minutes) are discarded and do not count toward the total playtime hours.* If the sensors are working correctly, try some of the following! If not, see the [troubleshooting](docs/troubleshooting.md) documentation.
