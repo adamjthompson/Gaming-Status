@@ -1917,6 +1917,63 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     enabled_platforms = opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
     remove_disabled = opts.get(OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS)
 
+    # --- PRE-FLIGHT REGISTRY RECONCILIATION ---
+    # Prevents _N suffix duplicates by ensuring the registry matches what we're about to create.
+    # This happens when a unique_id drifts (source entity renamed, player name edited, etc.):
+    # HA can't give the new entity the old entity_id, so it appends _2.
+    def _apply_source_correction(source_id, platform):
+        if platform == "playstation":
+            for s in ["_online_status", "_onlinestatus"]:
+                if source_id.endswith(s):
+                    return source_id[:-len(s)] + "_now_playing"
+        elif platform == "xbox":
+            for s in ["_now_playing", "_last_online"]:
+                if s in source_id:
+                    return source_id.replace(s, "_status")
+        return source_id
+
+    desired_uid_map = {}
+    for player_name, player_data in players.items():
+        safe_owner = re.sub(r'[^a-z0-9_]', '_', player_name.lower().replace(" ", "_"))
+        for platform in enabled_platforms:
+            raw_source = player_data.get(platform)
+            if raw_source:
+                corrected = _apply_source_correction(raw_source, platform)
+                desired_uid_map[f"sensor.gaming_status_{safe_owner}_{platform}"] = \
+                    f"gaming_status_{safe_owner}_{corrected}_tracker_v6"
+        desired_uid_map[f"sensor.gaming_status_{safe_owner}_master"] = f"gaming_status_{safe_owner}_master_v6"
+        desired_uid_map[f"sensor.gaming_status_{safe_owner}_pc"] = f"gaming_status_{safe_owner}_pc_v2"
+    desired_uid_map["sensor.gaming_status_players_online"] = "gaming_status_players_online_count_v2"
+
+    for desired_eid, expected_uid in desired_uid_map.items():
+        base_entry = registry.async_get(desired_eid)
+        uid_entry_eid = registry.async_get_entity_id("sensor", DOMAIN, expected_uid)
+
+        if uid_entry_eid and uid_entry_eid != desired_eid:
+            # Correct unique_id is stranded on a _N entity_id (the ghost from the bad boot).
+            # Remove the stale base entry first, then rename the ghost to the desired name.
+            if base_entry:
+                try:
+                    registry.async_remove(desired_eid)
+                    base_entry = None
+                except Exception:
+                    pass
+            if not base_entry:
+                try:
+                    registry.async_update_entity(uid_entry_eid, new_entity_id=desired_eid)
+                    _LOGGER.warning("Gaming Status: Renamed ghost sensor %s → %s", uid_entry_eid, desired_eid)
+                except Exception:
+                    pass
+        elif base_entry and base_entry.unique_id != expected_uid:
+            # Base entity_id exists but holds the wrong/old unique_id; update it in-place.
+            try:
+                registry.async_update_entity(desired_eid, new_unique_id=expected_uid)
+            except Exception:
+                try:
+                    registry.async_remove(desired_eid)
+                except Exception:
+                    pass
+
     for player_name, player_data in players.items():
         ghosted_by = player_data.get("ghosted_by", [])
         exclude_games = player_data.get("exclude_games", [])
