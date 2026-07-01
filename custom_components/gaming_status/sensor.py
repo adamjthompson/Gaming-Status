@@ -66,20 +66,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
     def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None, active_settings=None, global_exclusions=None, available_avatars=None):
         
         # --- SILENT AUTO-CORRECTION FOR CONSOLES ---
-        # Catch wrong guesses if the user hit the config_flow language safety net
+        # Migrate legacy _online_status / _onlinestatus sources to _now_playing
         if gaming_type == "playstation":
-            for wrong_suffix in ["_now_playing", "_online_id"]:
-                if wrong_suffix in source_entity_id:
-                    base_id = source_entity_id.replace(wrong_suffix, "")
-                    try:
-                        # Ask the registry which one the user actually has
-                        registry = er.async_get(hass)
-                        if registry.async_get(base_id + "_onlinestatus"):
-                            source_entity_id = base_id + "_onlinestatus"
-                        else:
-                            source_entity_id = base_id + "_online_status"
-                    except Exception:
-                        source_entity_id = base_id + "_online_status"
+            for old_suffix in ["_online_status", "_onlinestatus"]:
+                if source_entity_id.endswith(old_suffix):
+                    source_entity_id = source_entity_id[:-len(old_suffix)] + "_now_playing"
                     break
         elif gaming_type == "xbox":
             for wrong_suffix in ["_now_playing", "_last_online"]:
@@ -95,8 +86,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._available_avatars = available_avatars or []
         
         self._avatar_entity_id = None
-        self._now_playing_entity_id = None
-        
+
         self._exclude_games = {_normalize_game_name(g) for g in (exclude_games or [])}
         self._global_exclusions_lower = {_normalize_game_name(x) for x in (global_exclusions or [])}
         
@@ -435,56 +425,21 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             else:
                 try:
                     object_id = self._source_entity_id.split('.')[1]
-                    gamertag = None
-                    if object_id.endswith("_online_status"):
-                        gamertag = object_id[:-14]
-                    elif object_id.endswith("_onlinestatus"):
-                        gamertag = object_id[:-13]
-                        
-                    if gamertag:
+                    if object_id.endswith("_now_playing"):
+                        gamertag = object_id[:-len("_now_playing")]
                         image_state = self.hass.states.get(f"image.{gamertag}_avatar")
                         if image_state and image_state.attributes.get("entity_picture"):
                             data["avatar_url"] = image_state.attributes.get("entity_picture")
                 except Exception: pass
 
-            if is_globally_excluded or is_user_excluded: data["is_online"] = False
-            elif state_clean.startswith("last seen") or state_clean.startswith("last online"): data["is_online"] = False
-            else:
-                found_sibling = False
-                # 1. Use Dynamic Registry Sibling
-                sibling_id = self._now_playing_entity_id
-                # 2. Fallback to String Guessing
-                if not sibling_id:
-                    if "_online_status" in self._source_entity_id:
-                        sibling_id = self._source_entity_id.replace("_online_status", "_now_playing")
-                    elif "_onlinestatus" in self._source_entity_id:
-                        sibling_id = self._source_entity_id.replace("_onlinestatus", "_now_playing")
-                
-                _LOGGER.debug("PSN Debug [%s]: Base State: %s, Sibling ID: %s", self._owner_name, state, sibling_id)
-                
-                # Check the sibling FIRST. A valid game overrides an offline base state.
-                if sibling_id:
-                    sibling_state = self.hass.states.get(sibling_id)
-                    
-                    if sibling_state:
-                        _LOGGER.debug("PSN Debug [%s]: Sibling State: %s, Sibling Attrs: %s", self._owner_name, sibling_state.state, sibling_state.attributes)
-
-                    if sibling_state and sibling_state.state.lower() not in ["unknown", "unavailable", "unknown game", "none", "", "offline"]:
-                        sibling_val = sibling_state.state
-                        is_excluded_sib = False
-                        if sibling_val.lower() in self._global_exclusions_lower: is_excluded_sib = True
-                        if not is_excluded_sib:
-                            data["current_game"] = sibling_val
-                            data["is_online"] = True
-                            data["game_cover_url"] = sibling_state.attributes.get("entity_picture")
-                            found_sibling = True
-                            
-                # If no sibling game, check attributes, then fallback to base state
-                if not found_sibling:
-                    if attrs.get("title_name"):
-                        data["current_game"] = attrs.get("title_name")
-                        data["game_cover_url"] = attrs.get("title_image")
-                        data["is_online"] = True
+            # State IS the game title; unknown/unavailable means not gaming
+            if is_globally_excluded or is_user_excluded:
+                data["is_online"] = False
+            elif state_clean not in ["unknown", "unavailable", "unknown game", "none", "", "offline"]:
+                data["is_online"] = True
+                data["current_game"] = state
+                if attrs.get("entity_picture"):
+                    data["game_cover_url"] = attrs.get("entity_picture")
 
         elif self._gaming_type == "playnite":
             # Apply the persistent Playnite logo as a base default if no custom image exists
@@ -735,9 +690,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         self._avatar_entity_id = e.entity_id
                     elif self._gaming_type == "playstation" and "avatar" in e.entity_id:
                         self._avatar_entity_id = e.entity_id
-                elif e.domain == "sensor" and "now_playing" in e.entity_id:
-                    self._now_playing_entity_id = e.entity_id
-                    
         stored_data = await self._store.async_load()
         if stored_data:
             self._play_history = stored_data.get("history", {})
@@ -894,28 +846,15 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if source_state: await self._try_force_sync(source_state)
             
             entities_to_watch = [self._source_entity_id]
-            if self._now_playing_entity_id: entities_to_watch.append(self._now_playing_entity_id)
             if self._avatar_entity_id: entities_to_watch.append(self._avatar_entity_id)
-            
-            # Keep fallbacks for tracking just in case device lookup failed
-            if self._gaming_type == "playstation" and not self._now_playing_entity_id:
+
+            # Fallback: track avatar image entity if device lookup didn't find it
+            if self._gaming_type == "playstation" and not self._avatar_entity_id:
                 try:
-                    if "_online_status" in self._source_entity_id:
-                        sibling_id = self._source_entity_id.replace("_online_status", "_now_playing")
-                        entities_to_watch.append(sibling_id)
-                    elif "_onlinestatus" in self._source_entity_id:
-                        sibling_id = self._source_entity_id.replace("_onlinestatus", "_now_playing")
-                        entities_to_watch.append(sibling_id)
-                        
                     object_id = self._source_entity_id.split('.')[1]
-                    if object_id.endswith("_online_status"):
-                        gamertag = object_id[:-14]
-                        image_entity = f"image.{gamertag}_avatar"
-                        entities_to_watch.append(image_entity)
-                    elif object_id.endswith("_onlinestatus"):
-                        gamertag = object_id[:-13]
-                        image_entity = f"image.{gamertag}_avatar"
-                        entities_to_watch.append(image_entity)
+                    if object_id.endswith("_now_playing"):
+                        gamertag = object_id[:-len("_now_playing")]
+                        entities_to_watch.append(f"image.{gamertag}_avatar")
                 except Exception: pass
             elif self._gaming_type == "xbox" and not self._avatar_entity_id:
                 try:

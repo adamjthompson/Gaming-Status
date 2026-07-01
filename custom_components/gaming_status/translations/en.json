@@ -81,7 +81,7 @@
           "player_name": "e.g. John",
           "steam": "e.g. sensor.steam_player_one",
           "xbox": "e.g. sensor.player_one_xbox_status",
-          "playstation": "e.g. sensor.player_one_psn_online_status",
+          "playstation": "e.g. sensor.player_one_psn_now_playing",
           "discord": "Select the Discord user from the dropdown.",
           "custom": "e.g. sensor.player_one_active_pc_game",
           "playnite": "e.g. sensor.playnite_playing_game"
@@ -101,7 +101,7 @@
         },
         "data_description": {
           "xbox": "(Select the _status sensor)",
-          "playstation": "(Select the _online_status sensor)",
+          "playstation": "(Select the _now_playing sensor)",
           "discord": "Select the Discord user from the dropdown."
         }
       },
