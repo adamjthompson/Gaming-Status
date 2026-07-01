@@ -1029,16 +1029,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 game_name_display = self._sanitize_game_title(_format_game_name_for_display(raw_game_name))
                 normalized_new = _normalize_game_name(game_name_display)
                 normalized_current = _normalize_game_name(self._current_game) if self._current_game else None
-                if normalized_new == normalized_current and self._play_start_time:
-                    last_online_str = platform_data.get("last_online_timestamp")
-                    if last_online_str:
-                        last_online_dt = _safe_parse_datetime(last_online_str)
-                        start_time_dt = _safe_parse_datetime(self._play_start_time)
-                        if last_online_dt and start_time_dt:
-                            if last_online_dt > (start_time_dt + timedelta(minutes=15)):
-                                self._handle_game_transition(game_name_display)
-                                self._current_game = game_name_display
-                                self._play_start_time = now_dt.isoformat()
                 if normalized_new != normalized_current:
                     if self._temp_game_lost_time and self._current_game:
                         time_since_lost = (now_dt - self._temp_game_lost_time).total_seconds()
