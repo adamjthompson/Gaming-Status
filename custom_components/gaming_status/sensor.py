@@ -698,7 +698,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 if isinstance(day_data, dict):
                     history_attr[date_str] = day_data.get("game_breakdown", {})
         history_attr[today_str] = dict(getattr(self, "_weekly_game_breakdown", {}))
-        self._attr_extra_state_attributes["play_history"] = history_attr
+        self._attr_extra_state_attributes["play_history"] = dict(sorted(history_attr.items()))
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
@@ -1555,7 +1555,7 @@ class MasterGamingSensor(RestoreSensor):
                     "calendar_longest_session": calendar_longest_text
                 }
 
-        new_attrs["play_history"] = master_history
+        new_attrs["play_history"] = dict(sorted(master_history.items()))
 
         if (self._attr_native_value == new_state_value and
             self._attr_icon == new_icon and
@@ -1804,7 +1804,7 @@ class PCGamingSensor(RestoreSensor):
         self._attr_extra_state_attributes["weekly_play_time_last_week"] = total_weekly_last
         self._attr_extra_state_attributes["rolling_weekly_breakdown"] = merged_rolling
         self._attr_extra_state_attributes["calendar_weekly_breakdown"] = merged_calendar
-        self._attr_extra_state_attributes["play_history"] = merged_history
+        self._attr_extra_state_attributes["play_history"] = dict(sorted(merged_history.items()))
 
         self.async_write_ha_state()
 
