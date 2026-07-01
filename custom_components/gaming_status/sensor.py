@@ -1400,6 +1400,20 @@ class MasterGamingSensor(RestoreSensor):
                                 active_sensor_id = platform_sensor_id
                                 active_state = platform_state
         
+        # Compute rolling_weekly_hours directly from master_history (play_history aggregated
+        # from all platform sensors, including today's live _weekly_game_breakdown).
+        # Platform sensors do not expose a rolling_weekly_hours attribute, so reading it
+        # from them always returns 0 — this is the authoritative calculation instead.
+        rolling_cutoff = (dt_util.as_local(dt_util.now()) - timedelta(days=7)).date()
+        rolling_secs = 0
+        for _date_str, _day_data in master_history.items():
+            try:
+                if parser.parse(_date_str).date() >= rolling_cutoff:
+                    rolling_secs += sum(int(v) for v in _day_data.values())
+            except Exception:
+                pass
+        total_rolling_weekly_hours = round(rolling_secs / 3600, 2)
+
         # --- Generate Formatted Rich Data Attributes ---
         # 1. Top Games Breakdowns
         sort_rolling = dict(sorted(master_rolling_breakdown.items(), key=lambda item: item[1], reverse=True))
