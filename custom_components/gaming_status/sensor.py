@@ -52,7 +52,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
     _attr_should_poll = False
     
     _unrecorded_attributes = frozenset({
-        "secondary", "daily_play_time_formatted", "weekly_play_time_formatted",
+        "secondary",
         "game_cover_art", "game_hero_art", "game_logo_art", "game_icon_art",
         "entity_picture", "cached_game_cover",
         "last_online_valid_timestamp", "current_game", "timer_status",
@@ -680,10 +680,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._attr_extra_state_attributes["rolling_longest_session_details"] = rolling_longest
         self._attr_extra_state_attributes["calendar_longest_session_details"] = calendar_longest
         
-        # Format times for the frontend UI
-        self._attr_extra_state_attributes["daily_play_time_formatted"] = utils._format_time(self._attr_extra_state_attributes["daily_play_time"])
-        self._attr_extra_state_attributes["weekly_play_time_formatted"] = utils._format_time(self._attr_extra_state_attributes["weekly_play_time"])
-
         # Expose per-day game breakdown for history cards
         today_str = dt_util.as_local(dt_util.now()).strftime("%Y-%m-%d")
         history_attr = {}
@@ -835,7 +831,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         elif delta_seconds > self._active_settings["GRACE_PERIOD_SECONDS"]:
                             is_stale = True
                         
-                if "last seen" in self._attr_native_value.lower() or is_stale:
+                if (self._gaming_type == "xbox" and "last seen" in self._attr_native_value.lower()) or is_stale:
                     self._attr_native_value = "Offline"
                     self._current_game = None
                     self._play_start_time = None
