@@ -90,7 +90,20 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         elif gaming_type == "xbox":
             for wrong_suffix in ["_now_playing", "_last_online"]:
                 if wrong_suffix in source_entity_id:
-                    source_entity_id = source_entity_id.replace(wrong_suffix, "_status")
+                    try:
+                        reg = er.async_get(hass)
+                        wrong_entry = reg.async_get(source_entity_id)
+                        found = False
+                        if wrong_entry and wrong_entry.device_id:
+                            for d in er.async_entries_for_device(reg, wrong_entry.device_id):
+                                if d.domain == "sensor" and getattr(d, "translation_key", None) == "status":
+                                    source_entity_id = d.entity_id
+                                    found = True
+                                    break
+                        if not found:
+                            source_entity_id = source_entity_id.replace(wrong_suffix, "_status")
+                    except Exception:
+                        source_entity_id = source_entity_id.replace(wrong_suffix, "_status")
                     break
                 
         self.hass = hass
