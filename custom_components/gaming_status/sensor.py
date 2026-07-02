@@ -66,11 +66,26 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
     def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None, active_settings=None, global_exclusions=None, available_avatars=None):
         
         # --- SILENT AUTO-CORRECTION FOR CONSOLES ---
-        # Migrate legacy _online_status / _onlinestatus sources to _now_playing
+        # Migrate legacy _online_status / _onlinestatus sources to _now_playing.
+        # Use the device registry to find the translated "now_playing" entity so
+        # non-English locales (e.g. _spielt_gerade) resolve correctly.
         if gaming_type == "playstation":
             for old_suffix in ["_online_status", "_onlinestatus"]:
                 if source_entity_id.endswith(old_suffix):
-                    source_entity_id = source_entity_id[:-len(old_suffix)] + "_now_playing"
+                    try:
+                        reg = er.async_get(hass)
+                        old_entry = reg.async_get(source_entity_id)
+                        found = False
+                        if old_entry and old_entry.device_id:
+                            for d in er.async_entries_for_device(reg, old_entry.device_id):
+                                if d.domain == "sensor" and getattr(d, "translation_key", None) == "now_playing":
+                                    source_entity_id = d.entity_id
+                                    found = True
+                                    break
+                        if not found:
+                            source_entity_id = source_entity_id[:-len(old_suffix)] + "_now_playing"
+                    except Exception:
+                        source_entity_id = source_entity_id[:-len(old_suffix)] + "_now_playing"
                     break
         elif gaming_type == "xbox":
             for wrong_suffix in ["_now_playing", "_last_online"]:
@@ -417,12 +432,19 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 image_state = self.hass.states.get(self._avatar_entity_id)
                 if image_state and image_state.attributes.get("entity_picture"):
                     data["avatar_url"] = image_state.attributes.get("entity_picture")
-            # 2. Fallback to String Guessing
+            # 2. Fallback to String Guessing — use translation_key to handle any locale's suffix
             else:
                 try:
+                    reg_entry = er.async_get(self.hass).async_get(self._source_entity_id)
+                    tk = getattr(reg_entry, "translation_key", None) if reg_entry else None
                     object_id = self._source_entity_id.split('.')[1]
-                    if object_id.endswith("_now_playing"):
+                    suffix = f"_{tk}" if tk else "_now_playing"
+                    gamertag = None
+                    if object_id.endswith(suffix):
+                        gamertag = object_id[:-len(suffix)]
+                    elif object_id.endswith("_now_playing"):
                         gamertag = object_id[:-len("_now_playing")]
+                    if gamertag:
                         image_state = self.hass.states.get(f"image.{gamertag}_avatar")
                         if image_state and image_state.attributes.get("entity_picture"):
                             data["avatar_url"] = image_state.attributes.get("entity_picture")
@@ -890,11 +912,19 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             entities_to_watch = [self._source_entity_id]
             if self._avatar_entity_id: entities_to_watch.append(self._avatar_entity_id)
 
-            # Fallback: track avatar image entity if device lookup didn't find it
+            # Fallback: track avatar image entity if device lookup didn't find it.
+            # Use translation_key to strip the (possibly translated) suffix from the
+            # source entity ID so the gamertag prefix is extracted correctly in any locale.
             if self._gaming_type == "playstation" and not self._avatar_entity_id:
                 try:
+                    reg_entry = er.async_get(self.hass).async_get(self._source_entity_id)
+                    tk = getattr(reg_entry, "translation_key", None) if reg_entry else None
                     object_id = self._source_entity_id.split('.')[1]
-                    if object_id.endswith("_now_playing"):
+                    suffix = f"_{tk}" if tk else "_now_playing"
+                    if object_id.endswith(suffix):
+                        gamertag = object_id[:-len(suffix)]
+                        entities_to_watch.append(f"image.{gamertag}_avatar")
+                    elif object_id.endswith("_now_playing"):
                         gamertag = object_id[:-len("_now_playing")]
                         entities_to_watch.append(f"image.{gamertag}_avatar")
                 except Exception: pass

@@ -224,10 +224,12 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             options = []
             try:
                 registry = er.async_get(self.hass)
+                tk_match = suffix.lstrip("_") if suffix else None
                 for entry in registry.entities.values():
                     if entry.domain == "sensor" and entry.platform == integration:
-                        if suffix and not entry.entity_id.endswith(suffix):
-                            continue
+                        if suffix:
+                            if not entry.entity_id.endswith(suffix) and getattr(entry, "translation_key", None) != tk_match:
+                                continue
                         options.append(entry.entity_id)
                 if suffix and not options:
                     for entry in registry.entities.values():
@@ -1108,17 +1110,20 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
         def _get_filtered_selector(integration: str, suffix: str | tuple | None = None, current_val: str = ""):
             options = []
-            
+
             try:
                 registry = er.async_get(self.hass)
-                # Step 1: Run the strict suffix filter as normal
+                tk_match = suffix.lstrip("_") if suffix else None
+                # Step 1: Run the strict suffix filter, also matching by translation_key
+                # so non-English locales (e.g. _spielt_gerade for German) are included.
                 for entry in registry.entities.values():
                     if entry.domain == "sensor" and entry.platform == integration:
-                        if suffix and not entry.entity_id.endswith(suffix):
-                            continue
+                        if suffix:
+                            if not entry.entity_id.endswith(suffix) and getattr(entry, "translation_key", None) != tk_match:
+                                continue
                         options.append(entry.entity_id)
-                
-                # Step 2: Safety Net. If strict filtering left us completely empty, 
+
+                # Step 2: Safety Net. If strict filtering left us completely empty,
                 # remove the restriction and pull all sensors for this integration.
                 if suffix and not options:
                     for entry in registry.entities.values():
