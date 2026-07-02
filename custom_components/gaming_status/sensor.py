@@ -2056,10 +2056,26 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         if platform == "playstation":
             for s in ["_online_status", "_onlinestatus"]:
                 if source_id.endswith(s):
+                    try:
+                        old_entry = registry.async_get(source_id)
+                        if old_entry and old_entry.device_id:
+                            for d in er.async_entries_for_device(registry, old_entry.device_id):
+                                if d.domain == "sensor" and getattr(d, "translation_key", None) == "now_playing":
+                                    return d.entity_id
+                    except Exception:
+                        pass
                     return source_id[:-len(s)] + "_now_playing"
         elif platform == "xbox":
             for s in ["_now_playing", "_last_online"]:
                 if s in source_id:
+                    try:
+                        wrong_entry = registry.async_get(source_id)
+                        if wrong_entry and wrong_entry.device_id:
+                            for d in er.async_entries_for_device(registry, wrong_entry.device_id):
+                                if d.domain == "sensor" and getattr(d, "translation_key", None) == "status":
+                                    return d.entity_id
+                    except Exception:
+                        pass
                     return source_id.replace(s, "_status")
         return source_id
 
