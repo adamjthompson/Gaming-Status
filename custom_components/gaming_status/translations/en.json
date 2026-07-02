@@ -100,7 +100,7 @@
           "delete_player": "Delete this player"
         },
         "data_description": {
-          "xbox": "(Select the _status sensor)",
+          "xbox": "(Select the 'Status' sensor — the suffix varies by HA language)",
           "playstation": "(Select the 'Now Playing' sensor — the suffix varies by HA language)",
           "discord": "Select the Discord user from the dropdown."
         }
