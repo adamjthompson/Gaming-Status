@@ -5,7 +5,9 @@ import logging
 import re
 import os
 import time
-from urllib.parse import quote
+import socket
+import ipaddress
+from urllib.parse import quote, urlparse
 from datetime import datetime, timezone, timedelta
 from dateutil import parser
 from collections import OrderedDict
@@ -161,17 +163,19 @@ async def fetch_game_assets(hass, game_name):
                     continue
                 
                 # Determine extension for external HTTP links
-                ext = remote_url.split('.')[-1].split('?')[0]
-                if len(ext) > 4: ext = "png"
+                ext = safe_image_ext(remote_url)
                 file_name = f"{safe_file_prefix}_{asset_type}.{ext}"
                 file_path = cache_dir / file_name
-                
+
                 # ALWAYS download overrides to ensure the user's latest choice overwrites the old SteamGridDB file!
                 try:
-                    async with session.get(remote_url, timeout=15) as img_resp:
-                        if img_resp.status == 200:
-                            img_bytes = await img_resp.read()
-                            await hass.async_add_executor_job(lambda: file_path.write_bytes(img_bytes))
+                    if not await is_public_url(hass, remote_url):
+                        _LOGGER.warning("Refusing to fetch override art for %s (%s): URL does not resolve to a public host", game_name, asset_type)
+                    else:
+                        async with session.get(remote_url, timeout=15) as img_resp:
+                            if img_resp.status == 200:
+                                img_bytes = await img_resp.read()
+                                await hass.async_add_executor_job(lambda: file_path.write_bytes(img_bytes))
                 except Exception as e:
                     _LOGGER.error("Failed to cache override for %s (%s): %s", game_name, asset_type, e)
                 
@@ -247,18 +251,19 @@ async def fetch_game_assets(hass, game_name):
                                 
                             best_art = sorted(asset_data["data"], key=get_score, reverse=True)[0]
                             remote_url = best_art["url"]
-                            
-                            ext = remote_url.split('.')[-1].split('?')[0]
-                            if len(ext) > 4: ext = "png"
-                            
+
+                            ext = safe_image_ext(remote_url)
                             file_name = f"{safe_file_prefix}_{asset_type}.{ext}"
                             file_path = cache_dir / file_name
-                            
+
                             if not file_path.exists():
-                                async with session.get(remote_url, timeout=15) as img_resp:
-                                    if img_resp.status == 200:
-                                        img_bytes = await img_resp.read()
-                                        await hass.async_add_executor_job(lambda: file_path.write_bytes(img_bytes))
+                                if not await is_public_url(hass, remote_url):
+                                    _LOGGER.warning("Refusing to fetch %s art for %s: URL does not resolve to a public host", asset_type, game_name)
+                                else:
+                                    async with session.get(remote_url, timeout=15) as img_resp:
+                                        if img_resp.status == 200:
+                                            img_bytes = await img_resp.read()
+                                            await hass.async_add_executor_job(lambda: file_path.write_bytes(img_bytes))
                             
                             try:
                                 mt = int(await hass.async_add_executor_job(os.path.getmtime, file_path))
@@ -308,15 +313,19 @@ async def fetch_and_cache_image(hass, remote_url, file_name):
         
     # 3. Download and save
     try:
+        if not await is_public_url(hass, remote_url):
+            _LOGGER.warning("Refusing to fetch avatar: URL does not resolve to a public host")
+            return remote_url
+
         session = async_get_clientsession(hass)
         async with session.get(remote_url, timeout=10) as resp:
             if resp.status == 200:
                 img_bytes = await resp.read()
-                
+
                 # Safely wrap the file writing command
                 def _write_img():
                     file_path.write_bytes(img_bytes)
-                    
+
                 await hass.async_add_executor_job(_write_img)
                 return f"{base_url}/local/gaming_status_cache/{file_name}"
     except Exception as e:
@@ -429,6 +438,46 @@ def safe_url(url):
         return url
     return None
 
+def url_host_matches(url, domain):
+    """Check whether url's hostname is domain or a subdomain of it (not just a substring match)."""
+    if not isinstance(url, str):
+        return False
+    try:
+        host = urlparse(url).hostname
+    except ValueError:
+        return False
+    return bool(host) and (host == domain or host.endswith("." + domain))
+
+def safe_image_ext(url, default="png"):
+    """Extract a safe file extension from a URL, rejecting anything that isn't a short alnum token."""
+    try:
+        raw = urlparse(url).path.rsplit(".", 1)[-1]
+    except ValueError:
+        return default
+    return raw.lower() if re.fullmatch(r"[a-z0-9]{1,4}", raw.lower()) else default
+
+async def is_public_url(hass, url):
+    """Reject non-http(s) URLs and URLs whose host resolves to a private/loopback/link-local address, to prevent SSRF."""
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            return False
+        hostname = parsed.hostname
+
+        def _resolve():
+            return {info[4][0] for info in socket.getaddrinfo(hostname, None)}
+
+        addrs = await hass.async_add_executor_job(_resolve)
+        if not addrs:
+            return False
+        for addr in addrs:
+            ip = ipaddress.ip_address(addr)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+                return False
+        return True
+    except Exception:
+        return False
+
 async def check_steam_url_validity(hass, url): return True
 async def get_steam_game_cover(hass, game_name, game_id=None): return await get_steamgriddb_game_cover(hass, game_name)
 
@@ -492,7 +541,7 @@ def get_cached_remote_url(game_name, asset_type="grid"):
         return None
         
     url = cache_entry.get(asset_type)
-    if url and "steamgriddb.com" in url:
+    if url and url_host_matches(url, "steamgriddb.com"):
         return url
         
     return None

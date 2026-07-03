@@ -441,7 +441,8 @@ class GamingNotifier:
                     art_check = refreshed_state.attributes.get("game_hero_art") or refreshed_state.attributes.get("game_cover_art")
                     color_check = refreshed_state.attributes.get("game_dominant_color")
                     
-                    if art_check and "akamaihd.net" not in art_check:
+                    from .utils import url_host_matches
+                    if art_check and not url_host_matches(art_check, "akamaihd.net"):
                         # If Discord is set to Game Color, wait an extra tick for the extraction algorithm to finish!
                         if self._cached_discord_colors.get("mode") == "game" and not color_check:
                             continue

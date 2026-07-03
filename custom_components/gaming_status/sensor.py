@@ -39,7 +39,7 @@ from . import utils
 from .utils import (
     _get_gamertag_from_entity, _format_time, _format_game_name_for_display,
     _normalize_game_name, _safe_parse_datetime, _parse_relative_time_from_status,
-    _calculate_time_ago_v2, get_base_game_name, safe_url
+    _calculate_time_ago_v2, get_base_game_name, safe_url, url_host_matches
 )
 
 XBOX_IDLE_STATES = frozenset(s.lower() for s in PLATFORM_CONFIG["xbox"]["idle_states"])
@@ -1169,7 +1169,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 local_scan = await self.hass.async_add_executor_job(_scan_local_disk)
                 
                 # Apply local fallbacks to RAM if the API didn't provide them
-                if not self._cached_game_cover or "akamaihd.net" in self._cached_game_cover:
+                if not self._cached_game_cover or url_host_matches(self._cached_game_cover, "akamaihd.net"):
                     self._cached_game_cover = local_scan.get("grid") or self._cached_game_cover
                 if not self._cached_game_hero: self._cached_game_hero = local_scan.get("hero")
                 if not self._cached_game_logo: self._cached_game_logo = local_scan.get("logo")
