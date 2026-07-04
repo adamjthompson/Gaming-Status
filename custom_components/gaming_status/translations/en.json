@@ -34,7 +34,7 @@
           "playstation": "PlayStation Sensor",
           "discord": "Discord Profile",
           "playnite": "Playnite Sensor",
-          "custom": "Custom Tracker"
+          "custom": "Custom Sensor"
         }
       }
     },
@@ -74,7 +74,7 @@
           "steam": "Steam sensor",
           "xbox": "Xbox sensor",
           "playstation": "PlayStation sensor",
-          "discord": "Discord Member",
+          "discord": "Discord member",
           "custom": "Custom sensor",
           "playnite": "Playnite sensor"
         },
@@ -95,7 +95,7 @@
           "steam": "Steam sensor",
           "xbox": "Xbox sensor",
           "playstation": "PlayStation sensor",
-          "discord": "Discord Member",
+          "discord": "Discord member",
           "custom": "Custom sensor",
           "playnite": "Playnite sensor",
           "delete_player": "Delete this player"
