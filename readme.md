@@ -202,7 +202,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | calendar_longest_session | A formatted string showing the game title and duration of the longest single session across all platforms for the current calendar week (e.g., "DELTARUNE (1h 24m)") |
 | rolling_longest_session | A formatted string showing the game title and duration of the longest single session across all platforms over the rolling 7-day window |
 | play_history | Per-day, per-game playtime aggregated across all platforms: `{"YYYY-MM-DD": {"Game Title": seconds, ...}}`. Used by the Gaming Status Cards for chart rendering |
-| recent_sessions | List of the most recently completed play sessions across all of this player's platforms (newest first, capped at 50): `{game, platform, duration_seconds, date, start_time, end_time, hero_art_url}` |
+| recent_sessions | List of the most recently completed play sessions across all of this player's platforms (newest first, capped at 20): `{game, platform, duration_seconds, date, start_time, end_time, hero_art_url}` |
 
 **Parental/Limit Controls**
 | Attribute | Description |
@@ -264,7 +264,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | rolling_weekly_breakdown | Dictionary mapping game names to total seconds over the rolling 7-day window |
 | calendar_weekly_breakdown | Dictionary mapping game names to total seconds for the current calendar week (Monday–Sunday) |
 | play_history | Per-day, per-game playtime for this platform: `{"YYYY-MM-DD": {"Game Title": seconds, ...}}` |
-| recent_sessions | List of the most recently completed play sessions on this platform (newest first, capped at 50): `{game, platform, duration_seconds, date, start_time, end_time, hero_art_url}`. A session only appears here once it has ended |
+| recent_sessions | List of the most recently completed play sessions on this platform (newest first, capped at 20): `{game, platform, duration_seconds, date, start_time, end_time, hero_art_url}`. A session only appears here once it has ended |
 | longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session today; resets at midnight |
 | rolling_longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session over the rolling 7-day window |
 | calendar_longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session in the current calendar week |
@@ -275,7 +275,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | active_games | A comma-separated string of the games currently being played by online players |
 
 ### Note
-Several of these attributes (e.g., artwork URLs, breakdown dictionaries, session detail dicts, `play_history`, and `recent_sessions`) are explicitly added to `_unrecorded_attributes` in the sensor classes. This is a deliberate performance optimization to prevent Home Assistant from saving these frequently-changing or large values into the long-term database (recorder), which keeps your `home-assistant_v2.db` file from growing excessively large.
+Several of these attributes (e.g., artwork URLs, breakdown dictionaries, session detail dicts, `play_history`, and `recent_sessions`) are explicitly added to `_unrecorded_attributes` in the sensor classes. This is a deliberate performance optimization to prevent Home Assistant from saving these frequently-changing or large values into the long-term database (recorder), which keeps your database file from growing excessively large.
 
 ## ❓ What Next?
 Once everything is up and running (with sensors showing up from the integration), try playing a game for at least 5 minutes to make sure the online status is reflected in the `_master` sensors. *Note that, by default, sessions shorter than 300 seconds (5 minutes) are discarded and do not count toward the total playtime hours.* If the sensors are working correctly, try some of the following! If not, see the [troubleshooting](docs/troubleshooting.md) documentation.

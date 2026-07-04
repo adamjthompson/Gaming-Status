@@ -14,7 +14,7 @@ DEFAULT_GAME_TRANSITION_GRACE_SECONDS = 120
 DEFAULT_MIN_SESSION_DURATION = 300
 
 # Max number of completed sessions retained per sensor for the "recent_sessions" history log
-MAX_RECENT_SESSIONS = 50
+MAX_RECENT_SESSIONS = 20
 
 # ZOMBIE ATTRIBUTE CLEANUP
 ZOMBIE_ATTRIBUTES = ["grace_period_active", "xbox_last_seen_game", "debug_sync"]
