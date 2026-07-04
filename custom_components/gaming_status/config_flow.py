@@ -12,11 +12,15 @@ from homeassistant.helpers import selector
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.network import get_url, NoURLAvailableError
 
+from .utils import _normalize_game_name
+
 from .const import (
     DOMAIN,
     CONF_STEAMGRIDDB_API_KEY,
     CONF_RAWG_API_KEY,
     RATING_THRESHOLD_OPTIONS,
+    OPT_RATING_OVERRIDES,
+    RATING_OVERRIDE_CODES,
     CONF_DISCORD_TOKEN,
     CONF_DISCORD_SERVER,
     OPT_RESET_HISTORY,
@@ -1040,8 +1044,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     # -----------------------------------------------------------------------
     
     async def async_step_advanced(self, user_input=None):
+        from .const import OPT_ENABLE_PARENTAL
         opts = self._options
         errors = {}
+        parental_enabled = opts.get(OPT_ENABLE_PARENTAL, False)
 
         if user_input is not None:
             for key, field in [
@@ -1054,6 +1060,18 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                         k, v = item.split('=', 1)
                         parsed_dict[k.strip()] = v.strip()
                 opts[key] = _dump_json(parsed_dict)
+
+            if parental_enabled:
+                raw = user_input.get("rating_overrides", "")
+                parsed_ratings = {}
+                for item in raw.split(','):
+                    if '=' not in item:
+                        continue
+                    k, v = item.split('=', 1)
+                    code = v.strip().upper()
+                    if code in RATING_OVERRIDE_CODES:
+                        parsed_ratings[k.strip()] = RATING_OVERRIDE_CODES[code]
+                opts[OPT_RATING_OVERRIDES] = _dump_json(parsed_ratings)
 
             for key, field in [
                 (OPT_TITLE_CLEANUPS, "title_cleanups"),
@@ -1142,6 +1160,14 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 ]),
             ): str,
         })
+
+        if parental_enabled:
+            reverse_codes = {v: k for k, v in RATING_OVERRIDE_CODES.items()}
+            raw_ratings = _load_json(opts.get(OPT_RATING_OVERRIDES, ""), {})
+            rating_overrides_default = ", ".join(
+                f"{k} = {reverse_codes.get(v, v)}" for k, v in raw_ratings.items()
+            )
+            schema_dict[vol.Optional("rating_overrides", default=rating_overrides_default)] = str
 
         return self.async_show_form(
             step_id=MENU_ADVANCED,

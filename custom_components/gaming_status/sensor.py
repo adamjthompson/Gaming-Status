@@ -25,7 +25,7 @@ from .const import (
     DEFAULT_RESET_HISTORY, DEFAULT_GRACE_PERIOD_SECONDS,
     DEFAULT_AWAY_GRACE_PERIOD_SECONDS, DEFAULT_GAME_TRANSITION_GRACE_SECONDS,
     DEFAULT_MIN_SESSION_DURATION, OPT_TITLE_CLEANUPS,
-    CONF_STEAMGRIDDB_API_KEY, CONF_RAWG_API_KEY, OPT_PLAYERS, OPT_GRACE_PERIOD,
+    CONF_STEAMGRIDDB_API_KEY, CONF_RAWG_API_KEY, OPT_RATING_OVERRIDES, OPT_PLAYERS, OPT_GRACE_PERIOD,
     OPT_AWAY_GRACE_PERIOD, OPT_TRANSITION_GRACE, OPT_MIN_SESSION,
     OPT_RESET_HISTORY, OPT_TITLE_OVERRIDES, OPT_CUSTOM_GRID,
     OPT_CUSTOM_HERO, OPT_CUSTOM_LOGO, OPT_CUSTOM_ICON,
@@ -1935,6 +1935,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     }
     raw_overrides = _load_opt_json(opts, OPT_TITLE_OVERRIDES, {})
     utils.GAME_TITLE_OVERRIDES = {k.strip().lower(): v for k, v in raw_overrides.items()}
+    raw_rating_overrides = _load_opt_json(opts, OPT_RATING_OVERRIDES, {})
+    utils.RATING_OVERRIDES = {_normalize_game_name(k): v for k, v in raw_rating_overrides.items()}
     raw_grid = _load_opt_json(opts, OPT_CUSTOM_GRID, {})
     utils.CUSTOM_GRID_MAP = {k.strip().lower(): safe_url(v) for k, v in raw_grid.items() if safe_url(v)}
     raw_hero = _load_opt_json(opts, OPT_CUSTOM_HERO, {})

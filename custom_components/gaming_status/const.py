@@ -126,3 +126,9 @@ RATING_THRESHOLD_OPTIONS = [
     (17, "Ages 17+ (Mature)"),
     (18, "Ages 18+ (Adults Only)"),
 ]
+
+# Manual per-game rating overrides (Advanced Settings), for games the rating
+# provider has no data for. Free-text entry uses these short ESRB-style codes,
+# which get resolved to the same board-agnostic age floor used everywhere else.
+OPT_RATING_OVERRIDES = "rating_overrides"
+RATING_OVERRIDE_CODES = {"E": 0, "E10": 10, "T": 13, "M": 17, "AO": 18}

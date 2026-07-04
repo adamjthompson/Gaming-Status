@@ -216,7 +216,11 @@
           "discord_server_id": "Discord Server ID",
           "title_overrides": "Title Overrides (e.g., Destiny 2: Lightfall = Destiny 2)",
           "title_cleanups": "Title Cleanups (Regex/Text to strip from titles)",
-          "global_exclusions": "Global Exclusions (Ignored apps/games)"
+          "global_exclusions": "Global Exclusions (Ignored apps/games)",
+          "rating_overrides": "Content Rating Overrides (e.g., Skull and Bones = M)"
+        },
+        "data_description": {
+          "rating_overrides": "Manually set a rating for games your rating provider has no data for. Codes: E, E10, T, M, AO."
         }
       },
       "global_settings": {

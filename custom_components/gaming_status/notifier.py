@@ -577,9 +577,9 @@ class GamingNotifier:
 
                         if should_notify:
                             if overage > 0:
-                                msg = f"{player_name} has exceeded the {limit}-minute screen time limit by {overage} minutes ({today_minutes} minutes total)."
+                                msg = f"❗️ {player_name} has exceeded the {limit}-minute screen time limit by {overage} minutes ({today_minutes} minutes total)."
                             else:
-                                msg = f"{player_name} has reached the {limit}-minute screen time limit."
+                                msg = f"❗️ {player_name} has reached the {limit}-minute screen time limit."
 
                             current_game = master_state.state if is_playing else None
                             parental_image = None
@@ -623,9 +623,9 @@ class GamingNotifier:
                             overage_minutes = int((now_dt - curfew_dt).total_seconds() / 60)
                             pretty_time = datetime.strptime(curfew_time, "%H:%M").strftime("%I:%M %p").lstrip("0")
                             if overage_minutes > 1:
-                                msg = f"{player_name} has exceeded the {pretty_time} curfew by {overage_minutes} minutes."
+                                msg = f"❗️ {player_name} has exceeded the {pretty_time} curfew by {overage_minutes} minutes."
                             else:
-                                msg = f"{player_name} has reached the {pretty_time} curfew."
+                                msg = f"❗️ {player_name} has reached the {pretty_time} curfew."
                                 
                             current_game = master_state.state if is_playing else None
                             parental_image = None
@@ -670,7 +670,7 @@ class GamingNotifier:
                     if should_notify:
                         current_game = master_state.state
                         age_floor = (master_state.attributes.get("game_content_rating") or {}).get("age_floor")
-                        msg = f"{player_name} is playing {current_game}, rated for ages {age_floor}+."
+                        msg = f"❗️ {player_name} is playing {current_game}, rated for ages {age_floor}+."
 
                         parental_image = None
                         if self._cached_notify_artwork != "none":

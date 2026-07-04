@@ -23,6 +23,7 @@ _LOGGER = logging.getLogger(__name__)
 # Initialize empty globals (Populated securely by setup)
 GAME_TITLE_OVERRIDES = {}
 GAME_COLOR_OVERRIDES = {}
+RATING_OVERRIDES = {}
 TITLE_CLEANUPS = []
 COMPILED_TITLE_CLEANUPS = []
 STEAMGRIDDB_API_KEY = None
@@ -45,10 +46,14 @@ ASSET_URL_CACHE = OrderedDict()
 MAX_CACHE_SIZE = 500
 _MISSING_KEY_WARNED = False
 
-# Content-rating cache: ratings are effectively immutable metadata, so unlike
-# ASSET_URL_CACHE there is no age-based janitor, just the LRU size cap below.
+# Content-rating cache: a confirmed rating is immutable and cached forever
+# (just the LRU size cap below). An "unrated" result is NOT trusted forever,
+# since it may reflect a transient lookup failure or data RAWG hasn't added
+# yet, so it gets re-checked after RATING_RECHECK_SECONDS instead of sticking
+# until the next HA restart.
 RATING_CACHE = OrderedDict()
 MAX_RATING_CACHE_SIZE = 500
+RATING_RECHECK_SECONDS = 86400  # 24 hours
 _RATINGS_MISSING_KEY_WARNED = False
 
 # Maps RAWG's esrb_rating.slug values to a board-agnostic numeric age floor.
@@ -60,6 +65,9 @@ ESRB_AGE_FLOOR = {
     "adults-only": 18,
     "rating-pending": None,
 }
+
+# Display label for a manually-overridden age floor (RATING_OVERRIDES).
+AGE_FLOOR_LABELS = {0: "Everyone", 10: "Everyone 10+", 13: "Teen", 17: "Mature", 18: "Adults Only"}
 
 def compile_title_cleanups():
     """Pre-compile regex patterns for performance."""
@@ -307,8 +315,13 @@ async def get_steamgriddb_game_cover(hass, game_name):
 
 async def fetch_game_rating(hass, game_name):
     """
-    Fetch content/age-rating metadata for a game via RAWG.io.
-    Prioritizes Memory Cache (ratings never change, so no TTL), then RAWG search-by-title.
+    Fetch content/age-rating metadata for a game.
+    A manual entry in RATING_OVERRIDES always takes priority and skips the
+    cache/API entirely. Otherwise, fetches from RAWG.io. A confirmed rating
+    is cached forever (ratings don't change). An "unrated"
+    result (no match, no ESRB data, or a failed lookup) is only cached for
+    RATING_RECHECK_SECONDS, then retried, since it may reflect a transient
+    failure or data RAWG hasn't added yet.
     Returns a dict like {"esrb": "M", "pegi": None, "age_floor": 17,
     "descriptors": [...], "unrated": False, "source": "rawg"}, or None if no
     API key is configured.
@@ -321,9 +334,23 @@ async def fetch_game_rating(hass, game_name):
 
     cache_key = _normalize_game_name(game_name)
 
+    if cache_key in RATING_OVERRIDES:
+        age_floor = RATING_OVERRIDES[cache_key]
+        return {
+            "esrb": AGE_FLOOR_LABELS.get(age_floor, str(age_floor)),
+            "pegi": None,
+            "age_floor": age_floor,
+            "descriptors": [],
+            "unrated": False,
+            "source": "override",
+        }
+
     if cache_key in RATING_CACHE:
-        RATING_CACHE.move_to_end(cache_key)
-        return RATING_CACHE[cache_key]
+        cached = RATING_CACHE[cache_key]
+        is_stale = cached.get("unrated") and (time.time() - cached.get("checked_at", 0)) > RATING_RECHECK_SECONDS
+        if not is_stale:
+            RATING_CACHE.move_to_end(cache_key)
+            return cached
 
     if "gaming_status_rating_locks" not in hass.data:
         hass.data["gaming_status_rating_locks"] = {}
@@ -346,6 +373,8 @@ async def fetch_game_rating(hass, game_name):
             return None
 
         def _cache_and_return(data):
+            data = dict(data)
+            data["checked_at"] = time.time()
             RATING_CACHE[cache_key] = data
             RATING_CACHE.move_to_end(cache_key)
             if len(RATING_CACHE) > MAX_RATING_CACHE_SIZE:
@@ -363,6 +392,11 @@ async def fetch_game_rating(hass, game_name):
             params = {"key": RAWG_API_KEY, "search": game_name, "page_size": 1}
             async with session.get(search_url, params=params, timeout=10) as resp:
                 if resp.status != 200:
+                    body = await resp.text()
+                    _LOGGER.warning(
+                        "[Gaming Status] RAWG rating lookup for '%s' failed: HTTP %s - %s",
+                        game_name, resp.status, body[:200],
+                    )
                     return _cache_and_return(unrated)
                 data = await resp.json()
         except Exception as e:
@@ -371,11 +405,19 @@ async def fetch_game_rating(hass, game_name):
 
         results = data.get("results") or []
         if not results:
+            _LOGGER.debug("[Gaming Status] RAWG returned no search results for '%s'", game_name)
             return _cache_and_return(unrated)
 
+        matched_name = results[0].get("name")
         esrb = results[0].get("esrb_rating") or {}
         slug = esrb.get("slug")
         age_floor = ESRB_AGE_FLOOR.get(slug)
+
+        if age_floor is None:
+            _LOGGER.debug(
+                "[Gaming Status] RAWG matched '%s' to '%s' but has no ESRB rating on file (slug=%s)",
+                game_name, matched_name, slug,
+            )
 
         rating = {
             "esrb": esrb.get("name"),
