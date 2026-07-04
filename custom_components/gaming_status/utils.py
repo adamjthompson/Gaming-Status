@@ -525,6 +525,13 @@ def _normalize_game_name(game_name):
     if not game_name: return ""
     return " ".join(str(game_name).lower().split())
 
+def _is_same_base_game(name_a, name_b, prefix_words):
+    if not prefix_words or prefix_words <= 0: return False
+    words_a = _normalize_game_name(name_a).split()
+    words_b = _normalize_game_name(name_b).split()
+    if not words_a or not words_b: return False
+    return words_a[:prefix_words] == words_b[:prefix_words]
+
 def _safe_parse_datetime(value):
     if not value: return None
     try:

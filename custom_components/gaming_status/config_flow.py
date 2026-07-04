@@ -28,6 +28,8 @@ from .const import (
     OPT_AWAY_GRACE_PERIOD,
     OPT_TRANSITION_GRACE,
     OPT_MIN_SESSION,
+    OPT_SAME_GAME_PREFIX_WORDS,
+    DEFAULT_SAME_GAME_PREFIX_WORDS,
     OPT_PLAYERS,
     OPT_ENDPOINTS,
     OPT_WEEKLY_REPORT,
@@ -1077,6 +1079,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 parsed_list = [x.strip() for x in raw.split(',') if x.strip()]
                 opts[key] = _dump_json(parsed_list)
 
+            opts[OPT_SAME_GAME_PREFIX_WORDS] = user_input.get(OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS)
+
             api_key = user_input.get(CONF_STEAMGRIDDB_API_KEY, "").strip()
             rawg_key = user_input.get(CONF_RAWG_API_KEY, "").strip()
             dc_token = user_input.get(CONF_DISCORD_TOKEN, "").strip()
@@ -1155,6 +1159,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     "Setting up...", "Wallpaper Engine",
                 ]),
             ): str,
+            vol.Optional(
+                OPT_SAME_GAME_PREFIX_WORDS,
+                default=opts.get(OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS),
+            ): vol.All(int, vol.Range(min=0)),
         })
 
         if parental_enabled:

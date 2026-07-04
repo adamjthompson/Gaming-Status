@@ -216,9 +216,11 @@
           "title_overrides": "Title Overrides (e.g., Destiny 2: Lightfall = Destiny 2)",
           "title_cleanups": "Title Cleanups (Regex/Text to strip from titles)",
           "global_exclusions": "Global Exclusions (Ignored apps/games)",
+          "same_game_prefix_words": "Same-game prefix match (leading words, 0 = off)",
           "rating_overrides": "Content Rating Overrides (e.g., Skull and Bones = M)"
         },
         "data_description": {
+          "same_game_prefix_words": "Games whose name starts with this many matching words (e.g. \"Call of Duty ...\") are treated as the same game instead of a switch, fixing noisy notifications/sessions caused by menu/lobby state text. The locked name is whatever was current when the session started. Default: 2. Set to 0 to disable.",
           "rating_overrides": "Manually set a rating for games your rating provider has no data for. Codes: E, E10, T, M, AO."
         }
       },

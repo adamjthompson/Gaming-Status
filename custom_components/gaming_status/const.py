@@ -76,6 +76,8 @@ OPT_GRACE_PERIOD = "grace_period_seconds"
 OPT_AWAY_GRACE_PERIOD = "away_grace_period_seconds"
 OPT_TRANSITION_GRACE = "game_transition_grace_seconds"
 OPT_MIN_SESSION = "min_session_duration"
+OPT_SAME_GAME_PREFIX_WORDS = "same_game_prefix_words"
+DEFAULT_SAME_GAME_PREFIX_WORDS = 2
 
 OPT_ENABLED_PLATFORMS = "enabled_platforms"
 DEFAULT_ENABLED_PLATFORMS = ["steam", "xbox", "playstation", "discord", "custom", "playnite"]

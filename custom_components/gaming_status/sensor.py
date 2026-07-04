@@ -27,6 +27,7 @@ from .const import (
     DEFAULT_MIN_SESSION_DURATION, MAX_RECENT_SESSIONS, OPT_TITLE_CLEANUPS,
     CONF_STEAMGRIDDB_API_KEY, CONF_RAWG_API_KEY, OPT_RATING_OVERRIDES, OPT_PLAYERS, OPT_GRACE_PERIOD,
     OPT_AWAY_GRACE_PERIOD, OPT_TRANSITION_GRACE, OPT_MIN_SESSION,
+    OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS,
     OPT_RESET_HISTORY, OPT_TITLE_OVERRIDES, OPT_CUSTOM_GRID,
     OPT_CUSTOM_HERO, OPT_CUSTOM_LOGO, OPT_CUSTOM_ICON,
     OPT_CUSTOM_COLORS, OPT_GLOBAL_EXCLUSIONS, OPT_PARENTAL, 
@@ -39,7 +40,8 @@ from . import utils
 from .utils import (
     _get_gamertag_from_entity, _format_time, _format_game_name_for_display,
     _normalize_game_name, _safe_parse_datetime, _parse_relative_time_from_status,
-    _calculate_time_ago_v2, get_base_game_name, safe_url, url_host_matches
+    _calculate_time_ago_v2, get_base_game_name, safe_url, url_host_matches,
+    _is_same_base_game
 )
 
 XBOX_IDLE_STATES = frozenset(s.lower() for s in PLATFORM_CONFIG["xbox"]["idle_states"])
@@ -123,7 +125,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             "GRACE_PERIOD_SECONDS": DEFAULT_GRACE_PERIOD_SECONDS,
             "AWAY_GRACE_PERIOD_SECONDS": DEFAULT_AWAY_GRACE_PERIOD_SECONDS,
             "GAME_TRANSITION_GRACE_SECONDS": DEFAULT_GAME_TRANSITION_GRACE_SECONDS,
-            "MIN_SESSION_DURATION": DEFAULT_MIN_SESSION_DURATION
+            "MIN_SESSION_DURATION": DEFAULT_MIN_SESSION_DURATION,
+            "SAME_GAME_PREFIX_WORDS": DEFAULT_SAME_GAME_PREFIX_WORDS
         }
         
         self._attr_native_value = "Offline"
@@ -1170,7 +1173,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 normalized_new = _normalize_game_name(game_name_display)
                 normalized_current = _normalize_game_name(self._current_game) if self._current_game else None
                 if normalized_new != normalized_current:
-                    if self._temp_game_lost_time and self._current_game:
+                    if self._current_game and _is_same_base_game(self._current_game, game_name_display, self._active_settings["SAME_GAME_PREFIX_WORDS"]):
+                        # Same underlying game (menu/lobby/match state text churn) — keep the
+                        # session and canonical name locked to what was already playing.
+                        game_name_display = self._current_game
+                    elif self._temp_game_lost_time and self._current_game:
                         time_since_lost = (now_dt - self._temp_game_lost_time).total_seconds()
                         if _normalize_game_name(self._current_game) == normalized_new and time_since_lost <= self._active_settings["GAME_TRANSITION_GRACE_SECONDS"]: self._current_game = game_name_display
                         else: self._handle_game_transition(game_name_display)
@@ -1996,6 +2003,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         "AWAY_GRACE_PERIOD_SECONDS": opts.get(OPT_AWAY_GRACE_PERIOD, DEFAULT_AWAY_GRACE_PERIOD_SECONDS),
         "GAME_TRANSITION_GRACE_SECONDS": opts.get(OPT_TRANSITION_GRACE, DEFAULT_GAME_TRANSITION_GRACE_SECONDS),
         "MIN_SESSION_DURATION": opts.get(OPT_MIN_SESSION, DEFAULT_MIN_SESSION_DURATION),
+        "SAME_GAME_PREFIX_WORDS": opts.get(OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS),
     }
     raw_overrides = _load_opt_json(opts, OPT_TITLE_OVERRIDES, {})
     utils.GAME_TITLE_OVERRIDES = {k.strip().lower(): v for k, v in raw_overrides.items()}
