@@ -2,6 +2,7 @@
 
 DOMAIN = "gaming_status"
 CONF_STEAMGRIDDB_API_KEY = "steamgriddb_api_key"
+CONF_RAWG_API_KEY = "rawg_api_key"
 CONF_DISCORD_TOKEN = "discord_bot_token"
 CONF_DISCORD_SERVER = "discord_server_id"
 
@@ -112,3 +113,16 @@ DISCORD_COLOR_DEFAULT = "default"
 DISCORD_COLOR_PLATFORM = "platform"
 DISCORD_COLOR_GAME = "game"
 DISCORD_COLOR_CUSTOM = "custom"
+
+# ---------------------------------------------------------------------------
+# Content/age rating thresholds (parental "ratings" rule)
+# ---------------------------------------------------------------------------
+# Stored value is a board-agnostic numeric age floor, not an ESRB letter, so
+# the same options keep working unchanged if PEGI/other boards are added later.
+RATING_THRESHOLD_OPTIONS = [
+    (0, "Ages 3+ (Everyone)"),
+    (10, "Ages 10+ (Everyone 10+)"),
+    (13, "Ages 13+ (Teen)"),
+    (17, "Ages 17+ (Mature)"),
+    (18, "Ages 18+ (Adults Only)"),
+]

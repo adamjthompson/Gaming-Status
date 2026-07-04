@@ -15,6 +15,8 @@ from homeassistant.helpers.network import get_url, NoURLAvailableError
 from .const import (
     DOMAIN,
     CONF_STEAMGRIDDB_API_KEY,
+    CONF_RAWG_API_KEY,
+    RATING_THRESHOLD_OPTIONS,
     CONF_DISCORD_TOKEN,
     CONF_DISCORD_SERVER,
     OPT_RESET_HISTORY,
@@ -176,6 +178,9 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_STEAMGRIDDB_API_KEY, default=""): selector.TextSelector(
                     selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
                 ),
+                vol.Optional(CONF_RAWG_API_KEY, default=""): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
                 vol.Optional(OPT_USE_CACHE, default=smart_cache_default): bool,
             }),
             description_placeholders={"api_url": "https://www.steamgriddb.com/profile/api"},
@@ -278,20 +283,22 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         user_input = getattr(self, "_temp_user_input", {})
         
         api_key = user_input.get(CONF_STEAMGRIDDB_API_KEY, "").strip()
+        rawg_key = user_input.get(CONF_RAWG_API_KEY, "").strip()
         dc_token = user_input.get(CONF_DISCORD_TOKEN, "").strip()
         dc_server = user_input.get(CONF_DISCORD_SERVER, "").strip()
-        
+
         from .const import OPT_ENABLED_PLATFORMS, OPT_ENABLE_NOTIFICATIONS, OPT_ENABLE_PARENTAL, OPT_PLAYERS
         use_cache = user_input.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
         enabled_platforms = user_input.get(OPT_ENABLED_PLATFORMS, [])
         enable_notifications = user_input.get(OPT_ENABLE_NOTIFICATIONS, False)
         enable_parental = user_input.get(OPT_ENABLE_PARENTAL, False)
         players = user_input.get(OPT_PLAYERS, "{}")
-        
+
         return self.async_create_entry(
             title="Gaming Status",
             data={
                 CONF_STEAMGRIDDB_API_KEY: api_key,
+                CONF_RAWG_API_KEY: rawg_key,
                 CONF_DISCORD_TOKEN: dc_token,
                 CONF_DISCORD_SERVER: dc_server,
             },
@@ -844,6 +851,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         rules = parental.get(name, {})
         st = rules.get("screen_time", {})
         cf = rules.get("curfew", {})
+        rt = rules.get("ratings", {})
 
         REPEAT_OPTIONS = [
             selector.SelectOptionDict(value="0", label="Once per day"),
@@ -861,7 +869,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             # Preserve existing actions if the UI hides them, otherwise grab new user input
             st_action_final = user_input.get("st_action_targets", st.get("action", [])) if notifications_enabled else st.get("action", [])
             cf_action_final = user_input.get("cf_action_targets", cf.get("action", [])) if notifications_enabled else cf.get("action", [])
-            
+            rt_action_final = user_input.get("rt_action_targets", rt.get("action", [])) if notifications_enabled else rt.get("action", [])
+
             rules["screen_time"] = {
                 "enabled": user_input.get("st_enabled", False),
                 "weekday_minutes": user_input.get("st_weekday_minutes", 120),
@@ -875,6 +884,12 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 "weekend": user_input.get("cf_weekend", "23:00"),
                 "repeat": int(user_input.get("cf_repeat", "0")),
                 "action": cf_action_final,
+            }
+            rules["ratings"] = {
+                "enabled": user_input.get("rt_enabled", False),
+                "max_age_floor": int(user_input.get("rt_max_age_floor", 13)),
+                "repeat": int(user_input.get("rt_repeat", "0")),
+                "action": rt_action_final,
             }
             parental[name] = rules
             self._options[OPT_PARENTAL] = _dump_json(parental)
@@ -894,6 +909,13 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 cf_action = [cf_action.replace("endpoint_", "", 1)] if cf_action.startswith("endpoint_") else [cf_action]
             else:
                 cf_action = []
+
+        rt_action = rt.get("action", [])
+        if isinstance(rt_action, str):
+            if rt_action and rt_action.lower() != "none":
+                rt_action = [rt_action.replace("endpoint_", "", 1)] if rt_action.startswith("endpoint_") else [rt_action]
+            else:
+                rt_action = []
 
         schema_dict = {
             vol.Optional("st_enabled", default=st.get("enabled", False)): bool,
@@ -925,8 +947,33 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         if endpoint_options and notifications_enabled:
             schema_dict[vol.Optional("cf_action_targets", default=cf_action)] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=endpoint_options, 
-                    multiple=True, 
+                    options=endpoint_options,
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN
+                )
+            )
+
+        schema_dict.update({
+            vol.Optional("rt_enabled", default=rt.get("enabled", False)): bool,
+            vol.Optional("rt_max_age_floor", default=str(rt.get("max_age_floor", 13))): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(value=str(age), label=label)
+                        for age, label in RATING_THRESHOLD_OPTIONS
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional("rt_repeat", default=str(rt.get("repeat", 0))): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=REPEAT_OPTIONS, mode=selector.SelectSelectorMode.DROPDOWN)
+            ),
+        })
+
+        if endpoint_options and notifications_enabled:
+            schema_dict[vol.Optional("rt_action_targets", default=rt_action)] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=endpoint_options,
+                    multiple=True,
                     mode=selector.SelectSelectorMode.DROPDOWN
                 )
             )
@@ -1017,10 +1064,12 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 opts[key] = _dump_json(parsed_list)
 
             api_key = user_input.get(CONF_STEAMGRIDDB_API_KEY, "").strip()
+            rawg_key = user_input.get(CONF_RAWG_API_KEY, "").strip()
             dc_token = user_input.get(CONF_DISCORD_TOKEN, "").strip()
             dc_server = user_input.get(CONF_DISCORD_SERVER, "").strip()
             new_data = dict(self._config_entry.data)
             new_data[CONF_STEAMGRIDDB_API_KEY] = api_key
+            new_data[CONF_RAWG_API_KEY] = rawg_key
             new_data[CONF_DISCORD_TOKEN] = dc_token
             new_data[CONF_DISCORD_SERVER] = dc_server
             self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
@@ -1051,6 +1100,12 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_STEAMGRIDDB_API_KEY,
                 default=self._config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, ""),
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+            ),
+            vol.Optional(
+                CONF_RAWG_API_KEY,
+                default=self._config_entry.data.get(CONF_RAWG_API_KEY, ""),
             ): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
             ),

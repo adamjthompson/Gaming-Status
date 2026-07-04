@@ -25,7 +25,7 @@ from .const import (
     DEFAULT_RESET_HISTORY, DEFAULT_GRACE_PERIOD_SECONDS,
     DEFAULT_AWAY_GRACE_PERIOD_SECONDS, DEFAULT_GAME_TRANSITION_GRACE_SECONDS,
     DEFAULT_MIN_SESSION_DURATION, OPT_TITLE_CLEANUPS,
-    CONF_STEAMGRIDDB_API_KEY, OPT_PLAYERS, OPT_GRACE_PERIOD,
+    CONF_STEAMGRIDDB_API_KEY, CONF_RAWG_API_KEY, OPT_PLAYERS, OPT_GRACE_PERIOD,
     OPT_AWAY_GRACE_PERIOD, OPT_TRANSITION_GRACE, OPT_MIN_SESSION,
     OPT_RESET_HISTORY, OPT_TITLE_OVERRIDES, OPT_CUSTOM_GRID,
     OPT_CUSTOM_HERO, OPT_CUSTOM_LOGO, OPT_CUSTOM_ICON,
@@ -60,7 +60,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         "rolling_weekly_breakdown", "rolling_longest_session_details",
         "calendar_weekly_breakdown", "calendar_longest_session_details",
         "last_played_game", "daily_play_time", "weekly_play_time", "weekly_play_time_last_week",
-        "play_history",
+        "play_history", "game_content_rating",
     })
 
     def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None, active_settings=None, global_exclusions=None, available_avatars=None):
@@ -145,7 +145,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._cached_game_icon = None
         self._cached_game_color = None
         self._color_history_cache = {}
-        
+
+        # Content-rating cache
+        self._cached_game_rating = None
+        self._rating_fetch_attempted = False
+
         self._current_game = None
         self._play_start_time = None
         self._last_played_game = None
@@ -223,7 +227,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             "game_logo_art": getattr(self, "_cached_game_logo", None),
             "game_icon_art": getattr(self, "_cached_game_icon", None),
             "game_dominant_color": getattr(self, "_cached_game_color", None),
-            "color_history_cache": getattr(self, "_color_history_cache", {})
+            "color_history_cache": getattr(self, "_color_history_cache", {}),
+            "cached_game_rating": getattr(self, "_cached_game_rating", None),
         }
 
     def _check_daily_reset(self):
@@ -609,6 +614,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._cached_game_logo = None
             self._cached_game_icon = None
             self._cached_game_color = None
+            self._rating_fetch_attempted = False
+            self._cached_game_rating = None
             self._store.async_delay_save(self._get_store_data, 5.0)
 
     def _get_session_info(self):
@@ -695,7 +702,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._attr_extra_state_attributes["game_icon_art"] = self._cached_game_icon
         self._attr_extra_state_attributes["game_dominant_color"] = self._cached_game_color
         self._attr_extra_state_attributes["cached_game_cover"] = self._cached_game_cover
-        
+        self._attr_extra_state_attributes["game_content_rating"] = self._cached_game_rating
+
         # --- CRITICAL FIX: Flush internal RAM variables to HA attributes ---
         self._attr_extra_state_attributes["last_online_valid_timestamp"] = getattr(self, "_last_online_valid_timestamp", None)
         self._attr_extra_state_attributes["last_played_game"] = getattr(self, "_last_played_game", None)
@@ -794,6 +802,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._cached_game_hero = stored_data.get("game_hero_art")
             self._cached_game_logo = stored_data.get("game_logo_art")
             self._cached_game_icon = stored_data.get("game_icon_art")
+            self._cached_game_rating = stored_data.get("cached_game_rating")
             _raw_color = stored_data.get("game_dominant_color")
             if _raw_color and not re.match(r'^#[0-9A-Fa-f]{6}$', str(_raw_color)):
                 _raw_color = None
@@ -856,7 +865,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if not getattr(self, "_cached_game_hero", None): self._cached_game_hero = attrs.get("game_hero_art")
             if not getattr(self, "_cached_game_logo", None): self._cached_game_logo = attrs.get("game_logo_art")
             if not getattr(self, "_cached_game_icon", None): self._cached_game_icon = attrs.get("game_icon_art")
-            
+            if not getattr(self, "_cached_game_rating", None): self._cached_game_rating = attrs.get("game_content_rating")
+
             if not stored_data or "internal_state" not in stored_data:
                 self._temp_offline_start = _safe_parse_datetime(attrs.get("temp_offline_start"))
                 self._last_session_play_time = int(attrs.get("last_session_play_time") or 0)
@@ -1143,7 +1153,15 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     except Exception as e:
                         _LOGGER.error("Artwork fetch failed for %s: %s", game_name_display, e)
                         self._cached_game_cover = platform_data.get("game_cover_url")
-                        
+
+                if normalized_new and not self._rating_fetch_attempted:
+                    self._rating_fetch_attempted = True
+                    try:
+                        self._cached_game_rating = await utils.fetch_game_rating(self.hass, game_name_display)
+                    except Exception as e:
+                        _LOGGER.error("Rating fetch failed for %s: %s", game_name_display, e)
+                        self._cached_game_rating = None
+
                 # --- NEW BACKGROUND DISK SCAN (Runs ONLY once per game transition) ---
                 def _scan_local_disk():
                     from homeassistant.helpers.network import get_url
@@ -1303,13 +1321,13 @@ class MasterGamingSensor(RestoreSensor):
         "entity_picture", 
         "last_online_valid_timestamp", 
         "current_game", 
-        "daily_play_limit_minutes", 
+        "daily_play_limit_minutes",
         "remaining_play_time_minutes",
         "weekly_breakdown", "platform_split", "longest_session",
         "rolling_weekly_breakdown", "calendar_weekly_breakdown",
         "rolling_longest_session", "calendar_longest_session",
         "raw_rolling_breakdown", "raw_calendar_breakdown",
-        "play_history",
+        "play_history", "game_content_rating", "rating_exceeded",
     })
     
     def __init__(self, hass, name, profiles, parental_rules=None):
@@ -1522,6 +1540,17 @@ class MasterGamingSensor(RestoreSensor):
             spent = int(total_daily_seconds / 60)
             remaining_play_time_minutes = max(0, daily_play_limit_minutes - spent)
 
+        rating_exceeded = False
+        current_game_rating = None
+        rt_rule = self._parental_rules.get("ratings", {})
+        if rt_rule.get("enabled") and active_state:
+            rating_info = active_state.attributes.get("game_content_rating") or {}
+            age_floor = rating_info.get("age_floor")
+            max_age_floor = rt_rule.get("max_age_floor")
+            current_game_rating = rating_info.get("esrb")
+            if age_floor is not None and max_age_floor is not None and age_floor > int(max_age_floor):
+                rating_exceeded = True
+
         total_daily_hours = round(total_daily_seconds / 3600, 2)
         total_weekly_hours = round(total_weekly_seconds / 3600, 2)
         total_rolling_weekly_hours = round(total_rolling_weekly_hours, 2)
@@ -1546,6 +1575,9 @@ class MasterGamingSensor(RestoreSensor):
                 "game_logo_art": active_state.attributes.get("game_logo_art"),
                 "game_icon_art": active_state.attributes.get("game_icon_art"),
                 "game_dominant_color": active_state.attributes.get("game_dominant_color"),
+                "game_content_rating": active_state.attributes.get("game_content_rating"),
+                "current_game_rating": current_game_rating,
+                "rating_exceeded": rating_exceeded,
                 "current_game": active_state.attributes.get("current_game"),
                 "play_start_time": active_state.attributes.get("play_start_time"),
                 "last_online_valid_timestamp": active_state.attributes.get("last_online_valid_timestamp"),
@@ -1581,6 +1613,9 @@ class MasterGamingSensor(RestoreSensor):
                     "game_logo_art": most_recent_sensor.attributes.get("game_logo_art"),
                     "game_icon_art": most_recent_sensor.attributes.get("game_icon_art"),
                     "game_dominant_color": most_recent_sensor.attributes.get("game_dominant_color"),
+                    "game_content_rating": most_recent_sensor.attributes.get("game_content_rating"),
+                    "current_game_rating": None,
+                    "rating_exceeded": False,
                     "last_played_game": most_recent_sensor.attributes.get("last_played_game"),
                     "last_online_valid_timestamp": most_recent_sensor.attributes.get("last_online_valid_timestamp"),
                     "total_daily_hours": total_daily_hours,
@@ -1611,6 +1646,9 @@ class MasterGamingSensor(RestoreSensor):
                     "game_logo_art": self._attr_extra_state_attributes.get("game_logo_art"),
                     "game_icon_art": self._attr_extra_state_attributes.get("game_icon_art"),
                     "game_dominant_color": self._attr_extra_state_attributes.get("game_dominant_color"),
+                    "game_content_rating": self._attr_extra_state_attributes.get("game_content_rating"),
+                    "current_game_rating": None,
+                    "rating_exceeded": False,
                     "last_played_game": self._attr_extra_state_attributes.get("last_played_game"),
                     "last_online_valid_timestamp": self._attr_extra_state_attributes.get("last_online_valid_timestamp"),
                     "total_daily_hours": total_daily_hours,
@@ -1803,6 +1841,7 @@ class PCGamingSensor(RestoreSensor):
                 "game_logo_art": active_state.attributes.get("game_logo_art"),
                 "game_icon_art": active_state.attributes.get("game_icon_art"),
                 "game_dominant_color": active_state.attributes.get("game_dominant_color"),
+                "game_content_rating": active_state.attributes.get("game_content_rating"),
                 "current_game": active_state.attributes.get("current_game"),
                 "last_played_game": active_state.attributes.get("last_played_game"),
                 "play_start_time": active_state.attributes.get("play_start_time")
@@ -1826,6 +1865,7 @@ class PCGamingSensor(RestoreSensor):
                     "game_logo_art": most_recent_state.attributes.get("game_logo_art"),
                     "game_icon_art": most_recent_state.attributes.get("game_icon_art"),
                     "game_dominant_color": most_recent_state.attributes.get("game_dominant_color"),
+                    "game_content_rating": most_recent_state.attributes.get("game_content_rating"),
                     "last_online_valid_timestamp": most_recent_state.attributes.get("last_online_valid_timestamp"),
                     "last_played_game": most_recent_state.attributes.get("last_played_game"),
                     "play_start_time": None
@@ -1909,6 +1949,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     utils.TITLE_CLEANUPS = raw_cleanups
     utils.compile_title_cleanups()
     utils.STEAMGRIDDB_API_KEY = config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, "")
+    utils.RAWG_API_KEY = config_entry.data.get(CONF_RAWG_API_KEY, "")
     utils.USE_LOCAL_CACHE = opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
     
     # --- HARDWARE SAFETY NET ---

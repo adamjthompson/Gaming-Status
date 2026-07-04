@@ -26,6 +26,7 @@ GAME_COLOR_OVERRIDES = {}
 TITLE_CLEANUPS = []
 COMPILED_TITLE_CLEANUPS = []
 STEAMGRIDDB_API_KEY = None
+RAWG_API_KEY = None
 
 # Cache Settings
 USE_LOCAL_CACHE = True
@@ -43,6 +44,22 @@ CUSTOM_ICON_MAP = {}
 ASSET_URL_CACHE = OrderedDict()
 MAX_CACHE_SIZE = 500
 _MISSING_KEY_WARNED = False
+
+# Content-rating cache: ratings are effectively immutable metadata, so unlike
+# ASSET_URL_CACHE there is no age-based janitor, just the LRU size cap below.
+RATING_CACHE = OrderedDict()
+MAX_RATING_CACHE_SIZE = 500
+_RATINGS_MISSING_KEY_WARNED = False
+
+# Maps RAWG's esrb_rating.slug values to a board-agnostic numeric age floor.
+ESRB_AGE_FLOOR = {
+    "everyone": 0,
+    "everyone-10-plus": 10,
+    "teen": 13,
+    "mature": 17,
+    "adults-only": 18,
+    "rating-pending": None,
+}
 
 def compile_title_cleanups():
     """Pre-compile regex patterns for performance."""
@@ -287,6 +304,92 @@ async def get_steamgriddb_game_cover(hass, game_name):
         return None
     assets = await fetch_game_assets(hass, game_name)
     return assets.get("hero") or assets.get("grid")
+
+async def fetch_game_rating(hass, game_name):
+    """
+    Fetch content/age-rating metadata for a game via RAWG.io.
+    Prioritizes Memory Cache (ratings never change, so no TTL), then RAWG search-by-title.
+    Returns a dict like {"esrb": "M", "pegi": None, "age_floor": 17,
+    "descriptors": [...], "unrated": False, "source": "rawg"}, or None if no
+    API key is configured.
+    """
+    import asyncio
+    global _RATINGS_MISSING_KEY_WARNED
+
+    if not game_name:
+        return None
+
+    cache_key = _normalize_game_name(game_name)
+
+    if cache_key in RATING_CACHE:
+        RATING_CACHE.move_to_end(cache_key)
+        return RATING_CACHE[cache_key]
+
+    if "gaming_status_rating_locks" not in hass.data:
+        hass.data["gaming_status_rating_locks"] = {}
+
+    if cache_key in hass.data["gaming_status_rating_locks"]:
+        await hass.data["gaming_status_rating_locks"][cache_key].wait()
+        if cache_key in RATING_CACHE:
+            RATING_CACHE.move_to_end(cache_key)
+            return RATING_CACHE[cache_key]
+        return None
+
+    lock = asyncio.Event()
+    hass.data["gaming_status_rating_locks"][cache_key] = lock
+
+    try:
+        if not RAWG_API_KEY:
+            if not _RATINGS_MISSING_KEY_WARNED:
+                _LOGGER.warning("[Gaming Status] RAWG API key is not configured.")
+                _RATINGS_MISSING_KEY_WARNED = True
+            return None
+
+        def _cache_and_return(data):
+            RATING_CACHE[cache_key] = data
+            RATING_CACHE.move_to_end(cache_key)
+            if len(RATING_CACHE) > MAX_RATING_CACHE_SIZE:
+                RATING_CACHE.popitem(last=False)
+            return data
+
+        unrated = {
+            "esrb": None, "pegi": None, "age_floor": None,
+            "descriptors": [], "unrated": True, "source": "rawg",
+        }
+
+        session = async_get_clientsession(hass)
+        try:
+            search_url = "https://api.rawg.io/api/games"
+            params = {"key": RAWG_API_KEY, "search": game_name, "page_size": 1}
+            async with session.get(search_url, params=params, timeout=10) as resp:
+                if resp.status != 200:
+                    return _cache_and_return(unrated)
+                data = await resp.json()
+        except Exception as e:
+            _LOGGER.error("Failed to fetch rating for %s: %s", game_name, e)
+            return _cache_and_return(unrated)
+
+        results = data.get("results") or []
+        if not results:
+            return _cache_and_return(unrated)
+
+        esrb = results[0].get("esrb_rating") or {}
+        slug = esrb.get("slug")
+        age_floor = ESRB_AGE_FLOOR.get(slug)
+
+        rating = {
+            "esrb": esrb.get("name"),
+            "pegi": None,
+            "age_floor": age_floor,
+            "descriptors": [],
+            "unrated": age_floor is None,
+            "source": "rawg",
+        }
+        return _cache_and_return(rating)
+
+    finally:
+        lock.set()
+        hass.data["gaming_status_rating_locks"].pop(cache_key, None)
 
 async def fetch_and_cache_image(hass, remote_url, file_name):
     """Generic helper to cache any remote image locally."""

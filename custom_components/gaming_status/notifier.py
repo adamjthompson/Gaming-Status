@@ -652,6 +652,47 @@ class GamingNotifier:
 
                 except (ValueError, AttributeError): pass
 
+            # --- CONTENT RATING ---
+            rt_rule = rules.get("ratings", {})
+            if rt_rule.get("enabled"):
+                rt_key = f"{safe_player}_rating"
+                rt_repeat = int(rt_rule.get("repeat", 0))
+                rating_exceeded = master_state.attributes.get("rating_exceeded", False)
+
+                if is_playing and rating_exceeded:
+                    last_fired = self._triggered_parental_events.get(rt_key)
+
+                    should_notify = (
+                        last_fired is None or
+                        (rt_repeat > 0 and (now_dt - last_fired).total_seconds() >= (rt_repeat * 60))
+                    )
+
+                    if should_notify:
+                        current_game = master_state.state
+                        age_floor = (master_state.attributes.get("game_content_rating") or {}).get("age_floor")
+                        msg = f"{player_name} is playing {current_game}, rated for ages {age_floor}+."
+
+                        parental_image = None
+                        if self._cached_notify_artwork != "none":
+                            raw_url = master_state.attributes.get(self._cached_notify_artwork)
+                            if not raw_url:
+                                raw_url = master_state.attributes.get("game_cover_art") or master_state.attributes.get("cached_game_cover")
+                            parental_image = await self._make_external_url(raw_url, current_game)
+
+                        action = rt_rule.get("action", "none")
+                        if not action or action == "none":
+                            action = fallback_dests
+
+                        if await self._fire_parental_action(
+                            player_name, action, msg,
+                            game_title=current_game,
+                            image_url=parental_image,
+                            state_obj=master_state,
+                        ):
+                            self._triggered_parental_events[rt_key] = now_dt
+                else:
+                    self._triggered_parental_events.pop(rt_key, None)
+
     async def _fire_parental_action(
         self,
         player_name: str,

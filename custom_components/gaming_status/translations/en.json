@@ -9,6 +9,7 @@
           "enable_notifications": "Enable Notifications & Reporting",
           "enable_parental": "Enable Parental Controls",
           "steamgriddb_api_key": "SteamGridDB API Key (Optional)",
+          "rawg_api_key": "RAWG.io API Key (Optional, for content ratings)",
           "use_local_cache": "Enable Local Image Caching"
         },
         "data_description": {
@@ -198,7 +199,11 @@
           "cf_weekday": "Weekday curfew time (HH:MM)",
           "cf_weekend": "Weekend curfew time (HH:MM)",
           "cf_repeat": "Curfew action frequency",
-          "cf_action_targets": "Notification method(s) at curfew"
+          "cf_action_targets": "Notification method(s) at curfew",
+          "rt_enabled": "Enable content rating limit",
+          "rt_max_age_floor": "Maximum allowed age rating",
+          "rt_repeat": "Rating alert frequency",
+          "rt_action_targets": "Notification method(s) when rating exceeded"
         }
       },
       "advanced": {
@@ -206,6 +211,7 @@
         "description": "Configure advanced integration behavior and API keys.",
         "data": {
           "steamgriddb_api_key": "SteamGridDB API Key",
+          "rawg_api_key": "RAWG.io API Key (for content ratings)",
           "discord_bot_token": "Discord Bot Token",
           "discord_server_id": "Discord Server ID",
           "title_overrides": "Title Overrides (e.g., Destiny 2: Lightfall = Destiny 2)",
