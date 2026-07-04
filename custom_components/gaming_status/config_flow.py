@@ -892,7 +892,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             rules["ratings"] = {
                 "enabled": user_input.get("rt_enabled", False),
                 "max_age_floor": int(user_input.get("rt_max_age_floor", 13)),
-                "repeat": int(user_input.get("rt_repeat", "0")),
                 "action": rt_action_final,
             }
             parental[name] = rules
@@ -967,9 +966,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     ],
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
-            ),
-            vol.Optional("rt_repeat", default=str(rt.get("repeat", 0))): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=REPEAT_OPTIONS, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
         })
 

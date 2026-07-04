@@ -202,7 +202,6 @@
           "cf_action_targets": "Notification method(s) at curfew",
           "rt_enabled": "Enable content rating limit",
           "rt_max_age_floor": "Maximum allowed age rating",
-          "rt_repeat": "Rating alert frequency",
           "rt_action_targets": "Notification method(s) when rating exceeded"
         }
       },
