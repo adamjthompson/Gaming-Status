@@ -376,8 +376,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             else:
                 steam_game = attrs.get("game")
                 if steam_game:
-                    data["current_game"] = steam_game
-                    data["is_online"] = True
+                    if self._is_game_active_elsewhere(steam_game):
+                        data["is_online"] = False
+                    else:
+                        data["current_game"] = steam_game
+                        data["is_online"] = True
                 elif normalized_state == "away":
                     data["is_online"] = False
                     data["offline_reason"] = "away"
@@ -474,10 +477,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if is_globally_excluded or is_user_excluded:
                 data["is_online"] = False
             elif state_clean not in ["unknown", "unavailable", "unknown game", "none", "", "offline"]:
-                data["is_online"] = True
-                data["current_game"] = state
-                if attrs.get("entity_picture"):
-                    data["game_cover_url"] = attrs.get("entity_picture")
+                if self._is_game_active_elsewhere(state):
+                    data["is_online"] = False
+                else:
+                    data["is_online"] = True
+                    data["current_game"] = state
+                    if attrs.get("entity_picture"):
+                        data["game_cover_url"] = attrs.get("entity_picture")
 
         elif self._gaming_type == "playnite":
             # Apply the persistent Playnite logo as a base default if no custom image exists
@@ -487,12 +493,16 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if is_globally_excluded or is_user_excluded or is_basic_offline:
                 data["is_online"] = False
             else:
-                data["is_online"] = True
                 # Adapter handles both direct MQTT JSON and custom HA Template states
                 if state_clean == "on":
-                    data["current_game"] = attrs.get("Name") or attrs.get("name") or "Unknown Playnite Game"
+                    playnite_game = attrs.get("Name") or attrs.get("name") or "Unknown Playnite Game"
                 else:
-                    data["current_game"] = state
+                    playnite_game = state
+                if self._is_game_active_elsewhere(playnite_game):
+                    data["is_online"] = False
+                else:
+                    data["is_online"] = True
+                    data["current_game"] = playnite_game
 
         elif self._gaming_type == "discord":
             # Allow Discord to track games if an application_id is present
@@ -578,12 +588,17 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         self._weekly_play_time = int((self._weekly_play_time or 0) + gap)
 
                     # Log this completed session for the "recent_sessions" history.
+                    # Skip sessions with zero real accumulated ticks - these were
+                    # blocked ("Active Elsewhere") for their entire wall-clock
+                    # duration by another, higher-priority platform tracking the
+                    # same game, so logging them would create a duplicate row for
+                    # a session this platform never actually tracked.
                     # Note: a brief network blip after 5+ minutes of play can end a
                     # session here and have it "resurrect" as a new one below, which
                     # will show as two rows instead of one continuous session - a
                     # known, accepted edge case (same tradeoff the aggregate totals
                     # above already make in favor of not losing playtime).
-                    if self._current_game:
+                    if self._current_game and session_ticks > 0:
                         local_start = dt_util.as_local(start_dt)
                         local_end = dt_util.as_local(actual_end_time)
                         self._recent_sessions.insert(0, {
