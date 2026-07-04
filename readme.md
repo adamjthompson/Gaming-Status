@@ -11,7 +11,7 @@ Some of the key features are listed below.
 ## ✨ Features
 * **Unified Master Sensor:** Combines Xbox, PlayStation, Steam, Discord, Playnite, and Custom PC clients into one clean "Master Status" sensor per person.
 * **Online/Offline Notifications:** Receive Discord, SMS, and/or Mobile notifications when users start or finish playing a game.
-* **Parental Controls:** Track daily playtime and recieve notifications or trigger an automation or script when a limit or curfew is reached.
+* **Parental Controls:** Track daily playtime and recieve notifications when a limit, curfew, or age-rating threshold is reached.
 * **Discord Rich Presence:** Track hundreds of standalone games, emulators, and Epic/EA/Ubisoft launchers automatically by hooking into Discord's Rich Presence status. Automatically ignores custom text statuses to prevent false positives.
 * **Custom PC Game Support:** Track non-platform games (like Epic Games, Minecraft, or Genshin Impact) using template funnels or binary sensors.
 * **PC Sub-Master Sensor:** Automatically aggregates Custom, Steam, and Discord tracking into a single, unified "PC" status. It features smart platform yielding (e.g., Discord quietly steps aside if Steam is tracking the same game) to completely eliminate double-counting in your playtime analytics.
@@ -48,6 +48,15 @@ To display beautiful, high-resolution game covers on your dashboard, this integr
 5. Click **Generate API Key**.
 6. Copy the string of letters and numbers generated. 
 
+### Obtaining a RAWG.io API Key (for Content Ratings)
+If you plan to use the **Content Rating Limit** parental control, this integration looks up each game's ESRB rating via a free API key from [RAWG.io](https://rawg.io/).
+
+1. Go to [RAWG.io API Docs](https://rawg.io/apidocs).
+2. Click **GET API KEY** and sign up or log in.
+3. Copy the generated key and paste it into the **RAWG.io API Key** field during Initial Setup or under the Advanced menu.
+
+*Note: RAWG's rating coverage isn't complete for every title. If a game comes back unrated, you can manually assign it a rating using the Content Rating Overrides field under Advanced (see below).*
+
 ## 📥 Installation
 
 **Method 1: HACS (Recommended)**
@@ -72,7 +81,8 @@ Gaming Status is configured entirely through the Home Assistant UI. **There is n
 1. In Home Assistant, navigate to **Settings** > **Devices & Services**.
 2. Click **+ Add Integration** and search for **Gaming Status**.
 3. You will be prompted to enter a **SteamGridDB API Key** (Optional). This is highly recommended to automatically fetch beautiful hero art for your games. You can get a free key [here](https://www.steamgriddb.com/profile/api).
-4. Click Submit. 
+4. You'll also see a **RAWG.io API Key** (Optional) field, used to automatically look up content/age ratings for the Parental Controls Content Rating Limit rule. You can get a free key [here](https://rawg.io/apidocs), or add it later under Advanced.
+5. Click Submit. 
 
 ### Options & Features
 To configure your players, notifications, and rules, click the **Configure** button (gear icon) on the Gaming Status integration card. This opens the main configuration hub, which is divided into six menus based on your enabled features:
@@ -93,10 +103,11 @@ Manage where your [gaming alerts and weekly reports](docs/notifications.md) are 
 * **Weekly Report:** Send a beautifully formatted summary of everyone's weekly playtime and top games to your selected notification methods on a specific day and time.
 
 #### 3. Parental Controls (Requires Global Toggle)
-Set automated rules based on accumulated playtime or time of day.
+Set automated rules based on accumulated playtime, time of day, or game content rating.
 * **Screen Time:** Set distinct weekday and weekend daily minute limits.
 * **Curfew:** Set distinct weekday and weekend cutoff times (e.g., 22:00).
-* **Reminder Frequency:** Set how often to repeat the notification(s).
+* **Content Rating Limit:** Set a maximum allowed age rating (e.g., "Ages 13+"). Ratings are looked up automatically via a free [RAWG.io API key](#obtaining-a-rawgio-api-key-for-content-ratings) (configured under Advanced) and cached indefinitely once found for a game. If the player's active game exceeds the configured age, a notification is sent the moment that game starts — switching to a *different* over-the-limit game always sends a fresh notification, but the same game won't spam you again while it keeps running.
+* **Reminder Frequency:** *(Screen Time and Curfew only)* Set how often to repeat the notification(s).
 * **Notifications:** When a limit is reached, you can automatically send a notification using any of your configured methods.
 
 #### 4. Custom Artwork
@@ -106,10 +117,11 @@ Manually assign artwork or colors to specific games using simple `Game = Value` 
 
 #### 5. Advanced
 Update your API keys and fine-tune text processing rules.
-* **API Keys & Tokens:** Update your SteamGridDB API key, or your Discord Bot Token and Server ID.
+* **API Keys & Tokens:** Update your SteamGridDB API key, RAWG.io API key (for content ratings), or your Discord Bot Token and Server ID.
 * **Game Title Overrides:** Clean up messy or lengthy names. Format as `raw name = display name`. *(Example: `Minecraft Launcher = Minecraft`)*
 * **Title Cleanups:** A list of strings to automatically strip from game names. *(Example: `Tom Clancy's, Sid Meier's`)*
 * **Global Exclusions:** Games or apps that should be universally ignored by the tracker. *(Example: `Home, YouTube, Netflix, Xbox App`)*
+* **Content Rating Overrides:** *(Only shown when Parental Controls is enabled)* Manually assign a rating to games your rating provider has no data for. Format as `Game = Code`, using the codes `E`, `E10`, `T`, `M`, or `AO`. *(Example: `Skull and Bones = M`)*
 
 #### 6. Global Settings
 These variables control how the integration handles platforms, caching, and network drops across all players.
@@ -190,12 +202,15 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | calendar_longest_session | A formatted string showing the game title and duration of the longest single session across all platforms for the current calendar week (e.g., "DELTARUNE (1h 24m)") |
 | rolling_longest_session | A formatted string showing the game title and duration of the longest single session across all platforms over the rolling 7-day window |
 | play_history | Per-day, per-game playtime aggregated across all platforms: `{"YYYY-MM-DD": {"Game Title": seconds, ...}}`. Used by the Gaming Status Cards for chart rendering |
+| recent_sessions | List of the most recently completed play sessions across all of this player's platforms (newest first, capped at 50): `{game, platform, duration_seconds, date, start_time, end_time, hero_art_url}` |
 
 **Parental/Limit Controls**
 | Attribute | Description |
 | --- | --- |
 | daily_play_limit_minutes | The configured daily limit |
 | remaining_play_time_minutes |Calculated remaining time based on current usage |
+| current_game_rating | The rating label (e.g., "Mature") of the currently active game, only populated when the Content Rating Limit rule is enabled |
+| rating_exceeded | `true` if the Content Rating Limit rule is enabled and the player's currently active game exceeds the configured age threshold |
 
 
 **Active Status**
@@ -210,6 +225,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | game_logo_art | URL of logo art, either local or SteamGridDB |
 | game_icon_art | URL of icon art, either local or SteamGridDB |
 | game_dominant_color | The automatically extracted vibrant hex color from the game's artwork, or a manually assigned color |
+| game_content_rating | Rating metadata for the currently active game: `{esrb, pegi, age_floor, descriptors, unrated, source}` (`source` is `"rawg"`, `"override"`, or `null` if never looked up) |
 | current_game | Inherited from the most active underlying platform tracker |
 | play_start_time | Inherited from the most active underlying platform tracker |
 | last_played_game | Title of the most recent game detected across all tracked platforms |
@@ -234,6 +250,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | game_logo_art | URL of logo art, either local or SteamGridDB |
 | game_icon_art | URL of icon art, either local or SteamGridDB |
 | game_dominant_color | The automatically extracted vibrant hex color from the game's artwork, or a manually assigned color |
+| game_content_rating | Rating metadata for the currently active/cached game: `{esrb, pegi, age_floor, descriptors, unrated, source}` (`source` is `"rawg"`, `"override"`, or `null` if never looked up) |
 
 **Rich Tracking & Analytics**
 | Attribute | Description |
@@ -247,6 +264,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | rolling_weekly_breakdown | Dictionary mapping game names to total seconds over the rolling 7-day window |
 | calendar_weekly_breakdown | Dictionary mapping game names to total seconds for the current calendar week (Monday–Sunday) |
 | play_history | Per-day, per-game playtime for this platform: `{"YYYY-MM-DD": {"Game Title": seconds, ...}}` |
+| recent_sessions | List of the most recently completed play sessions on this platform (newest first, capped at 50): `{game, platform, duration_seconds, date, start_time, end_time, hero_art_url}`. A session only appears here once it has ended |
 | longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session today; resets at midnight |
 | rolling_longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session over the rolling 7-day window |
 | calendar_longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session in the current calendar week |
@@ -257,7 +275,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | active_games | A comma-separated string of the games currently being played by online players |
 
 ### Note
-Several of these attributes (e.g., artwork URLs, breakdown dictionaries, session detail dicts, and `play_history`) are explicitly added to `_unrecorded_attributes` in the sensor classes. This is a deliberate performance optimization to prevent Home Assistant from saving these frequently-changing or large values into the long-term database (recorder), which keeps your `home-assistant_v2.db` file from growing excessively large.
+Several of these attributes (e.g., artwork URLs, breakdown dictionaries, session detail dicts, `play_history`, and `recent_sessions`) are explicitly added to `_unrecorded_attributes` in the sensor classes. This is a deliberate performance optimization to prevent Home Assistant from saving these frequently-changing or large values into the long-term database (recorder), which keeps your `home-assistant_v2.db` file from growing excessively large.
 
 ## ❓ What Next?
 Once everything is up and running (with sensors showing up from the integration), try playing a game for at least 5 minutes to make sure the online status is reflected in the `_master` sensors. *Note that, by default, sessions shorter than 300 seconds (5 minutes) are discarded and do not count toward the total playtime hours.* If the sensors are working correctly, try some of the following! If not, see the [troubleshooting](docs/troubleshooting.md) documentation.

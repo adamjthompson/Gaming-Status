@@ -24,7 +24,7 @@ from .const import (
     DOMAIN, ZOMBIE_ATTRIBUTES, PLATFORM_CONFIG, PLATFORM_PRIORITY,
     DEFAULT_RESET_HISTORY, DEFAULT_GRACE_PERIOD_SECONDS,
     DEFAULT_AWAY_GRACE_PERIOD_SECONDS, DEFAULT_GAME_TRANSITION_GRACE_SECONDS,
-    DEFAULT_MIN_SESSION_DURATION, OPT_TITLE_CLEANUPS,
+    DEFAULT_MIN_SESSION_DURATION, MAX_RECENT_SESSIONS, OPT_TITLE_CLEANUPS,
     CONF_STEAMGRIDDB_API_KEY, CONF_RAWG_API_KEY, OPT_RATING_OVERRIDES, OPT_PLAYERS, OPT_GRACE_PERIOD,
     OPT_AWAY_GRACE_PERIOD, OPT_TRANSITION_GRACE, OPT_MIN_SESSION,
     OPT_RESET_HISTORY, OPT_TITLE_OVERRIDES, OPT_CUSTOM_GRID,
@@ -60,7 +60,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         "rolling_weekly_breakdown", "rolling_longest_session_details",
         "calendar_weekly_breakdown", "calendar_longest_session_details",
         "last_played_game", "daily_play_time", "weekly_play_time", "weekly_play_time_last_week",
-        "play_history", "game_content_rating",
+        "play_history", "game_content_rating", "recent_sessions",
     })
 
     def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None, active_settings=None, global_exclusions=None, available_avatars=None):
@@ -161,7 +161,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._daily_play_time = 0
         self._weekly_play_time = 0
         self._weekly_play_time_last_week = 0
-        self._play_history = {} 
+        self._play_history = {}
+        self._recent_sessions = []
         self._cached_history_seconds = 0
         self._local_avatar_path = None
         self._cover_fetch_attempted = False 
@@ -203,6 +204,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
     def _get_store_data(self):
         return {
             "history": self._play_history,
+            "recent_sessions": getattr(self, "_recent_sessions", []),
             "backups": {
                 "backup_last_session_time": self._backup_last_session_time,
                 "backup_last_online_timestamp": self._backup_last_online_timestamp,
@@ -574,6 +576,28 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         self._weekly_game_breakdown[self._current_game] = self._weekly_game_breakdown.get(self._current_game, 0) + gap
                         self._daily_play_time = int((self._daily_play_time or 0) + gap)
                         self._weekly_play_time = int((self._weekly_play_time or 0) + gap)
+
+                    # Log this completed session for the "recent_sessions" history.
+                    # Note: a brief network blip after 5+ minutes of play can end a
+                    # session here and have it "resurrect" as a new one below, which
+                    # will show as two rows instead of one continuous session - a
+                    # known, accepted edge case (same tradeoff the aggregate totals
+                    # above already make in favor of not losing playtime).
+                    if self._current_game:
+                        local_start = dt_util.as_local(start_dt)
+                        local_end = dt_util.as_local(actual_end_time)
+                        self._recent_sessions.insert(0, {
+                            "game": self._current_game,
+                            "platform": PLATFORM_CONFIG.get(self._gaming_type, {}).get("name_suffix", self._gaming_type.title()),
+                            "duration_seconds": self._last_session_play_time,
+                            "date": local_start.strftime("%Y-%m-%d"),
+                            "start_time": local_start.isoformat(),
+                            "end_time": local_end.isoformat(),
+                            "hero_art_url": self._cached_game_hero,
+                        })
+                        if len(self._recent_sessions) > MAX_RECENT_SESSIONS:
+                            del self._recent_sessions[MAX_RECENT_SESSIONS:]
+                        self._store.async_delay_save(self._get_store_data, 5.0)
         if not new_game_name:
             if not discarded_session: self._last_game_stopped_timestamp = actual_end_time.isoformat()
             elif getattr(self, "_backup_last_game_stopped_timestamp", None) is not None: self._last_game_stopped_timestamp = self._backup_last_game_stopped_timestamp
@@ -758,6 +782,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     history_attr[date_str] = day_data.get("game_breakdown", {})
         history_attr[today_str] = dict(getattr(self, "_weekly_game_breakdown", {}))
         self._attr_extra_state_attributes["play_history"] = dict(sorted(history_attr.items()))
+        self._attr_extra_state_attributes["recent_sessions"] = list(getattr(self, "_recent_sessions", []))
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
@@ -777,6 +802,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         stored_data = await self._store.async_load()
         if stored_data:
             self._play_history = stored_data.get("history", {})
+            self._recent_sessions = stored_data.get("recent_sessions", [])
             backups = stored_data.get("backups", {})
             self._backup_last_session_time = backups.get("backup_last_session_time", 0)
             self._backup_last_online_timestamp = backups.get("backup_last_online_timestamp")
@@ -817,6 +843,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     self._color_history_cache[k] = {"color": v, "timestamp": 0}
         else:
             self._play_history = {}
+            self._recent_sessions = []
             self._color_history_cache = {}
             self._backup_last_session_time = 0
             self._backup_last_online_timestamp = None
@@ -1327,9 +1354,9 @@ class MasterGamingSensor(RestoreSensor):
         "rolling_weekly_breakdown", "calendar_weekly_breakdown",
         "rolling_longest_session", "calendar_longest_session",
         "raw_rolling_breakdown", "raw_calendar_breakdown",
-        "play_history", "game_content_rating", "rating_exceeded",
+        "play_history", "game_content_rating", "rating_exceeded", "recent_sessions",
     })
-    
+
     def __init__(self, hass, name, profiles, parental_rules=None):
         self.hass = hass
         self._profiles = profiles
@@ -1385,6 +1412,7 @@ class MasterGamingSensor(RestoreSensor):
         master_rolling_breakdown = {}
         master_calendar_breakdown = {}
         master_history = {}
+        master_recent_sessions = []
         platform_totals = {}
         max_rolling_duration = 0
         max_rolling_game = None
@@ -1425,7 +1453,10 @@ class MasterGamingSensor(RestoreSensor):
                     day = master_history.setdefault(date_str, {})
                     for game, seconds in game_breakdown.items():
                         day[game] = day.get(game, 0) + int(seconds)
-                
+
+            # Aggregate recent sessions
+            master_recent_sessions.extend(platform_state.attributes.get("recent_sessions", []))
+
             # Find Longest Sessions
             r_longest = platform_state.attributes.get("rolling_longest_session_details", {})
             r_dur = r_longest.get("duration", 0)
@@ -1670,6 +1701,9 @@ class MasterGamingSensor(RestoreSensor):
                 }
 
         new_attrs["play_history"] = dict(sorted(master_history.items()))
+        new_attrs["recent_sessions"] = sorted(
+            master_recent_sessions, key=lambda r: r.get("start_time") or "", reverse=True
+        )[:MAX_RECENT_SESSIONS]
 
         if (self._attr_native_value == new_state_value and
             self._attr_icon == new_icon and
@@ -1731,6 +1765,16 @@ class GlobalOnlineCountSensor(SensorEntity):
 class PCGamingSensor(RestoreSensor):
     _attr_should_poll = False
     _attr_icon = "mdi:monitor"
+
+    # Exclude bulky/volatile attributes from the recorder database (same
+    # rationale as PersistentStatusSensor/MasterGamingSensor's equivalents).
+    _unrecorded_attributes = frozenset({
+        "secondary", "game_cover_art", "game_hero_art", "game_logo_art",
+        "game_icon_art", "entity_picture", "last_online_valid_timestamp",
+        "current_game", "game_dominant_color", "game_content_rating",
+        "rolling_weekly_breakdown", "calendar_weekly_breakdown",
+        "play_history", "recent_sessions",
+    })
 
     def __init__(self, hass, name, pc_entities):
         self.hass = hass
@@ -1891,6 +1935,7 @@ class PCGamingSensor(RestoreSensor):
         merged_rolling = {}
         merged_calendar = {}
         merged_history = {}
+        merged_sessions = []
 
         for entity_id in self._pc_entities:
             state = self.hass.states.get(entity_id)
@@ -1914,6 +1959,7 @@ class PCGamingSensor(RestoreSensor):
                     merged_history[date_str] = {}
                 for game, secs in day_breakdown.items():
                     merged_history[date_str][game] = merged_history[date_str].get(game, 0) + secs
+            merged_sessions.extend(attrs.get("recent_sessions", []))
 
         self._attr_extra_state_attributes["daily_play_time"] = total_daily
         self._attr_extra_state_attributes["weekly_play_time"] = total_weekly
@@ -1921,6 +1967,9 @@ class PCGamingSensor(RestoreSensor):
         self._attr_extra_state_attributes["rolling_weekly_breakdown"] = merged_rolling
         self._attr_extra_state_attributes["calendar_weekly_breakdown"] = merged_calendar
         self._attr_extra_state_attributes["play_history"] = dict(sorted(merged_history.items()))
+        self._attr_extra_state_attributes["recent_sessions"] = sorted(
+            merged_sessions, key=lambda r: r.get("start_time") or "", reverse=True
+        )[:MAX_RECENT_SESSIONS]
 
         self.async_write_ha_state()
 
