@@ -220,7 +220,7 @@
           "rating_overrides": "Content Rating Overrides (e.g., Skull and Bones = M)"
         },
         "data_description": {
-          "same_game_prefix_words": "Games whose name starts with this many matching words (e.g. \"Call of Duty ...\") are treated as the same game instead of a switch, fixing noisy notifications/sessions caused by menu/lobby state text. The locked name is whatever was current when the session started. Default: 2. Set to 0 to disable.",
+          "same_game_prefix_words": "Game names starting with this many matching words (e.g. \"Call of Duty ...\") are treated as the same game instead of a switch. Default: 2. Set to 0 to disable.",
           "rating_overrides": "Manually set a rating for games your rating provider has no data for. Codes: E, E10, T, M, AO."
         }
       },

@@ -1379,10 +1379,11 @@ class MasterGamingSensor(RestoreSensor):
         "play_history", "game_content_rating", "rating_exceeded", "recent_sessions",
     })
 
-    def __init__(self, hass, name, profiles, parental_rules=None):
+    def __init__(self, hass, name, profiles, parental_rules=None, same_game_prefix_words=DEFAULT_SAME_GAME_PREFIX_WORDS):
         self.hass = hass
         self._profiles = profiles
         self._parental_rules = parental_rules or {}
+        self._same_game_prefix_words = same_game_prefix_words
         safe_owner = re.sub(r'[^a-z0-9_]', '_', name.lower().replace(" ", "_"))
         self._attr_name = f"{name} Gaming Status"
         self._attr_unique_id = f"gaming_status_{safe_owner}_master_v6"
@@ -1394,7 +1395,7 @@ class MasterGamingSensor(RestoreSensor):
         self._platform_sensors = {}
         for platform in PLATFORM_PRIORITY:
             if profiles.get(platform): self._platform_sensors[f"sensor.gaming_status_{safe_owner}_{platform}"] = platform
-    
+
     @property
     def available(self): return True
 
@@ -1440,7 +1441,7 @@ class MasterGamingSensor(RestoreSensor):
         max_rolling_game = None
         max_calendar_duration = 0
         max_calendar_game = None
-        
+
         for platform_sensor_id, p_key in self._platform_sensors.items():
             platform_state = self.hass.states.get(platform_sensor_id)
             if not platform_state: continue
@@ -1519,14 +1520,25 @@ class MasterGamingSensor(RestoreSensor):
                         active_state = platform_state
                     else:
                         active_t_status = active_state.attributes.get("timer_status", "")
-                        
-                        # Rule 1: A "Running" game ALWAYS beats a "Paused/Grace Period" game
+                        same_game = _is_same_base_game(
+                            active_state.attributes.get("current_game"),
+                            platform_state.attributes.get("current_game"),
+                            self._same_game_prefix_words,
+                        )
+
+                        # Rule 1 (glitch correction): a "Running" game ALWAYS beats a
+                        # "Paused/Grace Period" one, even for the same base game — this
+                        # recovers from a platform-specific hiccup regardless of priority
+                        # order or which platform is currently active.
                         if "Running" in t_status and "Paused" in active_t_status:
                             active_sensor_id = platform_sensor_id
                             active_state = platform_state
-                            
-                        # Rule 2: If tied, the most recent play_start_time wins
-                        elif ("Running" in t_status and "Running" in active_t_status) or ("Paused" in t_status and "Paused" in active_t_status):
+
+                        # Rule 2 (tiebreak): only decides between two genuinely different
+                        # games. For the same base game, continuity wins over a fresher
+                        # timestamp so the two platforms don't re-litigate the "winner"
+                        # every cycle.
+                        elif not same_game and (("Running" in t_status and "Running" in active_t_status) or ("Paused" in t_status and "Paused" in active_t_status)):
                             new_start = _safe_parse_datetime(platform_state.attributes.get("play_start_time"))
                             curr_start = _safe_parse_datetime(active_state.attributes.get("play_start_time"))
                             if new_start and curr_start and new_start > curr_start:
@@ -1798,9 +1810,10 @@ class PCGamingSensor(RestoreSensor):
         "play_history", "recent_sessions",
     })
 
-    def __init__(self, hass, name, pc_entities):
+    def __init__(self, hass, name, pc_entities, same_game_prefix_words=DEFAULT_SAME_GAME_PREFIX_WORDS):
         self.hass = hass
         self._pc_entities = pc_entities
+        self._same_game_prefix_words = same_game_prefix_words
         safe_owner = re.sub(r'[^a-z0-9_]', '_', name.lower().replace(" ", "_"))
         self._attr_name = f"{name} PC"
         self._attr_unique_id = f"gaming_status_{safe_owner}_pc_v2"
@@ -1812,14 +1825,14 @@ class PCGamingSensor(RestoreSensor):
     async def async_added_to_hass(self):
         """Run when the entity is added to Home Assistant to restore state."""
         await super().async_added_to_hass()
-        
+
         # Pull the last known state from the Home Assistant database
         last_state = await self.async_get_last_state()
         if last_state and last_state.state not in [STATE_UNKNOWN, STATE_UNAVAILABLE]:
             self._attr_native_value = last_state.state
             self._attr_extra_state_attributes = dict(last_state.attributes)
             self._attr_entity_picture = last_state.attributes.get("entity_picture")
-            
+
         # Start listening for live changes
         self.async_on_remove(async_track_state_change_event(self.hass, self._pc_entities, self._async_pc_changed))
         # Periodic poll as a safety net — catches any state change events that were missed
@@ -1851,7 +1864,7 @@ class PCGamingSensor(RestoreSensor):
         active_state = None
         most_recent_state = None
         most_recent_ts = None
-        
+
         # Entities are passed in strict priority order (custom -> steam -> discord)
         for entity_id in self._pc_entities:
             state = self.hass.states.get(entity_id)
@@ -1879,13 +1892,21 @@ class PCGamingSensor(RestoreSensor):
                         active_state = state
                     else:
                         active_t_status = active_state.attributes.get("timer_status", "")
-                        
-                        # Rule 1: A "Running" game ALWAYS beats a "Paused/Grace Period" game
+                        same_game = _is_same_base_game(
+                            active_state.attributes.get("current_game"),
+                            state.attributes.get("current_game"),
+                            self._same_game_prefix_words,
+                        )
+
+                        # Rule 1 (glitch correction): a "Running" game ALWAYS beats a
+                        # "Paused/Grace Period" one, even for the same base game.
                         if "Running" in t_status and "Paused" in active_t_status:
                             active_state = state
-                            
-                        # Rule 2: If both are tied (both running or both paused), the most recent play_start_time wins
-                        elif ("Running" in t_status and "Running" in active_t_status) or ("Paused" in t_status and "Paused" in active_t_status):
+
+                        # Rule 2 (tiebreak): only decides between two genuinely
+                        # different games. For the same base game, continuity wins
+                        # over a fresher timestamp.
+                        elif not same_game and (("Running" in t_status and "Running" in active_t_status) or ("Paused" in t_status and "Paused" in active_t_status)):
                             new_start = _safe_parse_datetime(state.attributes.get("play_start_time"))
                             curr_start = _safe_parse_datetime(active_state.attributes.get("play_start_time"))
                             if new_start and curr_start and new_start > curr_start:
@@ -2266,14 +2287,14 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             # Sort the entities to ensure strict Double-Dip Priority: Playnite -> Custom -> Steam -> Discord
             priority_order = {"playnite": 0, "custom": 1, "steam": 2, "discord": 3}
             pc_platforms_present.sort(key=lambda x: priority_order.get(x.split("_")[-1], 99))
-            ents.append(PCGamingSensor(hass, player_name, pc_platforms_present))
+            ents.append(PCGamingSensor(hass, player_name, pc_platforms_present, active_settings["SAME_GAME_PREFIX_WORDS"]))
         else:
             # Garbage Collection: Destroy orphaned PC sensor if all PC platforms are removed
             target_id = f"sensor.gaming_status_{safe_owner}_pc_status"
             if registry.async_get(target_id):
                 registry.async_remove(target_id)
 
-        ents.append(MasterGamingSensor(hass, player_name, player_data, rules))
+        ents.append(MasterGamingSensor(hass, player_name, player_data, rules, active_settings["SAME_GAME_PREFIX_WORDS"]))
 
     ents.append(GlobalOnlineCountSensor(hass, players))
     async_add_entities(ents)
