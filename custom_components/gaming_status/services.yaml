@@ -1,0 +1,44 @@
+rename_game:
+  name: Rename Game
+  description: Rename a game across a player's stored history (merges seconds into the new name if it already exists).
+  fields:
+    player:
+      required: true
+      example: "Adam"
+      selector:
+        text:
+    platform:
+      required: false
+      description: Limit to one platform (e.g. xbox, discord, steam). Omit to search all of the player's platforms.
+      selector:
+        text:
+    old_name:
+      required: true
+      example: "DOOM Eternal In the menu"
+      selector:
+        text:
+    new_name:
+      required: true
+      example: "DOOM Eternal"
+      selector:
+        text:
+
+delete_game:
+  name: Delete Game
+  description: Permanently purge every trace of a named game from a player's stored history (recent sessions, daily/weekly totals, and archived per-day breakdowns).
+  fields:
+    player:
+      required: true
+      example: "Adam"
+      selector:
+        text:
+    platform:
+      required: false
+      description: Limit to one platform (e.g. xbox, discord, steam). Omit to purge across all of the player's platforms.
+      selector:
+        text:
+    game:
+      required: true
+      example: "Call of Duty"
+      selector:
+        text:

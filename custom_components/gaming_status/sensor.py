@@ -802,6 +802,113 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._attr_extra_state_attributes["play_history"] = dict(sorted(history_attr.items()))
         self._attr_extra_state_attributes["recent_sessions"] = list(getattr(self, "_recent_sessions", []))
 
+    async def async_rename_game(self, old_name, new_name):
+        """Rename a game across stored history (merging into new_name if it already exists). Does not touch the live/in-progress session."""
+        norm_old = _normalize_game_name(old_name)
+        renamed = False
+
+        for entry in self._recent_sessions:
+            if _normalize_game_name(entry.get("game")) == norm_old:
+                entry["game"] = new_name
+                renamed = True
+
+        def _merge_rename(d):
+            nonlocal renamed
+            match_key = next((k for k in d if _normalize_game_name(k) == norm_old), None)
+            if match_key is not None:
+                d[new_name] = d.get(new_name, 0) + d.pop(match_key)
+                renamed = True
+
+        _merge_rename(self._weekly_game_breakdown)
+        for day_data in self._play_history.values():
+            if isinstance(day_data, dict) and isinstance(day_data.get("game_breakdown"), dict):
+                _merge_rename(day_data["game_breakdown"])
+                hist_longest = day_data.get("longest_session")
+                if isinstance(hist_longest, dict) and _normalize_game_name(hist_longest.get("game")) == norm_old:
+                    hist_longest["game"] = new_name
+                    renamed = True
+
+        if _normalize_game_name(self._longest_session_details.get("game")) == norm_old:
+            self._longest_session_details["game"] = new_name
+            renamed = True
+        if _normalize_game_name(self._last_played_game) == norm_old:
+            self._last_played_game = new_name
+            renamed = True
+
+        if not renamed:
+            _LOGGER.warning("Gaming Status: rename_game found no match for %r on %s", old_name, self.entity_id)
+            return
+
+        self._write_common_attributes()
+        await self._store.async_save(self._get_store_data())
+        self.async_write_ha_state()
+
+    async def async_delete_game(self, game):
+        """Permanently purge every trace of a named game from stored history."""
+        norm_game = _normalize_game_name(game)
+        purged = False
+
+        # 1. Visible session log. recent_sessions is capped at MAX_RECENT_SESSIONS
+        #    across all games, so a heavily-played game's true total may exceed
+        #    what's visible here -- steps 2-3 correct the game-keyed totals
+        #    directly rather than relying on summing this list.
+        before = len(self._recent_sessions)
+        self._recent_sessions = [s for s in self._recent_sessions if _normalize_game_name(s.get("game")) != norm_game]
+        purged = purged or (len(self._recent_sessions) != before)
+
+        # 2. Today's live per-game breakdown + daily/weekly totals
+        match_key = next((k for k in self._weekly_game_breakdown if _normalize_game_name(k) == norm_game), None)
+        if match_key is not None:
+            today_secs = self._weekly_game_breakdown.pop(match_key)
+            self._daily_play_time = max(0, int((self._daily_play_time or 0) - today_secs))
+            self._weekly_play_time = max(0, int((self._weekly_play_time or 0) - today_secs))
+            purged = True
+
+        # 3. Archived days
+        for date_str, day_data in list(self._play_history.items()):
+            if not isinstance(day_data, dict):
+                continue
+            gb = day_data.get("game_breakdown", {})
+            match_key = next((k for k in gb if _normalize_game_name(k) == norm_game), None)
+            if match_key is None:
+                continue
+            secs = gb.pop(match_key)
+            day_data["total_seconds"] = max(0, day_data.get("total_seconds", 0) - secs)
+            # weekly_play_time accumulates across the whole current week
+            # independent of the daily reset, so an archived-but-still-this-week
+            # day must also correct it.
+            if day_data.get("week_str") == self._last_weekly_reset:
+                self._weekly_play_time = max(0, int((self._weekly_play_time or 0) - secs))
+            purged = True
+            if not gb and day_data.get("total_seconds", 0) == 0:
+                del self._play_history[date_str]
+
+        # 4. Longest-session records that referenced this game
+        if _normalize_game_name(self._longest_session_details.get("game")) == norm_game:
+            remaining_today = [s for s in self._recent_sessions if s.get("date") == self._last_reset_date]
+            if remaining_today:
+                best = max(remaining_today, key=lambda s: s.get("duration_seconds", 0))
+                self._longest_session_details = {"game": best["game"], "duration": best["duration_seconds"]}
+            else:
+                self._longest_session_details = {"game": None, "duration": 0}
+        for day_data in self._play_history.values():
+            hist_longest = day_data.get("longest_session") if isinstance(day_data, dict) else None
+            if isinstance(hist_longest, dict) and _normalize_game_name(hist_longest.get("game")) == norm_game:
+                day_data["longest_session"] = {"game": None, "duration": 0}
+
+        # 5. last_played_game
+        if _normalize_game_name(self._last_played_game) == norm_game:
+            self._last_played_game = None
+            purged = True
+
+        if not purged:
+            _LOGGER.warning("Gaming Status: delete_game found no match for %r on %s", game, self.entity_id)
+            return
+
+        self._write_common_attributes()
+        await self._store.async_save(self._get_store_data())
+        self.async_write_ha_state()
+
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
         
@@ -2276,8 +2383,10 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         for platform in enabled_platforms:
             entity_id = player_data.get(platform)
             if entity_id:
-                ents.append(PersistentStatusSensor(hass, entity_id, platform, player_name, ghosted_by, exclude_games, active_settings, global_exclusions, available_avatars))
-                
+                sensor_entity = PersistentStatusSensor(hass, entity_id, platform, player_name, ghosted_by, exclude_games, active_settings, global_exclusions, available_avatars)
+                ents.append(sensor_entity)
+                hass.data.setdefault(DOMAIN, {}).setdefault("platform_sensors", {})[sensor_entity.entity_id] = sensor_entity
+
                 # Register PC platforms in strict hierarchy order for the Sub-Master
                 if platform in ["playnite", "custom", "steam", "discord"]:
                     pc_platforms_present.append(f"sensor.gaming_status_{safe_owner}_{platform}")

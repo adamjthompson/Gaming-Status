@@ -4,6 +4,8 @@ from __future__ import annotations
 import os
 import json
 import logging
+import re
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
@@ -24,6 +26,7 @@ from .const import (
     CONF_DISCORD_TOKEN,
     OPT_ENABLED_PLATFORMS,
     DEFAULT_ENABLED_PLATFORMS,
+    PLAYER_PLATFORMS,
 )
 from .notifier import GamingNotifier
 
@@ -163,6 +166,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    def _resolve_targets(player, platform):
+        safe_owner = re.sub(r'[^a-z0-9_]', '_', player.lower().replace(" ", "_"))
+        platforms = [platform] if platform else PLAYER_PLATFORMS
+        sensors = hass.data[DOMAIN].get("platform_sensors", {})
+        return [sensors[f"sensor.gaming_status_{safe_owner}_{p}"]
+                for p in platforms
+                if f"sensor.gaming_status_{safe_owner}_{p}" in sensors]
+
+    async def _handle_rename(call):
+        targets = _resolve_targets(call.data["player"], call.data.get("platform"))
+        for target in targets:
+            await target.async_rename_game(call.data["old_name"], call.data["new_name"])
+
+    async def _handle_delete(call):
+        targets = _resolve_targets(call.data["player"], call.data.get("platform"))
+        for target in targets:
+            await target.async_delete_game(call.data["game"])
+
+    if not hass.services.has_service(DOMAIN, "rename_game"):
+        hass.services.async_register(DOMAIN, "rename_game", _handle_rename, schema=vol.Schema({
+            vol.Required("player"): str, vol.Optional("platform"): str,
+            vol.Required("old_name"): str, vol.Required("new_name"): str,
+        }))
+    if not hass.services.has_service(DOMAIN, "delete_game"):
+        hass.services.async_register(DOMAIN, "delete_game", _handle_delete, schema=vol.Schema({
+            vol.Required("player"): str, vol.Optional("platform"): str,
+            vol.Required("game"): str,
+        }))
+
     return True
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
