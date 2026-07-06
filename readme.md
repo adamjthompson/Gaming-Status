@@ -307,7 +307,7 @@ Once everything is up and running (with sensors showing up from the integration)
 - Add some sweet displays to your [dashboard](https://github.com/adamjthompson/Gaming-Status-Cards#1-gaming-status---list), showing who's online and what they're playing
 - Set up Discord, SMS, and/or Mobile [notifications](docs/notifications.md) for when users start, stop, and switch games
 - Add a [slideshow](https://github.com/adamjthompson/Gaming-Status-Cards#2-gaming-status---slideshow) to your dashboard or wallpanel display to see what's being played
-- Add a [weekly hours chart](https://github.com/adamjthompson/Gaming-Status-Cards) or a [per-game breakdown chart](https://github.com/adamjthompson/Gaming-Status-Cards) to visualize playtime trends across your household
+- Add a [weekly hours chart](https://github.com/adamjthompson/Gaming-Status-Cards#3-gaming-status---weekly-hours) or a [per-game breakdown chart](https://github.com/adamjthompson/Gaming-Status-Cards#6-gaming-status---weekly-games) to visualize playtime trends across your household
 - Add [custom sensors](docs/advanced.md#tracking-standalone-pc-games-hassagent-setup) to track PC games not logged by Steam or Xbox sensors
 - Use a [sensor](docs/advanced.md#the-is-anyone-gaming-binary-sensor-for-automations) to track whether or not anyone is gaming (useful for automations or contextual card display)
 - Check out other [advanced setup options](docs/advanced.md) for features like preventing tracking of games by the wrong players and per-user game exclusions
