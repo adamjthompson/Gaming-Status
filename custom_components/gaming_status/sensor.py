@@ -288,45 +288,62 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
     def _is_ghost_session(self, game_name):
         if self._gaming_type != "xbox": return False
         if not game_name: return False
-        if not self._ghosted_by: return False 
-        
-        clean_target = _format_game_name_for_display(game_name)
-        normalized_target = _normalize_game_name(clean_target)
-        
+        if not self._ghosted_by: return False
+
+        clean_target = _format_game_name_for_display(get_base_game_name(game_name))
+
         for ghost_entity_id in self._ghosted_by:
             state = self.hass.states.get(ghost_entity_id)
             if state and state.state not in [STATE_UNKNOWN, STATE_UNAVAILABLE, "Offline", "offline"]:
                 other_game = state.attributes.get("current_game") or state.state
-                norm_other = _normalize_game_name(other_game)
-                if (norm_other in normalized_target) or (normalized_target in norm_other):
+                clean_other = _format_game_name_for_display(get_base_game_name(other_game))
+                # Exact match always counts, independent of the same-game-prefix
+                # setting below, so disabling that heuristic never accidentally
+                # disables ghosting for identically-named games.
+                if _normalize_game_name(clean_target) == _normalize_game_name(clean_other):
+                    return True
+                if _is_same_base_game(clean_target, clean_other, self._active_settings["SAME_GAME_PREFIX_WORDS"]):
                     return True
         return False
 
     def _is_game_active_elsewhere(self, current_game):
         if not current_game: return False
-        
+
         try:
-            normalized_current = _normalize_game_name(current_game)
+            # Clean the same way regardless of caller, so platforms that pass
+            # raw/uncleaned presence text (Steam, PlayStation, Playnite, Discord)
+            # compare on equal footing with Xbox, which already cleans its own
+            # game name before calling this. Without this, e.g. Discord reporting
+            # "DOOM Eternal In the menu" while Xbox reports "DOOM Eternal" would
+            # never match, and both platforms would tick playtime independently
+            # for the same real session (double-counting).
+            clean_current = _format_game_name_for_display(get_base_game_name(current_game))
             my_priority = PLATFORM_PRIORITY.index(self._gaming_type) if self._gaming_type in PLATFORM_PRIORITY else 99
-            
+
             for other_platform in PLATFORM_PRIORITY:
                 if other_platform == self._gaming_type:
                     continue
-                    
+
                 other_priority = PLATFORM_PRIORITY.index(other_platform)
                 if other_priority > my_priority:
                     continue
-                    
+
                 other_sensor_id = self._desired_entity_id.replace(f"_{self._gaming_type}", f"_{other_platform}")
                 other_state = self.hass.states.get(other_sensor_id)
-                
+
                 if other_state and str(other_state.state).lower() not in ["offline", "unavailable", "unknown", "source missing"]:
                     other_game = other_state.attributes.get("current_game") or other_state.state
-                    if _normalize_game_name(other_game) == normalized_current:
+                    clean_other = _format_game_name_for_display(get_base_game_name(other_game))
+                    # Exact match always counts (see comment in _is_ghost_session);
+                    # the same-game-prefix heuristic is an additional, configurable
+                    # layer for phase-text variants that survive the cleanup above.
+                    if _normalize_game_name(clean_current) == _normalize_game_name(clean_other):
                         return True
-        except Exception: 
+                    if _is_same_base_game(clean_current, clean_other, self._active_settings["SAME_GAME_PREFIX_WORDS"]):
+                        return True
+        except Exception:
             pass
-            
+
         return False
 
     def _apply_title_override(self, game_name):
@@ -612,6 +629,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             "start_time": local_start.isoformat(),
                             "end_time": local_end.isoformat(),
                             "hero_art_url": self._cached_game_hero,
+                            "game_dominant_color": self._cached_game_color,
                         })
                         if len(self._recent_sessions) > MAX_RECENT_SESSIONS:
                             del self._recent_sessions[MAX_RECENT_SESSIONS:]
@@ -745,6 +763,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._attr_extra_state_attributes["game_dominant_color"] = self._cached_game_color
         self._attr_extra_state_attributes["cached_game_cover"] = self._cached_game_cover
         self._attr_extra_state_attributes["game_content_rating"] = self._cached_game_rating
+        # Global integration setting, exposed so cards can hide dynamic-color
+        # options entirely when color extraction is disabled instead of
+        # showing a mode that can never produce a color.
+        self._attr_extra_state_attributes["color_extraction_enabled"] = utils.ENABLE_VIBRANT_COLOR
 
         # --- CRITICAL FIX: Flush internal RAM variables to HA attributes ---
         self._attr_extra_state_attributes["last_online_valid_timestamp"] = getattr(self, "_last_online_valid_timestamp", None)
@@ -1845,6 +1867,7 @@ class MasterGamingSensor(RestoreSensor):
         new_attrs["recent_sessions"] = sorted(
             master_recent_sessions, key=lambda r: r.get("start_time") or "", reverse=True
         )[:MAX_RECENT_SESSIONS]
+        new_attrs["color_extraction_enabled"] = utils.ENABLE_VIBRANT_COLOR
 
         if (self._attr_native_value == new_state_value and
             self._attr_icon == new_icon and
@@ -2120,6 +2143,7 @@ class PCGamingSensor(RestoreSensor):
         self._attr_extra_state_attributes["recent_sessions"] = sorted(
             merged_sessions, key=lambda r: r.get("start_time") or "", reverse=True
         )[:MAX_RECENT_SESSIONS]
+        self._attr_extra_state_attributes["color_extraction_enabled"] = utils.ENABLE_VIBRANT_COLOR
 
         self.async_write_ha_state()
 

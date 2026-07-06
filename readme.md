@@ -202,7 +202,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | calendar_longest_session | A formatted string showing the game title and duration of the longest single session across all platforms for the current calendar week (e.g., "DELTARUNE (1h 24m)") |
 | rolling_longest_session | A formatted string showing the game title and duration of the longest single session across all platforms over the rolling 7-day window |
 | play_history | Per-day, per-game playtime aggregated across all platforms: `{"YYYY-MM-DD": {"Game Title": seconds, ...}}`. Used by the Gaming Status Cards for chart rendering |
-| recent_sessions | List of the most recently completed play sessions across all of this player's platforms (newest first, capped at 20): `{game, platform, duration_seconds, date, start_time, end_time, hero_art_url}` |
+| recent_sessions | List of the most recently completed play sessions across all of this player's platforms (newest first, capped at 20): `{game, platform, duration_seconds, date, start_time, end_time, hero_art_url, game_dominant_color}` |
 
 **Parental/Limit Controls**
 | Attribute | Description |
@@ -264,7 +264,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | rolling_weekly_breakdown | Dictionary mapping game names to total seconds over the rolling 7-day window |
 | calendar_weekly_breakdown | Dictionary mapping game names to total seconds for the current calendar week (Monday–Sunday) |
 | play_history | Per-day, per-game playtime for this platform: `{"YYYY-MM-DD": {"Game Title": seconds, ...}}` |
-| recent_sessions | List of the most recently completed play sessions on this platform (newest first, capped at 20): `{game, platform, duration_seconds, date, start_time, end_time, hero_art_url}`. A session only appears here once it has ended |
+| recent_sessions | List of the most recently completed play sessions on this platform (newest first, capped at 20): `{game, platform, duration_seconds, date, start_time, end_time, hero_art_url, game_dominant_color}`. A session only appears here once it has ended |
 | longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session today; resets at midnight |
 | rolling_longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session over the rolling 7-day window |
 | calendar_longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session in the current calendar week |
@@ -276,6 +276,30 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 
 ### Note
 Several of these attributes (e.g., artwork URLs, breakdown dictionaries, session detail dicts, `play_history`, and `recent_sessions`) are explicitly added to `_unrecorded_attributes` in the sensor classes. This is a deliberate performance optimization to prevent Home Assistant from saving these frequently-changing or large values into the long-term database (recorder), which keeps your database file from growing excessively large.
+
+### Services
+Beyond the dashboard, Gaming Status exposes two Home Assistant services (**Developer Tools → Actions**, or callable from automations/scripts) for cleaning up a player's stored game history after the fact — useful when a data source ever misreports a game's name (e.g. `DOOM Eternal In the menu` instead of `DOOM Eternal`) or when you simply want to remove a game's history entirely.
+
+**`gaming_status.rename_game`**
+Renames a game across a player's stored history (recent sessions, daily/weekly breakdowns, and archived per-day totals), merging its playtime into an existing name if one already matches. Does **not** rename a currently in-progress session — the fix applies once that session ends naturally.
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `player` | Yes | The player's configured name, e.g. `Adam` |
+| `platform` | No | Limit the rename to one platform (`steam`, `xbox`, `playstation`, `playnite`, `custom`, `discord`). Omit to apply across all of the player's platforms |
+| `old_name` | Yes | The exact game name currently stored, e.g. `DOOM Eternal In the menu` |
+| `new_name` | Yes | The name to rename it to, e.g. `DOOM Eternal` |
+
+**`gaming_status.delete_game`**
+Permanently purges every trace of a named game from a player's stored history — every recorded session, today's live totals, and every archived day's contribution to daily/weekly breakdowns. **This cannot be undone.**
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `player` | Yes | The player's configured name, e.g. `Adam` |
+| `platform` | No | Limit the deletion to one platform. Omit to purge across all of the player's platforms |
+| `game` | Yes | The exact game name to delete |
+
+Both services can also be triggered from a dashboard using the [Game Management card](https://github.com/adamjthompson/Gaming-Status-Cards#8-gaming-status---game-management), which provides player/platform/game dropdowns populated from real data instead of requiring you to type exact names.
 
 ## ❓ What Next?
 Once everything is up and running (with sensors showing up from the integration), try playing a game for at least 5 minutes to make sure the online status is reflected in the `_master` sensors. *Note that, by default, sessions shorter than 300 seconds (5 minutes) are discarded and do not count toward the total playtime hours.* If the sensors are working correctly, try some of the following! If not, see the [troubleshooting](docs/troubleshooting.md) documentation.
