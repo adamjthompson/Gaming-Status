@@ -254,7 +254,7 @@
           "away_grace_period_seconds": "How long to wait before marking a Steam Away player offline. Default: 600 (10 min)",
           "game_transition_grace_seconds": "Bridges small gaps between game launches so sessions stay continuous. Default: 120 (2 min)",
           "min_session_duration": "Sessions shorter than this are not counted in history. Default: 300 (5 min)",
-          "master_handoff_grace_seconds": "When two platforms are both genuinely active at once, whichever is currently shown keeps that spot indefinitely as long as it stays healthy. This only matters once that platform's own connection gets stuck in its own offline-grace or ghosted state continuously for this long — only then can a more-recently-started game on another platform take over. Prevents notification spam from brief connectivity blips. Default: 300 (5 min). Set to 0 to disable (restores instant hand-off).",
+          "master_handoff_grace_seconds": "Only lets a newer game on another platform take over once the currently shown platform's own connection has been stuck (offline-grace/ghosted) this long. Prevents notification spam from brief connectivity blips. Default: 300 (5 min). Set to 0 to disable.",
           "reset_history": "Clear all accumulated session history when Home Assistant restarts.",
           "remove_disabled_sensors": "Automatically deletes sensors from Home Assistant for platforms you have unchecked in the Global Settings menu."
         }
