@@ -12,6 +12,7 @@ DEFAULT_GRACE_PERIOD_SECONDS = 300
 DEFAULT_AWAY_GRACE_PERIOD_SECONDS = 600
 DEFAULT_GAME_TRANSITION_GRACE_SECONDS = 120
 DEFAULT_MIN_SESSION_DURATION = 300
+DEFAULT_MASTER_HANDOFF_GRACE_SECONDS = 300
 
 # Max number of completed sessions retained per sensor for the "recent_sessions" history log
 MAX_RECENT_SESSIONS = 20
@@ -78,6 +79,7 @@ OPT_TRANSITION_GRACE = "game_transition_grace_seconds"
 OPT_MIN_SESSION = "min_session_duration"
 OPT_SAME_GAME_PREFIX_WORDS = "same_game_prefix_words"
 DEFAULT_SAME_GAME_PREFIX_WORDS = 2
+OPT_MASTER_HANDOFF_GRACE = "master_handoff_grace_seconds"
 
 OPT_ENABLED_PLATFORMS = "enabled_platforms"
 DEFAULT_ENABLED_PLATFORMS = ["steam", "xbox", "playstation", "discord", "custom", "playnite"]

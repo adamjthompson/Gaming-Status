@@ -377,6 +377,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             OPT_AWAY_GRACE_PERIOD, DEFAULT_AWAY_GRACE_PERIOD_SECONDS,
             OPT_TRANSITION_GRACE, DEFAULT_GAME_TRANSITION_GRACE_SECONDS,
             OPT_MIN_SESSION, DEFAULT_MIN_SESSION_DURATION,
+            OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS,
             OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY,
             OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS
         )
@@ -395,6 +396,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             opts[OPT_AWAY_GRACE_PERIOD] = user_input.get(OPT_AWAY_GRACE_PERIOD, DEFAULT_AWAY_GRACE_PERIOD_SECONDS)
             opts[OPT_TRANSITION_GRACE] = user_input.get(OPT_TRANSITION_GRACE, DEFAULT_GAME_TRANSITION_GRACE_SECONDS)
             opts[OPT_MIN_SESSION] = user_input.get(OPT_MIN_SESSION, DEFAULT_MIN_SESSION_DURATION)
+            opts[OPT_MASTER_HANDOFF_GRACE] = user_input.get(OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS)
             opts[OPT_RESET_HISTORY] = user_input.get(OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY)
             opts[OPT_REMOVE_DISABLED_SENSORS] = user_input.get(OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS)
             
@@ -441,6 +443,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional(OPT_AWAY_GRACE_PERIOD, default=opts.get(OPT_AWAY_GRACE_PERIOD, DEFAULT_AWAY_GRACE_PERIOD_SECONDS)): vol.All(int, vol.Range(min=0)),
                     vol.Optional(OPT_TRANSITION_GRACE, default=opts.get(OPT_TRANSITION_GRACE, DEFAULT_GAME_TRANSITION_GRACE_SECONDS)): vol.All(int, vol.Range(min=0)),
                     vol.Optional(OPT_MIN_SESSION, default=opts.get(OPT_MIN_SESSION, DEFAULT_MIN_SESSION_DURATION)): vol.All(int, vol.Range(min=0)),
+                    vol.Optional(OPT_MASTER_HANDOFF_GRACE, default=opts.get(OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS)): vol.All(int, vol.Range(min=0)),
                     vol.Optional(OPT_RESET_HISTORY, default=opts.get(OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY)): bool,
                     vol.Optional(OPT_REMOVE_DISABLED_SENSORS, default=opts.get(OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS)): bool,
                 }

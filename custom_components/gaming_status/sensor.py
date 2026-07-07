@@ -28,6 +28,7 @@ from .const import (
     CONF_STEAMGRIDDB_API_KEY, CONF_RAWG_API_KEY, OPT_RATING_OVERRIDES, OPT_PLAYERS, OPT_GRACE_PERIOD,
     OPT_AWAY_GRACE_PERIOD, OPT_TRANSITION_GRACE, OPT_MIN_SESSION,
     OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS,
+    OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS,
     OPT_RESET_HISTORY, OPT_TITLE_OVERRIDES, OPT_CUSTOM_GRID,
     OPT_CUSTOM_HERO, OPT_CUSTOM_LOGO, OPT_CUSTOM_ICON,
     OPT_CUSTOM_COLORS, OPT_GLOBAL_EXCLUSIONS, OPT_PARENTAL, 
@@ -1522,11 +1523,12 @@ class MasterGamingSensor(RestoreSensor):
         "play_history", "game_content_rating", "rating_exceeded", "recent_sessions",
     })
 
-    def __init__(self, hass, name, profiles, parental_rules=None, same_game_prefix_words=DEFAULT_SAME_GAME_PREFIX_WORDS):
+    def __init__(self, hass, name, profiles, parental_rules=None, same_game_prefix_words=DEFAULT_SAME_GAME_PREFIX_WORDS, handoff_grace_seconds=DEFAULT_MASTER_HANDOFF_GRACE_SECONDS):
         self.hass = hass
         self._profiles = profiles
         self._parental_rules = parental_rules or {}
         self._same_game_prefix_words = same_game_prefix_words
+        self._handoff_grace_seconds = handoff_grace_seconds
         safe_owner = re.sub(r'[^a-z0-9_]', '_', name.lower().replace(" ", "_"))
         self._attr_name = f"{name} Gaming Status"
         self._attr_unique_id = f"gaming_status_{safe_owner}_master_v6"
@@ -1678,13 +1680,22 @@ class MasterGamingSensor(RestoreSensor):
                             active_state = platform_state
 
                         # Rule 2 (tiebreak): only decides between two genuinely different
-                        # games. For the same base game, continuity wins over a fresher
-                        # timestamp so the two platforms don't re-litigate the "winner"
-                        # every cycle.
+                        # games, and only once the incumbent has been genuinely stale for
+                        # a sustained period (not just this one tick) -- otherwise a
+                        # platform with a brief connectivity blip can repeatedly steal and
+                        # relinquish control from an incumbent that's continuously,
+                        # legitimately still active (two truly simultaneous sessions on
+                        # different platforms should settle on one and stop flapping, not
+                        # re-litigate the "winner" on every tick).
                         elif not same_game and (("Running" in t_status and "Running" in active_t_status) or ("Paused" in t_status and "Paused" in active_t_status)):
                             new_start = _safe_parse_datetime(platform_state.attributes.get("play_start_time"))
                             curr_start = _safe_parse_datetime(active_state.attributes.get("play_start_time"))
-                            if new_start and curr_start and new_start > curr_start:
+                            incumbent_last_valid = _safe_parse_datetime(active_state.attributes.get("last_online_valid_timestamp"))
+                            incumbent_stale = (
+                                incumbent_last_valid is None
+                                or (dt_util.now() - incumbent_last_valid).total_seconds() >= self._handoff_grace_seconds
+                            )
+                            if new_start and curr_start and new_start > curr_start and incumbent_stale:
                                 active_sensor_id = platform_sensor_id
                                 active_state = platform_state
         
@@ -1954,10 +1965,11 @@ class PCGamingSensor(RestoreSensor):
         "play_history", "recent_sessions",
     })
 
-    def __init__(self, hass, name, pc_entities, same_game_prefix_words=DEFAULT_SAME_GAME_PREFIX_WORDS):
+    def __init__(self, hass, name, pc_entities, same_game_prefix_words=DEFAULT_SAME_GAME_PREFIX_WORDS, handoff_grace_seconds=DEFAULT_MASTER_HANDOFF_GRACE_SECONDS):
         self.hass = hass
         self._pc_entities = pc_entities
         self._same_game_prefix_words = same_game_prefix_words
+        self._handoff_grace_seconds = handoff_grace_seconds
         safe_owner = re.sub(r'[^a-z0-9_]', '_', name.lower().replace(" ", "_"))
         self._attr_name = f"{name} PC"
         self._attr_unique_id = f"gaming_status_{safe_owner}_pc_v2"
@@ -2048,12 +2060,20 @@ class PCGamingSensor(RestoreSensor):
                             active_state = state
 
                         # Rule 2 (tiebreak): only decides between two genuinely
-                        # different games. For the same base game, continuity wins
-                        # over a fresher timestamp.
+                        # different games, and only once the incumbent has been
+                        # genuinely stale for a sustained period (not just this one
+                        # tick) -- otherwise a platform with a brief connectivity
+                        # blip can repeatedly steal and relinquish control from an
+                        # incumbent that's continuously, legitimately still active.
                         elif not same_game and (("Running" in t_status and "Running" in active_t_status) or ("Paused" in t_status and "Paused" in active_t_status)):
                             new_start = _safe_parse_datetime(state.attributes.get("play_start_time"))
                             curr_start = _safe_parse_datetime(active_state.attributes.get("play_start_time"))
-                            if new_start and curr_start and new_start > curr_start:
+                            incumbent_last_valid = _safe_parse_datetime(active_state.attributes.get("last_online_valid_timestamp"))
+                            incumbent_stale = (
+                                incumbent_last_valid is None
+                                or (dt_util.now() - incumbent_last_valid).total_seconds() >= self._handoff_grace_seconds
+                            )
+                            if new_start and curr_start and new_start > curr_start and incumbent_stale:
                                 active_state = state
 
         if active_state:
@@ -2170,6 +2190,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         "GAME_TRANSITION_GRACE_SECONDS": opts.get(OPT_TRANSITION_GRACE, DEFAULT_GAME_TRANSITION_GRACE_SECONDS),
         "MIN_SESSION_DURATION": opts.get(OPT_MIN_SESSION, DEFAULT_MIN_SESSION_DURATION),
         "SAME_GAME_PREFIX_WORDS": opts.get(OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS),
+        "MASTER_HANDOFF_GRACE_SECONDS": opts.get(OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS),
     }
     raw_overrides = _load_opt_json(opts, OPT_TITLE_OVERRIDES, {})
     utils.GAME_TITLE_OVERRIDES = {k.strip().lower(): v for k, v in raw_overrides.items()}
@@ -2434,14 +2455,14 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             # Sort the entities to ensure strict Double-Dip Priority: Playnite -> Custom -> Steam -> Discord
             priority_order = {"playnite": 0, "custom": 1, "steam": 2, "discord": 3}
             pc_platforms_present.sort(key=lambda x: priority_order.get(x.split("_")[-1], 99))
-            ents.append(PCGamingSensor(hass, player_name, pc_platforms_present, active_settings["SAME_GAME_PREFIX_WORDS"]))
+            ents.append(PCGamingSensor(hass, player_name, pc_platforms_present, active_settings["SAME_GAME_PREFIX_WORDS"], active_settings["MASTER_HANDOFF_GRACE_SECONDS"]))
         else:
             # Garbage Collection: Destroy orphaned PC sensor if all PC platforms are removed
             target_id = f"sensor.gaming_status_{safe_owner}_pc_status"
             if registry.async_get(target_id):
                 registry.async_remove(target_id)
 
-        ents.append(MasterGamingSensor(hass, player_name, player_data, rules, active_settings["SAME_GAME_PREFIX_WORDS"]))
+        ents.append(MasterGamingSensor(hass, player_name, player_data, rules, active_settings["SAME_GAME_PREFIX_WORDS"], active_settings["MASTER_HANDOFF_GRACE_SECONDS"]))
 
     ents.append(GlobalOnlineCountSensor(hass, players))
     async_add_entities(ents)
