@@ -612,10 +612,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             )
 
         schema_dict.update({
-            vol.Optional("ghosted_by", default=ghosted_default): selector.TextSelector(
+            vol.Optional("ghosted_by", description={"suggested_value": ghosted_default}): selector.TextSelector(
                 selector.TextSelectorConfig(multiline=True)
             ),
-            vol.Optional("exclude_games", default=exclude_default): selector.TextSelector(
+            vol.Optional("exclude_games", description={"suggested_value": exclude_default}): selector.TextSelector(
                 selector.TextSelectorConfig(multiline=True)
             ),
         })
@@ -1014,8 +1014,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 for item in raw.splitlines():
                     if '=' in item:
                         k, v = item.split('=', 1)
-                        # Force the key to lowercase so it always matches internally!
-                        parsed_dict[k.strip().lower()] = v.strip()
+                        parsed_dict[k.strip()] = v.strip()
                 opts[key] = _dump_json(parsed_dict)
 
             if not errors:
@@ -1035,11 +1034,11 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             step_id=MENU_CUSTOM_ARTWORK,
             data_schema=vol.Schema(
                 {
-                    vol.Optional("custom_grid", default=_get_dict_default(OPT_CUSTOM_GRID, {})): multiline_text,
-                    vol.Optional("custom_hero", default=_get_dict_default(OPT_CUSTOM_HERO, {})): multiline_text,
-                    vol.Optional("custom_logo", default=_get_dict_default(OPT_CUSTOM_LOGO, {})): multiline_text,
-                    vol.Optional("custom_icon", default=_get_dict_default(OPT_CUSTOM_ICON, {})): multiline_text,
-                    vol.Optional("custom_colors", default=_get_dict_default(OPT_CUSTOM_COLORS, {})): multiline_text,
+                    vol.Optional("custom_grid", description={"suggested_value": _get_dict_default(OPT_CUSTOM_GRID, {})}): multiline_text,
+                    vol.Optional("custom_hero", description={"suggested_value": _get_dict_default(OPT_CUSTOM_HERO, {})}): multiline_text,
+                    vol.Optional("custom_logo", description={"suggested_value": _get_dict_default(OPT_CUSTOM_LOGO, {})}): multiline_text,
+                    vol.Optional("custom_icon", description={"suggested_value": _get_dict_default(OPT_CUSTOM_ICON, {})}): multiline_text,
+                    vol.Optional("custom_colors", description={"suggested_value": _get_dict_default(OPT_CUSTOM_COLORS, {})}): multiline_text,
                 }
             ),
             description_placeholders={"example_url": "https://link-to-image.png"},
@@ -1126,13 +1125,13 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         schema_dict = {
             vol.Optional(
                 CONF_STEAMGRIDDB_API_KEY,
-                default=self._config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, ""),
+                description={"suggested_value": self._config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, "")},
             ): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
             ),
             vol.Optional(
                 CONF_RAWG_API_KEY,
-                default=self._config_entry.data.get(CONF_RAWG_API_KEY, ""),
+                description={"suggested_value": self._config_entry.data.get(CONF_RAWG_API_KEY, "")},
             ): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
             ),
@@ -1142,11 +1141,11 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             schema_dict.update({
                 vol.Optional(
                     CONF_DISCORD_TOKEN,
-                    default=self._config_entry.data.get(CONF_DISCORD_TOKEN, ""),
+                    description={"suggested_value": self._config_entry.data.get(CONF_DISCORD_TOKEN, "")},
                 ): str,
                 vol.Optional(
                     CONF_DISCORD_SERVER,
-                    default=self._config_entry.data.get(CONF_DISCORD_SERVER, ""),
+                    description={"suggested_value": self._config_entry.data.get(CONF_DISCORD_SERVER, "")},
                 ): str,
             })
 
@@ -1155,25 +1154,21 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         schema_dict.update({
             vol.Optional(
                 "title_overrides",
-                default=_get_dict_default(OPT_TITLE_OVERRIDES, {}),
+                description={"suggested_value": _get_dict_default(OPT_TITLE_OVERRIDES, {})},
             ): multiline_text,
             vol.Optional(
                 "title_cleanups",
-                default=_get_list_default(OPT_TITLE_CLEANUPS, []),
+                description={"suggested_value": _get_list_default(OPT_TITLE_CLEANUPS, [])},
             ): multiline_text,
             vol.Optional(
                 "global_exclusions",
-                default=_get_list_default(OPT_GLOBAL_EXCLUSIONS, [
+                description={"suggested_value": _get_list_default(OPT_GLOBAL_EXCLUSIONS, [
                     "Home", "Online", "Xbox App", "YouTube", "Netflix",
                     "Hulu", "Amazon Prime Video", "Spotify",
                     "Microsoft Store", "Store", "Xbox 360 Dashboard",
                     "Setting up...", "Wallpaper Engine",
-                ]),
+                ])},
             ): multiline_text,
-            vol.Optional(
-                OPT_SAME_GAME_PREFIX_WORDS,
-                default=opts.get(OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS),
-            ): vol.All(int, vol.Range(min=0)),
         })
 
         if parental_enabled:
@@ -1182,7 +1177,12 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             rating_overrides_default = "\n".join(
                 f"{k} = {reverse_codes.get(v, v)}" for k, v in raw_ratings.items()
             )
-            schema_dict[vol.Optional("rating_overrides", default=rating_overrides_default)] = multiline_text
+            schema_dict[vol.Optional("rating_overrides", description={"suggested_value": rating_overrides_default})] = multiline_text
+
+        schema_dict[vol.Optional(
+            OPT_SAME_GAME_PREFIX_WORDS,
+            default=opts.get(OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS),
+        )] = vol.All(int, vol.Range(min=0))
 
         return self.async_show_form(
             step_id=MENU_ADVANCED,

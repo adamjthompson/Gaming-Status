@@ -119,7 +119,7 @@
           "notify_start_destinations": "Select notification method(s) when this player starts gaming.",
           "notify_end_destinations": "Select notification method(s) when this player stops gaming.",
           "ghosted_by": "e.g. sensor.gaming_status_player_two_steam — Sensors that should take priority over this user's Xbox sensor.",
-          "exclude_games": "e.g. Genshin Impact\nMinecraft — Games to ignore for this player, one per line."
+          "exclude_games": "Game titles to ignore for this player, one per line."
         }
       },
       "notifications": {
@@ -209,19 +209,19 @@
         "title": "Advanced Settings",
         "description": "Configure advanced integration behavior and API keys.",
         "data": {
-          "steamgriddb_api_key": "SteamGridDB API Key",
+          "steamgriddb_api_key": "SteamGridDB API Key (for fetching artwork)",
           "rawg_api_key": "RAWG.io API Key (for content ratings)",
-          "discord_bot_token": "Discord Bot Token",
-          "discord_server_id": "Discord Server ID",
+          "discord_bot_token": "Discord Bot Token (for game tracking)",
+          "discord_server_id": "Discord Server ID (for game tracking)",
           "title_overrides": "Title Overrides, one per line (e.g., Destiny 2: Lightfall = Destiny 2)",
           "title_cleanups": "Title Cleanups, one per line (Regex/Text to strip from titles)",
           "global_exclusions": "Global Exclusions, one per line (Ignored apps/games)",
-          "same_game_prefix_words": "Same-game prefix match (leading words, 0 = off)",
-          "rating_overrides": "Content Rating Overrides, one per line (e.g., Skull and Bones = M)"
+          "rating_overrides": "Content Rating Overrides, one per line (e.g., Skull and Bones = M)",
+          "same_game_prefix_words": "Same-Game Prefix Match (leading words, 0 = off)"
         },
         "data_description": {
-          "same_game_prefix_words": "Game names starting with this many matching words (e.g. \"Call of Duty ...\") are treated as the same game instead of a switch. Default: 2. Set to 0 to disable.",
-          "rating_overrides": "Manually set a rating for games your rating provider has no data for, one per line. Codes: E, E10, T, M, AO."
+          "rating_overrides": "Manually set a rating for games your rating provider has no data for, one per line. Codes: E, E10, T, M, AO.",
+          "same_game_prefix_words": "Game names starting with this many matching words (e.g. \"Call of Duty ...\") are treated as the same game instead of a switch. Default: 2. Set to 0 to disable."
         }
       },
       "global_settings": {
