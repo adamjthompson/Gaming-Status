@@ -112,14 +112,14 @@
         "data": {
           "notify_start_destinations": "Session Start Notification(s)",
           "notify_end_destinations": "Session End Notification(s)",
-          "ghosted_by": "Ghosted-by entity IDs (comma-separated)",
-          "exclude_games": "Games to exclude (comma-separated)"
+          "ghosted_by": "Ghosted-by entity IDs (one per line)",
+          "exclude_games": "Games to exclude (one per line)"
         },
         "data_description": {
           "notify_start_destinations": "Select notification method(s) when this player starts gaming.",
           "notify_end_destinations": "Select notification method(s) when this player stops gaming.",
           "ghosted_by": "e.g. sensor.gaming_status_player_two_steam — Sensors that should take priority over this user's Xbox sensor.",
-          "exclude_games": "e.g. Genshin Impact, Minecraft — Games to ignore for this player."
+          "exclude_games": "e.g. Genshin Impact\nMinecraft — Games to ignore for this player, one per line."
         }
       },
       "notifications": {
@@ -213,15 +213,15 @@
           "rawg_api_key": "RAWG.io API Key (for content ratings)",
           "discord_bot_token": "Discord Bot Token",
           "discord_server_id": "Discord Server ID",
-          "title_overrides": "Title Overrides (e.g., Destiny 2: Lightfall = Destiny 2)",
-          "title_cleanups": "Title Cleanups (Regex/Text to strip from titles)",
-          "global_exclusions": "Global Exclusions (Ignored apps/games)",
+          "title_overrides": "Title Overrides, one per line (e.g., Destiny 2: Lightfall = Destiny 2)",
+          "title_cleanups": "Title Cleanups, one per line (Regex/Text to strip from titles)",
+          "global_exclusions": "Global Exclusions, one per line (Ignored apps/games)",
           "same_game_prefix_words": "Same-game prefix match (leading words, 0 = off)",
-          "rating_overrides": "Content Rating Overrides (e.g., Skull and Bones = M)"
+          "rating_overrides": "Content Rating Overrides, one per line (e.g., Skull and Bones = M)"
         },
         "data_description": {
           "same_game_prefix_words": "Game names starting with this many matching words (e.g. \"Call of Duty ...\") are treated as the same game instead of a switch. Default: 2. Set to 0 to disable.",
-          "rating_overrides": "Manually set a rating for games your rating provider has no data for. Codes: E, E10, T, M, AO."
+          "rating_overrides": "Manually set a rating for games your rating provider has no data for, one per line. Codes: E, E10, T, M, AO."
         }
       },
       "global_settings": {
@@ -261,7 +261,7 @@
       },
       "custom_artwork": {
         "title": "Custom Artwork & Colors",
-        "description": "Override SteamGridDB by providing direct URLs to custom images, or set a custom dominant hex color for specific games. Format as a comma-separated list of key=value pairs. \n\ne.g., `Minecraft = {example_url}` or `Halo 3 = #F2AB0A`",
+        "description": "Override SteamGridDB by providing direct URLs to custom images, or set a custom dominant hex color for specific games. Enter one key=value pair per line. \n\ne.g., `Minecraft = {example_url}` or `Halo 3 = #F2AB0A`",
         "data": {
           "custom_grid": "Custom Cover/Grid (Vertical)",
           "custom_hero": "Custom Hero (Horizontal)",

@@ -571,10 +571,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             exclude_raw = user_input.get("exclude_games", "")
             
             existing["ghosted_by"] = [
-                e.strip() for e in ghosted_raw.split(",") if e.strip()
+                e.strip() for e in ghosted_raw.splitlines() if e.strip()
             ]
             existing["exclude_games"] = [
-                e.strip() for e in exclude_raw.split(",") if e.strip()
+                e.strip() for e in exclude_raw.splitlines() if e.strip()
             ]
             
             # Only update destinations if the UI actually displayed them
@@ -586,8 +586,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             self._options[OPT_PLAYERS] = _dump_json(players)
             return await self._update_and_return()
 
-        ghosted_default = ", ".join(existing.get("ghosted_by", []))
-        exclude_default = ", ".join(existing.get("exclude_games", []))
+        ghosted_default = "\n".join(existing.get("ghosted_by", []))
+        exclude_default = "\n".join(existing.get("exclude_games", []))
 
         schema_dict = {}
 
@@ -612,8 +612,12 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             )
 
         schema_dict.update({
-            vol.Optional("ghosted_by", default=ghosted_default): str,
-            vol.Optional("exclude_games", default=exclude_default): str,
+            vol.Optional("ghosted_by", default=ghosted_default): selector.TextSelector(
+                selector.TextSelectorConfig(multiline=True)
+            ),
+            vol.Optional("exclude_games", default=exclude_default): selector.TextSelector(
+                selector.TextSelectorConfig(multiline=True)
+            ),
         })
 
         return self.async_show_form(
@@ -1007,7 +1011,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             ]:
                 raw = user_input.get(field, "")
                 parsed_dict = {}
-                for item in raw.split(','):
+                for item in raw.splitlines():
                     if '=' in item:
                         k, v = item.split('=', 1)
                         # Force the key to lowercase so it always matches internally!
@@ -1022,18 +1026,20 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             raw = opts.get(key)
             if raw:
                 parsed = _load_json(raw, fallback)
-                return ", ".join([f"{k} = {v}" for k, v in parsed.items()])
-            return ", ".join([f"{k} = {v}" for k, v in fallback.items()])
+                return "\n".join([f"{k} = {v}" for k, v in parsed.items()])
+            return "\n".join([f"{k} = {v}" for k, v in fallback.items()])
+
+        multiline_text = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
 
         return self.async_show_form(
             step_id=MENU_CUSTOM_ARTWORK,
             data_schema=vol.Schema(
                 {
-                    vol.Optional("custom_grid", default=_get_dict_default(OPT_CUSTOM_GRID, {})): str,
-                    vol.Optional("custom_hero", default=_get_dict_default(OPT_CUSTOM_HERO, {})): str,
-                    vol.Optional("custom_logo", default=_get_dict_default(OPT_CUSTOM_LOGO, {})): str,
-                    vol.Optional("custom_icon", default=_get_dict_default(OPT_CUSTOM_ICON, {})): str,
-                    vol.Optional("custom_colors", default=_get_dict_default(OPT_CUSTOM_COLORS, {})): str,
+                    vol.Optional("custom_grid", default=_get_dict_default(OPT_CUSTOM_GRID, {})): multiline_text,
+                    vol.Optional("custom_hero", default=_get_dict_default(OPT_CUSTOM_HERO, {})): multiline_text,
+                    vol.Optional("custom_logo", default=_get_dict_default(OPT_CUSTOM_LOGO, {})): multiline_text,
+                    vol.Optional("custom_icon", default=_get_dict_default(OPT_CUSTOM_ICON, {})): multiline_text,
+                    vol.Optional("custom_colors", default=_get_dict_default(OPT_CUSTOM_COLORS, {})): multiline_text,
                 }
             ),
             description_placeholders={"example_url": "https://link-to-image.png"},
@@ -1056,7 +1062,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             ]:
                 raw = user_input.get(field, "")
                 parsed_dict = {}
-                for item in raw.split(','):
+                for item in raw.splitlines():
                     if '=' in item:
                         k, v = item.split('=', 1)
                         parsed_dict[k.strip()] = v.strip()
@@ -1065,7 +1071,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             if parental_enabled:
                 raw = user_input.get("rating_overrides", "")
                 parsed_ratings = {}
-                for item in raw.split(','):
+                for item in raw.splitlines():
                     if '=' not in item:
                         continue
                     k, v = item.split('=', 1)
@@ -1079,7 +1085,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 (OPT_GLOBAL_EXCLUSIONS, "global_exclusions"),
             ]:
                 raw = user_input.get(field, "")
-                parsed_list = [x.strip() for x in raw.split(',') if x.strip()]
+                parsed_list = [x.strip() for x in raw.splitlines() if x.strip()]
                 opts[key] = _dump_json(parsed_list)
 
             opts[OPT_SAME_GAME_PREFIX_WORDS] = user_input.get(OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS)
@@ -1103,16 +1109,16 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             raw = opts.get(key)
             if raw:
                 parsed = _load_json(raw, fallback)
-                return ", ".join(parsed)
-            return ", ".join(fallback)
+                return "\n".join(parsed)
+            return "\n".join(fallback)
 
         def _get_dict_default(key, fallback):
             raw = opts.get(key)
             if raw:
                 parsed = _load_json(raw, fallback)
                 # Universally reconstruct using '=' for the UI with clean spacing
-                return ", ".join([f"{k} = {v}" for k, v in parsed.items()])
-            return ", ".join([f"{k} = {v}" for k, v in fallback.items()])
+                return "\n".join([f"{k} = {v}" for k, v in parsed.items()])
+            return "\n".join([f"{k} = {v}" for k, v in fallback.items()])
 
         from .const import OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS
         enabled_platforms = opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
@@ -1144,15 +1150,17 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 ): str,
             })
 
+        multiline_text = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
+
         schema_dict.update({
             vol.Optional(
                 "title_overrides",
                 default=_get_dict_default(OPT_TITLE_OVERRIDES, {}),
-            ): str,
+            ): multiline_text,
             vol.Optional(
                 "title_cleanups",
                 default=_get_list_default(OPT_TITLE_CLEANUPS, []),
-            ): str,
+            ): multiline_text,
             vol.Optional(
                 "global_exclusions",
                 default=_get_list_default(OPT_GLOBAL_EXCLUSIONS, [
@@ -1161,7 +1169,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     "Microsoft Store", "Store", "Xbox 360 Dashboard",
                     "Setting up...", "Wallpaper Engine",
                 ]),
-            ): str,
+            ): multiline_text,
             vol.Optional(
                 OPT_SAME_GAME_PREFIX_WORDS,
                 default=opts.get(OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS),
@@ -1171,10 +1179,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         if parental_enabled:
             reverse_codes = {v: k for k, v in RATING_OVERRIDE_CODES.items()}
             raw_ratings = _load_json(opts.get(OPT_RATING_OVERRIDES, ""), {})
-            rating_overrides_default = ", ".join(
+            rating_overrides_default = "\n".join(
                 f"{k} = {reverse_codes.get(v, v)}" for k, v in raw_ratings.items()
             )
-            schema_dict[vol.Optional("rating_overrides", default=rating_overrides_default)] = str
+            schema_dict[vol.Optional("rating_overrides", default=rating_overrides_default)] = multiline_text
 
         return self.async_show_form(
             step_id=MENU_ADVANCED,

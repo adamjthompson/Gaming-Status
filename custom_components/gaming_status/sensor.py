@@ -349,16 +349,15 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
     def _apply_title_override(self, game_name):
         if not game_name: return game_name
-        return utils.GAME_TITLE_OVERRIDES.get(str(game_name).strip().lower(), game_name)
+        return utils.GAME_TITLE_OVERRIDES.get(_normalize_game_name(game_name), game_name)
 
     def _sanitize_game_title(self, title: str) -> str:
         """
-        Strips special characters, trademarks, and extra spaces from game titles 
-        so different platforms (Steam, Discord, Xbox) match perfectly.
+        Strips trademark symbols and extra spaces from game titles.
         """
         if not title: return title
-        # 1. Replace colons, dashes, and registered/trademark symbols with a space
-        clean_title = re.sub(r'[:\-™®©]', ' ', str(title))
+        # 1. Replace registered/trademark symbols with a space
+        clean_title = re.sub(r'[™®©]', ' ', str(title))
         # 2. Replace multiple spaces with a single space and strip trailing whitespace
         clean_title = re.sub(r'\s+', ' ', clean_title).strip()
         return clean_title
@@ -842,6 +841,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
     async def async_rename_game(self, old_name, new_name):
         """Rename a game across stored history (merging into new_name if it already exists). Does not touch the live/in-progress session."""
         clean_target = _format_game_name_for_display(get_base_game_name(old_name))
+        clean_new = _format_game_name_for_display(get_base_game_name(new_name))
         renamed = False
 
         for entry in self._recent_sessions:
@@ -852,9 +852,17 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         def _merge_rename(d):
             nonlocal renamed
             match_key = next((k for k in d if self._game_name_matches(k, clean_target)), None)
-            if match_key is not None:
-                d[new_name] = d.get(new_name, 0) + d.pop(match_key)
-                renamed = True
+            if match_key is None:
+                return
+            seconds = d.pop(match_key)
+            # Merge into whichever key already represents new_name (matched the
+            # same punctuation/case-insensitive way as old_name above), so a
+            # rename onto an existing entry actually merges instead of creating
+            # a second, differently-spelled duplicate of the same game.
+            existing_key = next((k for k in d if self._game_name_matches(k, clean_new)), None)
+            target_key = existing_key if existing_key is not None else new_name
+            d[target_key] = d.get(target_key, 0) + seconds
+            renamed = True
 
         _merge_rename(self._weekly_game_breakdown)
         for day_data in self._play_history.values():
@@ -1387,7 +1395,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 if not self._cached_game_icon: self._cached_game_icon = local_scan.get("icon")
                         
                 # 1. ALWAYS Check for Manual Override FIRST (Costs zero CPU/Disk I/O)
-                override = getattr(utils, "GAME_COLOR_OVERRIDES", {}).get(str(game_name_display).lower())
+                override = getattr(utils, "GAME_COLOR_OVERRIDES", {}).get(_normalize_game_name(game_name_display))
                 if override:
                     self._cached_game_color = override
                 
@@ -2193,19 +2201,19 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         "MASTER_HANDOFF_GRACE_SECONDS": opts.get(OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS),
     }
     raw_overrides = _load_opt_json(opts, OPT_TITLE_OVERRIDES, {})
-    utils.GAME_TITLE_OVERRIDES = {k.strip().lower(): v for k, v in raw_overrides.items()}
+    utils.GAME_TITLE_OVERRIDES = {_normalize_game_name(k): v for k, v in raw_overrides.items()}
     raw_rating_overrides = _load_opt_json(opts, OPT_RATING_OVERRIDES, {})
     utils.RATING_OVERRIDES = {_normalize_game_name(k): v for k, v in raw_rating_overrides.items()}
     raw_grid = _load_opt_json(opts, OPT_CUSTOM_GRID, {})
-    utils.CUSTOM_GRID_MAP = {k.strip().lower(): safe_url(v) for k, v in raw_grid.items() if safe_url(v)}
+    utils.CUSTOM_GRID_MAP = {_normalize_game_name(k): safe_url(v) for k, v in raw_grid.items() if safe_url(v)}
     raw_hero = _load_opt_json(opts, OPT_CUSTOM_HERO, {})
-    utils.CUSTOM_HERO_MAP = {k.strip().lower(): safe_url(v) for k, v in raw_hero.items() if safe_url(v)}
+    utils.CUSTOM_HERO_MAP = {_normalize_game_name(k): safe_url(v) for k, v in raw_hero.items() if safe_url(v)}
     raw_logo = _load_opt_json(opts, OPT_CUSTOM_LOGO, {})
-    utils.CUSTOM_LOGO_MAP = {k.strip().lower(): safe_url(v) for k, v in raw_logo.items() if safe_url(v)}
+    utils.CUSTOM_LOGO_MAP = {_normalize_game_name(k): safe_url(v) for k, v in raw_logo.items() if safe_url(v)}
     raw_icon = _load_opt_json(opts, OPT_CUSTOM_ICON, {})
-    utils.CUSTOM_ICON_MAP = {k.strip().lower(): safe_url(v) for k, v in raw_icon.items() if safe_url(v)}
+    utils.CUSTOM_ICON_MAP = {_normalize_game_name(k): safe_url(v) for k, v in raw_icon.items() if safe_url(v)}
     raw_colors = _load_opt_json(opts, OPT_CUSTOM_COLORS, {})
-    utils.GAME_COLOR_OVERRIDES = {k.strip().lower(): v.strip() for k, v in raw_colors.items()}
+    utils.GAME_COLOR_OVERRIDES = {_normalize_game_name(k): v.strip() for k, v in raw_colors.items()}
     raw_cleanups = _load_opt_json(opts, OPT_TITLE_CLEANUPS, [])
     utils.TITLE_CLEANUPS = raw_cleanups
     utils.compile_title_cleanups()

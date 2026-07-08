@@ -119,32 +119,37 @@ async def fetch_game_assets(hass, game_name):
     global _MISSING_KEY_WARNED
     
     assets = {"grid": None, "hero": None, "logo": None, "icon": None}
-    
+
     if not game_name:
         return assets
-        
+
+    # Canonical key for caching/locking/override lookups/filenames, so
+    # punctuation differences (commas, colons, dashes) never cause a miss.
+    # The SteamGridDB search query below intentionally keeps the real title.
+    cache_key = _normalize_game_name(game_name)
+
     # 0. Check Memory Cache BEFORE touching the disk or creating sessions!
-    if game_name in ASSET_URL_CACHE:
-        ASSET_URL_CACHE.move_to_end(game_name)
-        return ASSET_URL_CACHE[game_name]
+    if cache_key in ASSET_URL_CACHE:
+        ASSET_URL_CACHE.move_to_end(cache_key)
+        return ASSET_URL_CACHE[cache_key]
 
     # --- THE MEMORY LOCK ---
     # Prevent race conditions by making simultaneous requests wait
     if "gaming_status_locks" not in hass.data:
         hass.data["gaming_status_locks"] = {}
-        
-    if game_name in hass.data["gaming_status_locks"]:
+
+    if cache_key in hass.data["gaming_status_locks"]:
         # Another sensor is currently downloading this game! Wait for it to finish.
-        await hass.data["gaming_status_locks"][game_name].wait()
+        await hass.data["gaming_status_locks"][cache_key].wait()
         # The first downloader should have populated the cache, grab it and return!
-        if game_name in ASSET_URL_CACHE:
-            ASSET_URL_CACHE.move_to_end(game_name)
-            return ASSET_URL_CACHE[game_name]
+        if cache_key in ASSET_URL_CACHE:
+            ASSET_URL_CACHE.move_to_end(cache_key)
+            return ASSET_URL_CACHE[cache_key]
         return assets
-        
+
     # Lock the game while we download it
     lock = asyncio.Event()
-    hass.data["gaming_status_locks"][game_name] = lock
+    hass.data["gaming_status_locks"][cache_key] = lock
 
     try:
         # 1. Setup Session and Cache Directory early
@@ -162,19 +167,19 @@ async def fetch_game_assets(hass, game_name):
         await hass.async_add_executor_job(_ensure_dir)
             
         # 2. Check Custom UI Overrides & Ensure Local Cache
-        search_name = game_name.strip().lower()
+        search_name = cache_key
         override_maps = {
             "grid": CUSTOM_GRID_MAP, "hero": CUSTOM_HERO_MAP,
             "logo": CUSTOM_LOGO_MAP, "icon": CUSTOM_ICON_MAP
         }
-        
-        safe_file_prefix = re.sub(r'[^a-z0-9]', '_', str(game_name).lower())
+
+        safe_file_prefix = re.sub(r'[^a-z0-9]', '_', cache_key)
         safe_file_prefix = re.sub(r'_+', '_', safe_file_prefix).strip('_')
 
         for asset_type, map_dict in override_maps.items():
-            # Safety net: double-check the keys are lowercase just in case old data exists in the dictionary
-            safe_map = {k.lower(): v for k, v in map_dict.items()}
-            
+            # Safety net: re-normalize keys in case older un-migrated data exists in the dictionary
+            safe_map = {_normalize_game_name(k): v for k, v in map_dict.items()}
+
             if search_name in safe_map:
                 remote_url = safe_url(safe_map[search_name])
                 if not remote_url: continue
@@ -230,13 +235,13 @@ async def fetch_game_assets(hass, game_name):
 
         # If the user provided ALL 4 custom images manually, skip the API entirely!
         if all(assets.values()):
-            return _update_cache(game_name, assets)
+            return _update_cache(cache_key, assets)
 
         if not STEAMGRIDDB_API_KEY:
             if not _MISSING_KEY_WARNED:
                 _LOGGER.warning("[Gaming Status] SteamGridDB API key is not configured.")
                 _MISSING_KEY_WARNED = True
-            return _update_cache(game_name, assets)
+            return _update_cache(cache_key, assets)
 
         # 4. Fetch from SteamGridDB
         fetched_assets = {"grid": None, "hero": None, "logo": None, "icon": None}
@@ -247,10 +252,10 @@ async def fetch_game_assets(hass, game_name):
             search_url = f"https://www.steamgriddb.com/api/v2/search/autocomplete/{safe_title}"
             
             async with session.get(search_url, headers=headers, timeout=10) as resp:
-                if resp.status != 200: return _update_cache(game_name, fetched_assets)
+                if resp.status != 200: return _update_cache(cache_key, fetched_assets)
                 search_data = await resp.json()
-                
-            if not search_data.get("data"): return _update_cache(game_name, fetched_assets)
+
+            if not search_data.get("data"): return _update_cache(cache_key, fetched_assets)
                 
             game_id = search_data["data"][0]["id"]
             endpoints = {
@@ -299,12 +304,12 @@ async def fetch_game_assets(hass, game_name):
         except Exception as e:
             _LOGGER.error("Failed to fetch assets for %s: %s", game_name, e)
 
-        return _update_cache(game_name, fetched_assets)
+        return _update_cache(cache_key, fetched_assets)
 
     finally:
         # ALWAYS release the lock, even if the API throws an unexpected error
         lock.set()
-        hass.data["gaming_status_locks"].pop(game_name, None)
+        hass.data["gaming_status_locks"].pop(cache_key, None)
 
 async def get_steamgriddb_game_cover(hass, game_name):
     """Backward compatibility wrapper."""
@@ -510,7 +515,7 @@ def _format_time(seconds):
 def _format_game_name_for_display(game_name):
     if not game_name: return game_name
     clean_name = " ".join(str(game_name).split())
-    clean_name = GAME_TITLE_OVERRIDES.get(clean_name, clean_name)
+    clean_name = GAME_TITLE_OVERRIDES.get(_normalize_game_name(clean_name), clean_name)
     
     if " - " in clean_name: clean_name = clean_name.split(" - ")[0].strip()
     clean_name = re.sub(r'[™®©]', '', clean_name).strip()
@@ -522,8 +527,16 @@ def _format_game_name_for_display(game_name):
     return clean_name
 
 def _normalize_game_name(game_name):
+    """
+    Canonical matching key: lowercased, with commas/colons/dashes/trademark
+    symbols removed and whitespace collapsed. Used everywhere a game title
+    needs to be compared or looked up (overrides, artwork maps, ratings,
+    cross-platform same-game detection, cache/filename keys) so punctuation
+    differences never cause a mismatch.
+    """
     if not game_name: return ""
-    return " ".join(str(game_name).lower().split())
+    clean = re.sub(r'[,:\-™®©]', '', str(game_name).lower())
+    return " ".join(clean.split())
 
 def _is_same_base_game(name_a, name_b, prefix_words):
     if not prefix_words or prefix_words <= 0: return False
