@@ -1082,16 +1082,17 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 self._play_start_time = attrs.get("play_start_time")
             if self._attr_native_value and self._attr_native_value.lower() != "offline":
                 is_stale = False
+                last_ts = None
                 if self._last_online_valid_timestamp:
                     last_ts = _safe_parse_datetime(self._last_online_valid_timestamp)
                     if last_ts:
                         now_dt = dt_util.now()
                         # Safeguard 1: Force identical timezone awareness
-                        if last_ts.tzinfo is None: 
+                        if last_ts.tzinfo is None:
                             last_ts = last_ts.replace(tzinfo=now_dt.tzinfo)
-                        else: 
+                        else:
                             last_ts = last_ts.astimezone(now_dt.tzinfo)
-                        
+
                         # Safeguard 2: Catch Raspberry Pi negative boot-clock drift
                         delta_seconds = (now_dt - last_ts).total_seconds()
                         if delta_seconds < 0:
@@ -1099,11 +1100,19 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             is_stale = False
                         elif delta_seconds > self._active_settings["GRACE_PERIOD_SECONDS"]:
                             is_stale = True
-                        
+
                 if (self._gaming_type == "xbox" and "last seen" in self._attr_native_value.lower()) or is_stale:
                     self._attr_native_value = "Offline"
-                    self._current_game = None
-                    self._play_start_time = None
+                    if self._current_game and self._play_start_time:
+                        # Properly close out whatever session was in progress before
+                        # this gap/restart instead of silently discarding it. Uses the
+                        # last confirmed-online timestamp (not "now") as the end time,
+                        # so the outage itself never gets counted as playtime -- this
+                        # also sets _current_game/_play_start_time back to None.
+                        self._handle_game_transition(None, explicit_end_time=last_ts)
+                    else:
+                        self._current_game = None
+                        self._play_start_time = None
                 else: self._previous_state_online = True
             self._attr_extra_state_attributes = dict(attrs)
             self._attr_entity_picture = attrs.get("entity_picture")
