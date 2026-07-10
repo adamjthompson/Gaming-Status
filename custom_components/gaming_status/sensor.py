@@ -115,6 +115,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._gaming_type = gaming_type
         self._owner_name = owner_name
         self._ghosted_by = ghosted_by or []
+        self._ghost_missing_warned = set()
         self._available_avatars = available_avatars or []
         
         self._avatar_entity_id = None
@@ -196,6 +197,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._last_weekly_reset = None
         self._last_session_play_time = 0
         self._session_ticks_persistent = {}
+        self._active_elsewhere_blocked_seconds = {}
 
         config = PLATFORM_CONFIG[gaming_type]
         self._attr_icon = config["icon"]
@@ -256,6 +258,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 "weekly_game_breakdown": self._weekly_game_breakdown,
                 "longest_session_details": self._longest_session_details,
                 "session_ticks": self._session_ticks_persistent,
+                "blocked_seconds": self._active_elsewhere_blocked_seconds,
                 "daily_play_time": getattr(self, "_daily_play_time", 0),
                 "weekly_play_time": getattr(self, "_weekly_play_time", 0),
                 "weekly_play_time_last_week": getattr(self, "_weekly_play_time_last_week", 0)
@@ -332,7 +335,16 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
         for ghost_entity_id in self._ghosted_by:
             state = self.hass.states.get(ghost_entity_id)
-            if state and state.state not in [STATE_UNKNOWN, STATE_UNAVAILABLE, "Offline", "offline"]:
+            if state is None:
+                if ghost_entity_id not in self._ghost_missing_warned:
+                    self._ghost_missing_warned.add(ghost_entity_id)
+                    _LOGGER.warning(
+                        "Gaming Status: %s references %s (via suppresses_xbox_sensors) which no longer "
+                        "exists -- this suppression rule will never trigger until it's corrected.",
+                        self.entity_id, ghost_entity_id,
+                    )
+                continue
+            if state.state not in [STATE_UNKNOWN, STATE_UNAVAILABLE, "Offline", "offline"]:
                 other_game = state.attributes.get("current_game") or state.state
                 clean_other = _format_game_name_for_display(get_base_game_name(other_game))
                 # Exact match always counts, independent of the same-game-prefix
@@ -620,7 +632,15 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 else: start_dt = start_dt.astimezone(actual_end_time.tzinfo)
                 session_seconds = (actual_end_time - start_dt).total_seconds()
                 session_ticks = self._session_ticks_persistent.get(self._current_game, 0)
-                if session_seconds <= self._active_settings["MIN_SESSION_DURATION"]:
+                # Wall-clock time this segment spent blocked by "Active Elsewhere"
+                # doesn't belong to this sensor's own totals at all -- exclude it
+                # up front so it's neither discarded-vs-kept based on raw wall-clock
+                # nor topped back up by the tick-reconciliation gap below (which
+                # would otherwise silently re-credit exactly the time blocking was
+                # meant to exclude).
+                blocked_seconds = self._active_elsewhere_blocked_seconds.pop(self._current_game, 0)
+                effective_seconds = max(0, session_seconds - blocked_seconds)
+                if effective_seconds <= self._active_settings["MIN_SESSION_DURATION"]:
                     discarded_session = True
                     # Remove only what was actually accumulated via ticks for this segment.
                     self._daily_play_time = max(0, int((self._daily_play_time or 0) - session_ticks))
@@ -632,12 +652,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         self._last_online_valid_timestamp = self._backup_last_online_timestamp
                     if getattr(self, "_backup_last_played_game", None) is not None:
                         self._last_played_game = self._backup_last_played_game
-                elif session_seconds > 0:
-                    self._last_session_play_time = int(session_seconds)
+                elif effective_seconds > 0:
+                    self._last_session_play_time = int(effective_seconds)
                     # Reconcile wall-clock vs accumulated ticks. Any gap (HA restarts,
                     # event loop delays) is added to the breakdown so the chart matches
                     # the session time shown on the card.
-                    gap = int(session_seconds) - session_ticks
+                    gap = int(effective_seconds) - session_ticks
                     if gap > 0:
                         self._bump_playtime(self._current_game, gap)
                         self._daily_play_time = int((self._daily_play_time or 0) + gap)
@@ -688,10 +708,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._current_game = None
             self._play_start_time = None
             self._session_ticks_persistent = {}
+            self._active_elsewhere_blocked_seconds = {}
         else:
             self._current_game = new_game_name
             self._play_start_time = now.isoformat()
             self._session_ticks_persistent = {}
+            self._active_elsewhere_blocked_seconds = {}
             prev_game = self._last_played_game
             prev_stop = self._last_game_stopped_timestamp
             can_resurrect = False
@@ -1163,6 +1185,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._weekly_game_breakdown = internal.get("weekly_game_breakdown", {})
             self._longest_session_details = internal.get("longest_session_details", {"game": None, "duration": 0})
             self._session_ticks_persistent = internal.get("session_ticks", {})
+            self._active_elsewhere_blocked_seconds = internal.get("blocked_seconds", {})
 
             all_time = stored_data.get("all_time", {})
             self._all_time_game_seconds = all_time.get("game_seconds", {})
@@ -1447,6 +1470,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 if self._is_game_active_elsewhere(self._current_game):
                     is_blocked = True
                     block_reason = "Active Elsewhere"
+                    self._active_elsewhere_blocked_seconds[self._current_game] = (
+                        self._active_elsewhere_blocked_seconds.get(self._current_game, 0) + delta_seconds
+                    )
                 elif self._temp_offline_start is not None:
                     is_blocked = True
                     block_reason = "Grace Period"
@@ -2663,8 +2689,16 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 except Exception:
                     pass
 
+    xbox_ghost_sources = {}
+    for p_name, p_data in players.items():
+        for xbox_entity_id in p_data.get("suppresses_xbox_sensors", []):
+            sources = xbox_ghost_sources.setdefault(xbox_entity_id, [])
+            for plat in PLAYER_PLATFORMS:
+                if plat == "xbox": continue
+                ent = p_data.get(plat)
+                if ent: sources.append(ent)
+
     for player_name, player_data in players.items():
-        ghosted_by = player_data.get("ghosted_by", [])
         exclude_games = player_data.get("exclude_games", [])
         rules = parental_rules.get(player_name, {})
         safe_owner = re.sub(r'[^a-z0-9_]', '_', player_name.lower().replace(" ", "_"))
@@ -2682,6 +2716,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         for platform in enabled_platforms:
             entity_id = player_data.get(platform)
             if entity_id:
+                ghosted_by = xbox_ghost_sources.get(entity_id, []) if platform == "xbox" else []
                 sensor_entity = PersistentStatusSensor(hass, entity_id, platform, player_name, ghosted_by, exclude_games, active_settings, global_exclusions, available_avatars)
                 ents.append(sensor_entity)
                 hass.data.setdefault(DOMAIN, {}).setdefault("platform_sensors", {})[sensor_entity.entity_id] = sensor_entity

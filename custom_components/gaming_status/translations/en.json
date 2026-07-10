@@ -112,13 +112,13 @@
         "data": {
           "notify_start_destinations": "Session Start Notification(s)",
           "notify_end_destinations": "Session End Notification(s)",
-          "ghosted_by": "Ghosted-by entity IDs (one per line)",
+          "suppresses_xbox_sensors": "Suppress other players' Xbox sensors",
           "exclude_games": "Games to exclude (one per line)"
         },
         "data_description": {
           "notify_start_destinations": "Select notification method(s) when this player starts gaming.",
           "notify_end_destinations": "Select notification method(s) when this player stops gaming.",
-          "ghosted_by": "e.g. sensor.gaming_status_player_two_steam — Sensors that should take priority over this user's Xbox sensor.",
+          "suppresses_xbox_sensors": "When this player is confirmed playing on any of their own sensors, block the selected Xbox sensor(s) from also claiming the same game. Fixes a shared-PC Xbox app misattributing this player's Steam/Playnite session to someone else's Xbox account. Only for cross-player mixups — the same player's own overlapping sensors are already handled automatically.",
           "exclude_games": "Game titles to ignore for this player, one per line."
         }
       },

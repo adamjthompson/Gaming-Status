@@ -563,16 +563,19 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         endpoint_options = [
             selector.SelectOptionDict(value=k, label=v["name"]) for k, v in endpoints.items()
         ]
-        
+
+        xbox_options = [
+            selector.SelectOptionDict(value=p_data["xbox"], label=f"{p_name} (Xbox)")
+            for p_name, p_data in players.items()
+            if p_name != name and p_data.get("xbox")
+        ]
+
         notifications_enabled = self._options.get(OPT_ENABLE_NOTIFICATIONS, False)
 
         if user_input is not None:
-            ghosted_raw = user_input.get("ghosted_by", "")
             exclude_raw = user_input.get("exclude_games", "")
-            
-            existing["ghosted_by"] = [
-                e.strip() for e in ghosted_raw.splitlines() if e.strip()
-            ]
+
+            existing["suppresses_xbox_sensors"] = user_input.get("suppresses_xbox_sensors", [])
             existing["exclude_games"] = [
                 e.strip() for e in exclude_raw.splitlines() if e.strip()
             ]
@@ -586,7 +589,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             self._options[OPT_PLAYERS] = _dump_json(players)
             return await self._update_and_return()
 
-        ghosted_default = "\n".join(existing.get("ghosted_by", []))
         exclude_default = "\n".join(existing.get("exclude_games", []))
 
         schema_dict = {}
@@ -611,10 +613,17 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 )
             )
 
+        schema_dict[vol.Optional("suppresses_xbox_sensors", default=existing.get("suppresses_xbox_sensors", []))] = (
+            selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=xbox_options,
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN
+                )
+            )
+        )
+
         schema_dict.update({
-            vol.Optional("ghosted_by", description={"suggested_value": ghosted_default}): selector.TextSelector(
-                selector.TextSelectorConfig(multiline=True)
-            ),
             vol.Optional("exclude_games", description={"suggested_value": exclude_default}): selector.TextSelector(
                 selector.TextSelectorConfig(multiline=True)
             ),
