@@ -512,6 +512,15 @@ def _format_time(seconds):
     if hours > 0: return f"{hours}h {minutes}m"
     return f"{minutes}m"
 
+def top_n_games(breakdown, n=10):
+    """Sort a {game: seconds} breakdown descending and return the top n as
+    [{"game": ..., "hours": ...}, ...]. Shared by the platform and master
+    sensors so their all-time rankings can't independently drift."""
+    if not breakdown:
+        return []
+    ranked = sorted(breakdown.items(), key=lambda item: item[1], reverse=True)
+    return [{"game": game, "hours": round(seconds / 3600, 1)} for game, seconds in ranked[:n]]
+
 def _format_game_name_for_display(game_name):
     if not game_name: return game_name
     clean_name = " ".join(str(game_name).split())
