@@ -64,7 +64,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         "calendar_weekly_breakdown", "calendar_longest_session_details",
         "last_played_game", "daily_play_time", "weekly_play_time", "weekly_play_time_last_week",
         "play_history", "game_content_rating", "recent_sessions",
-        "all_time_total_hours", "all_time_session_count", "all_time_first_tracked", "all_time_top_games",
+        "all_time_total_hours", "all_time_session_count", "all_time_top_games",
     })
 
     def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None, active_settings=None, global_exclusions=None, available_avatars=None):
@@ -169,7 +169,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # store and a small bounded attribute summary, never the recorder.
         self._all_time_game_seconds = {}
         self._all_time_session_count = 0
-        self._all_time_first_tracked = None
         self._all_time_seeded = False
         
         self._daily_play_time = 0
@@ -221,8 +220,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             return
         self._weekly_game_breakdown[game] = self._weekly_game_breakdown.get(game, 0) + int(delta)
         self._all_time_game_seconds[game] = self._all_time_game_seconds.get(game, 0) + int(delta)
-        if not self._all_time_first_tracked:
-            self._all_time_first_tracked = dt_util.as_local(dt_util.now()).strftime("%Y-%m-%d")
 
     def _unbump_playtime(self, game, delta):
         """Roll back `delta` seconds from both breakdowns together -- used
@@ -273,7 +270,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             "all_time": {
                 "game_seconds": getattr(self, "_all_time_game_seconds", {}),
                 "session_count": getattr(self, "_all_time_session_count", 0),
-                "first_tracked": getattr(self, "_all_time_first_tracked", None),
                 "seeded": getattr(self, "_all_time_seeded", False),
             },
         }
@@ -871,7 +867,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         all_time_seconds = getattr(self, "_all_time_game_seconds", {})
         self._attr_extra_state_attributes["all_time_total_hours"] = round(sum(all_time_seconds.values()) / 3600, 1)
         self._attr_extra_state_attributes["all_time_session_count"] = getattr(self, "_all_time_session_count", 0)
-        self._attr_extra_state_attributes["all_time_first_tracked"] = getattr(self, "_all_time_first_tracked", None)
         self._attr_extra_state_attributes["all_time_top_games"] = top_n_games(all_time_seconds, 20)
 
     def _game_name_matches(self, stored_name, clean_target):
@@ -1055,7 +1050,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if not isinstance(self._all_time_game_seconds, dict):
                 self._all_time_game_seconds = {}
             self._all_time_session_count = int(all_time.get("session_count", 0) or 0)
-            self._all_time_first_tracked = all_time.get("first_tracked")
             self._all_time_seeded = bool(all_time.get("seeded", False))
 
             # Restore live running tallies from JSON backup if RAM wipe occurs
@@ -1097,7 +1091,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._longest_session_details = {"game": None, "duration": 0}
             self._all_time_game_seconds = {}
             self._all_time_session_count = 0
-            self._all_time_first_tracked = None
             self._all_time_seeded = False
 
         if not getattr(self, "_all_time_seeded", False):
@@ -1115,9 +1108,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     self._all_time_game_seconds[game] = self._all_time_game_seconds.get(game, 0) + int(secs)
             if not self._all_time_session_count:
                 self._all_time_session_count = len(self._recent_sessions)
-            if not self._all_time_first_tracked:
-                candidate_dates = [d for d in self._play_history if isinstance(d, str)]
-                self._all_time_first_tracked = min(candidate_dates) if candidate_dates else dt_util.as_local(dt_util.now()).strftime("%Y-%m-%d")
             self._all_time_seeded = True
             self._store.async_delay_save(self._get_store_data, 5.0)
 
@@ -1633,7 +1623,7 @@ class MasterGamingSensor(RestoreSensor):
         "rolling_longest_session", "calendar_longest_session",
         "raw_rolling_breakdown", "raw_calendar_breakdown",
         "play_history", "game_content_rating", "rating_exceeded", "recent_sessions",
-        "all_time_total_hours", "all_time_session_count", "all_time_first_tracked", "all_time_top_games",
+        "all_time_total_hours", "all_time_session_count", "all_time_top_games",
     })
 
     def __init__(self, hass, name, profiles, parental_rules=None, same_game_prefix_words=DEFAULT_SAME_GAME_PREFIX_WORDS, handoff_grace_seconds=DEFAULT_MASTER_HANDOFF_GRACE_SECONDS):
@@ -1697,7 +1687,6 @@ class MasterGamingSensor(RestoreSensor):
         master_all_time_hours = 0.0
         master_all_time_seconds_by_game = {}
         master_all_time_sessions = 0
-        master_all_time_first_tracked = None
         platform_totals = {}
         max_rolling_duration = 0
         max_rolling_game = None
@@ -1753,9 +1742,6 @@ class MasterGamingSensor(RestoreSensor):
                 game_name = game_entry.get("game")
                 if game_name:
                     master_all_time_seconds_by_game[game_name] = master_all_time_seconds_by_game.get(game_name, 0) + game_entry.get("hours", 0) * 3600
-            platform_first_tracked = platform_state.attributes.get("all_time_first_tracked")
-            if platform_first_tracked and (master_all_time_first_tracked is None or platform_first_tracked < master_all_time_first_tracked):
-                master_all_time_first_tracked = platform_first_tracked
 
             # Find Longest Sessions
             r_longest = platform_state.attributes.get("rolling_longest_session_details", {})
@@ -2026,7 +2012,6 @@ class MasterGamingSensor(RestoreSensor):
         )[:MAX_RECENT_SESSIONS]
         new_attrs["all_time_total_hours"] = round(master_all_time_hours, 1)
         new_attrs["all_time_session_count"] = master_all_time_sessions
-        new_attrs["all_time_first_tracked"] = master_all_time_first_tracked
         new_attrs["all_time_top_games"] = top_n_games(master_all_time_seconds_by_game, 10)
         new_attrs["color_extraction_enabled"] = utils.ENABLE_VIBRANT_COLOR
 
