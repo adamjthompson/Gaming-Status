@@ -642,6 +642,17 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         self._bump_playtime(self._current_game, gap)
                         self._daily_play_time = int((self._daily_play_time or 0) + gap)
                         self._weekly_play_time = int((self._weekly_play_time or 0) + gap)
+                    elif gap < 0:
+                        # Ticks over-counted this segment (e.g. a game transition
+                        # landed mid-tick-interval, crediting part of another
+                        # game's time to this one) -- correct back down so the
+                        # total credited here always matches this session's
+                        # recorded duration_seconds exactly. Without this,
+                        # deleting every recorded session for a game could still
+                        # leave a nonzero residual in the running totals.
+                        self._unbump_playtime(self._current_game, -gap)
+                        self._daily_play_time = max(0, int((self._daily_play_time or 0) + gap))
+                        self._weekly_play_time = max(0, int((self._weekly_play_time or 0) + gap))
 
                     # Log this completed session for the "recent_sessions" history.
                     # Skip sessions with zero real accumulated ticks - these were
