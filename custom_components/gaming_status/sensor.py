@@ -117,6 +117,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._available_avatars = available_avatars or []
         
         self._avatar_entity_id = None
+        self._xbox_now_playing_entity_id = None
 
         self._exclude_games = {_normalize_game_name(g) for g in (exclude_games or [])}
         self._global_exclusions_lower = {_normalize_game_name(x) for x in (global_exclusions or [])}
@@ -428,8 +429,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         data["xbox_last_seen_game"] = self._apply_title_override(g_name)
             else:
                 found_sibling = False
-                sibling_id = self._source_entity_id.replace("_status", "_now_playing") if "_status" in self._source_entity_id else None
-                        
+                sibling_id = self._xbox_now_playing_entity_id or (
+                    self._source_entity_id.replace("_status", "_now_playing") if "_status" in self._source_entity_id else None
+                )
+
                 potential_game = state
                 
                 # Check the sibling FIRST. A valid game overrides an offline base state.
@@ -969,6 +972,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         self._avatar_entity_id = e.entity_id
                     elif self._gaming_type == "playstation" and "avatar" in e.entity_id:
                         self._avatar_entity_id = e.entity_id
+                elif e.domain == "sensor" and self._gaming_type == "xbox" and getattr(e, "translation_key", None) == "now_playing":
+                    self._xbox_now_playing_entity_id = e.entity_id
         stored_data = await self._store.async_load()
         if stored_data:
             self._play_history = stored_data.get("history", {})
