@@ -42,3 +42,29 @@ delete_game:
       example: "Call of Duty"
       selector:
         text:
+
+delete_session:
+  name: Delete Session
+  description: Permanently remove one specific recorded session for a game, correcting only that session's contribution to daily/weekly/lifetime totals -- every other session of the same game is left untouched. Only works for sessions still present in that sensor's recent session log; older sessions already folded into the daily history can't be targeted individually.
+  fields:
+    player:
+      required: true
+      example: "Adam"
+      selector:
+        text:
+    platform:
+      required: false
+      description: Limit to one platform (e.g. xbox, discord, steam). Omit to search all of the player's platforms.
+      selector:
+        text:
+    game:
+      required: true
+      example: "Call of Duty"
+      selector:
+        text:
+    start_time:
+      required: true
+      description: The exact start_time value (ISO timestamp) of the session to delete, as recorded in that sensor's recent_sessions attribute.
+      example: "2026-07-08T09:56:07.162310-04:00"
+      selector:
+        text:

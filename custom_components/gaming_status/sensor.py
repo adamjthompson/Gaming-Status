@@ -1008,6 +1008,114 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         await self._store.async_save(self._get_store_data())
         self.async_write_ha_state()
 
+    async def async_delete_session(self, game, start_time):
+        """Permanently remove one specific recorded session, correcting only
+        that session's contribution to daily/weekly/all-time totals -- unlike
+        async_delete_game, this leaves every other session of the same game
+        untouched. `start_time` is matched exactly (verbatim string), since
+        within a single sensor's own recent_sessions list it's guaranteed
+        unique -- _handle_game_transition only ever appends one entry per
+        completed segment, sequentially, so two sessions can't collide."""
+        clean_target = _format_game_name_for_display(get_base_game_name(game))
+
+        target_entry = next(
+            (s for s in self._recent_sessions
+             if self._game_name_matches(s.get("game"), clean_target) and s.get("start_time") == start_time),
+            None
+        )
+        if target_entry is None:
+            _LOGGER.warning("Gaming Status: delete_session found no match for %r at %r on %s", game, start_time, self.entity_id)
+            return
+
+        self._recent_sessions.remove(target_entry)
+        secs = target_entry.get("duration_seconds", 0)
+        date_str = target_entry.get("date")
+
+        # All-time (lifetime) total is never pruned, so it must be corrected
+        # regardless of which day this session falls on.
+        match_key = next((k for k in self._all_time_game_seconds if self._game_name_matches(k, clean_target)), None)
+        if match_key is not None:
+            self._all_time_game_seconds[match_key] = max(0, self._all_time_game_seconds[match_key] - secs)
+            if self._all_time_game_seconds[match_key] == 0:
+                del self._all_time_game_seconds[match_key]
+
+        if date_str == self._last_reset_date:
+            # Today's still-live per-game breakdown + daily/weekly totals.
+            match_key = next((k for k in self._weekly_game_breakdown if self._game_name_matches(k, clean_target)), None)
+            if match_key is not None:
+                self._weekly_game_breakdown[match_key] = max(0, self._weekly_game_breakdown[match_key] - secs)
+                if self._weekly_game_breakdown[match_key] == 0:
+                    del self._weekly_game_breakdown[match_key]
+            self._daily_play_time = max(0, int((self._daily_play_time or 0) - secs))
+            self._weekly_play_time = max(0, int((self._weekly_play_time or 0) - secs))
+        elif date_str in self._play_history:
+            day_data = self._play_history[date_str]
+            if isinstance(day_data, dict):
+                gb = day_data.get("game_breakdown", {})
+                match_key = next((k for k in gb if self._game_name_matches(k, clean_target)), None)
+                if match_key is not None:
+                    gb[match_key] = max(0, gb[match_key] - secs)
+                    if gb[match_key] == 0:
+                        del gb[match_key]
+                    day_data["total_seconds"] = max(0, day_data.get("total_seconds", 0) - secs)
+                    # weekly_play_time accumulates across the whole current week
+                    # independent of the daily reset, so an archived-but-still-
+                    # this-week day must also correct it.
+                    if day_data.get("week_str") == self._last_weekly_reset:
+                        self._weekly_play_time = max(0, int((self._weekly_play_time or 0) - secs))
+                    if not gb and day_data.get("total_seconds", 0) == 0:
+                        del self._play_history[date_str]
+        # else: this session had already aged past both "today" and the
+        # 8-day play_history window (recent_sessions has its own, separate
+        # 20-slot cap) -- only the all-time correction above applies.
+
+        # Longest-session records that referenced exactly this session.
+        # Matched by exact (game, duration) equality against the entry we
+        # already have in hand, not the fuzzy _game_name_matches used above,
+        # since precision matters more here than title-variant tolerance.
+        # Accepted, documented limitation (same class async_delete_game
+        # already has): on an archived day there's no per-session log left
+        # to recompute from, so two same-duration sessions of the same game
+        # on the same day could occasionally blank a still-valid record.
+        if (self._longest_session_details.get("game") == target_entry.get("game")
+                and self._longest_session_details.get("duration") == secs):
+            remaining_today = [s for s in self._recent_sessions if s.get("date") == self._last_reset_date]
+            if remaining_today:
+                best = max(remaining_today, key=lambda s: s.get("duration_seconds", 0))
+                self._longest_session_details = {"game": best["game"], "duration": best["duration_seconds"]}
+            else:
+                self._longest_session_details = {"game": None, "duration": 0}
+        if date_str in self._play_history:
+            day_data = self._play_history[date_str]
+            hist_longest = day_data.get("longest_session") if isinstance(day_data, dict) else None
+            if (isinstance(hist_longest, dict)
+                    and hist_longest.get("game") == target_entry.get("game")
+                    and hist_longest.get("duration") == secs):
+                day_data["longest_session"] = {"game": None, "duration": 0}
+
+        # last_played_game is refreshed continuously while a game is actively
+        # being played (not just at session end), so it almost always
+        # mirrors whichever session is most likely to be the one just
+        # deleted. Unlike async_delete_game (which can clear it
+        # unconditionally since it purges everything at once), only clear it
+        # here if this game genuinely has zero traces left anywhere.
+        if self._game_name_matches(self._last_played_game, clean_target):
+            still_exists = (
+                any(self._game_name_matches(s.get("game"), clean_target) for s in self._recent_sessions)
+                or any(self._game_name_matches(k, clean_target) for k in self._weekly_game_breakdown)
+                or any(self._game_name_matches(k, clean_target) for k in self._all_time_game_seconds)
+                or any(
+                    isinstance(d, dict) and any(self._game_name_matches(k, clean_target) for k in d.get("game_breakdown", {}))
+                    for d in self._play_history.values()
+                )
+            )
+            if not still_exists:
+                self._last_played_game = None
+
+        self._write_common_attributes()
+        await self._store.async_save(self._get_store_data())
+        self.async_write_ha_state()
+
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
         
