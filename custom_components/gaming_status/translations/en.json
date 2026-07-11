@@ -118,7 +118,7 @@
         "data_description": {
           "notify_start_destinations": "Select notification method(s) when this player starts gaming.",
           "notify_end_destinations": "Select notification method(s) when this player stops gaming.",
-          "suppresses_xbox_sensors": "When this player is confirmed playing on any of their own sensors, block the selected Xbox sensor(s) from also claiming the same game. Fixes a shared-PC Xbox app misattributing this player's Steam/Playnite session to someone else's Xbox account. Only for cross-player mixups — the same player's own overlapping sensors are already handled automatically.",
+          "suppresses_xbox_sensors": "When this player is confirmed playing on any of their own sensors, block the selected Xbox sensor(s) from also claiming the same game.",
           "exclude_games": "Game titles to ignore for this player, one per line."
         }
       },
@@ -182,7 +182,7 @@
       },
       "parental_controls": {
         "title": "Parental Controls",
-        "description": "Select a player to configure screen time and curfew rules.",
+        "description": "Select a player to configure screen time, curfew, and game ratings rules.",
         "data": {
           "player_choice": "Player"
         }
