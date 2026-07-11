@@ -245,6 +245,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | last_online_valid_timestamp | Timestamp of the last time detected online |
 | play_start_time | Timestamp when the current, active gaming session began |
 | timer_status | Current state of the internal playtime stopwatch (Running, Paused, or Stopped) |
+| xbox_suppressed | Xbox sensors only. `true` when a detected game was suppressed because another player's `suppresses_xbox_sensors` setting names this sensor and one of that player's own sensors is confirmed playing the same game (see Smart Ghosting Protection). Always `false` for non-Xbox platforms |
 | cached_game_cover | Backup URL for the last known game cover art, used during grace periods or offline states |
 | game_cover_art | URL of cover art, either local or SteamGridDB |
 | game_hero_art | URL of hero art, either local or SteamGridDB |
