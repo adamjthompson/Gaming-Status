@@ -412,7 +412,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         return clean_title
 
     def _get_platform_data(self, state, attrs):
-        data = { "is_online": False, "current_game": None, "game_cover_url": None, "gamertag": None, "avatar_url": None, "offline_reason": "standard" }
+        data = { "is_online": False, "current_game": None, "game_cover_url": None, "gamertag": None, "avatar_url": None, "offline_reason": "standard", "xbox_suppressed": False }
         state_clean = str(state).lower().strip()
         if state_clean in ["none", ""]: return None
         normalized_state = state_clean.lower()
@@ -500,8 +500,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 # If they are just online/home, AND we found no game in the sibling/queue, they are offline
                 if not found_sibling and (is_basic_offline or state_clean in ["online", "home"]):
                     data["is_online"] = False
-                elif self._is_ghost_session(potential_game) or self._is_game_active_elsewhere(potential_game):
-                    data["is_online"] = False 
+                elif self._is_ghost_session(potential_game):
+                    data["is_online"] = False
+                    data["xbox_suppressed"] = True
+                elif self._is_game_active_elsewhere(potential_game):
+                    data["is_online"] = False
                 else:
                     data["is_online"] = True
                     data["current_game"] = potential_game
@@ -775,7 +778,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # Apply overrides first, then sanitize the result
         return self._sanitize_game_title(self._apply_title_override(clean))
 
-    def _write_common_attributes(self, secondary="", timer_status=None, game_cover=None):
+    def _write_common_attributes(self, secondary="", timer_status=None, game_cover=None, xbox_suppressed=None):
         
         # --- IMPROVED SELF HEALING: Recover true start time across HA reboots ---
         if self._current_game:
@@ -820,6 +823,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     self._attr_extra_state_attributes["play_start_time"] = str(self._play_start_time)
             
         if timer_status: self._attr_extra_state_attributes["timer_status"] = timer_status
+        if xbox_suppressed is not None: self._attr_extra_state_attributes["xbox_suppressed"] = xbox_suppressed
         self._attr_extra_state_attributes["current_game"] = self._current_game
         
         if secondary:
@@ -1563,6 +1567,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 game_name_display = self._sanitize_game_title(_format_game_name_for_display(raw_game_name))
                 normalized_new = _normalize_game_name(game_name_display)
                 normalized_current = _normalize_game_name(self._current_game) if self._current_game else None
+                new_transition = False
                 if normalized_new != normalized_current:
                     if self._current_game and _is_same_base_game(self._current_game, game_name_display, self._active_settings["SAME_GAME_PREFIX_WORDS"]):
                         # Same underlying game (menu/lobby/match state text churn) — keep the
@@ -1571,14 +1576,29 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     elif self._temp_game_lost_time and self._current_game:
                         time_since_lost = (now_dt - self._temp_game_lost_time).total_seconds()
                         if _normalize_game_name(self._current_game) == normalized_new and time_since_lost <= self._active_settings["GAME_TRANSITION_GRACE_SECONDS"]: self._current_game = game_name_display
-                        else: self._handle_game_transition(game_name_display)
-                    else: self._handle_game_transition(game_name_display)
+                        else:
+                            self._handle_game_transition(game_name_display)
+                            new_transition = True
+                    else:
+                        self._handle_game_transition(game_name_display)
+                        new_transition = True
                     self._temp_game_lost_time = None
                 else:
                     self._current_game = game_name_display
                     self._temp_game_lost_time = None
                 display_state = game_name_display
-                
+
+                if new_transition:
+                    # Publish now, before the artwork/rating pipeline below (live
+                    # SteamGridDB + RAWG API calls, sequential) -- a sibling sensor's
+                    # ghost/"Active Elsewhere" check reads this sensor's PUBLISHED
+                    # current_game attribute, not this internal variable, so waiting
+                    # until the full pipeline finished left a multi-second window
+                    # where that check could run first and miss entirely.
+                    self._attr_native_value = display_state
+                    self._write_common_attributes("Playing now", game_cover=self._cached_game_cover)
+                    self.async_write_ha_state()
+
                 if normalized_new and not self._cover_fetch_attempted:
                     self._cover_fetch_attempted = True
                     try:
@@ -1737,7 +1757,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             entity_pic = self._local_avatar_path
             if not entity_pic and platform_data.get("avatar_url"): entity_pic = platform_data.get("avatar_url")
             self._attr_entity_picture = entity_pic
-            self._write_common_attributes(secondary, game_cover=game_cover)
+            self._write_common_attributes(secondary, game_cover=game_cover, xbox_suppressed=platform_data.get("xbox_suppressed", False))
             self.async_write_ha_state()
         except Exception as e: _LOGGER.error("Error in _unified_update for %s: %s", self.entity_id, e)
 
