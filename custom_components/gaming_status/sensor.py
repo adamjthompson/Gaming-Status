@@ -1050,14 +1050,20 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         await self._store.async_save(self._get_store_data())
         self.async_write_ha_state()
 
-    async def async_delete_session(self, game, start_time):
+    async def async_delete_session(self, game, start_time, quiet_if_missing=False):
         """Permanently remove one specific recorded session, correcting only
         that session's contribution to daily/weekly/all-time totals -- unlike
         async_delete_game, this leaves every other session of the same game
         untouched. `start_time` is matched exactly (verbatim string), since
         within a single sensor's own recent_sessions list it's guaranteed
         unique -- _handle_game_transition only ever appends one entry per
-        completed segment, sequentially, so two sessions can't collide."""
+        completed segment, sequentially, so two sessions can't collide.
+
+        `quiet_if_missing` is set when this call is part of an "All Platforms"
+        fan-out (no platform explicitly chosen) -- a session can only ever
+        live on one platform's own history, so a miss on every other platform
+        is guaranteed and not worth a warning. An explicit, single-platform
+        miss is still logged, since that's a genuine anomaly."""
         clean_target = _format_game_name_for_display(get_base_game_name(game))
 
         target_entry = next(
@@ -1066,7 +1072,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             None
         )
         if target_entry is None:
-            _LOGGER.warning("Gaming Status: delete_session found no match for %r at %r on %s", game, start_time, self.entity_id)
+            if quiet_if_missing:
+                _LOGGER.debug("Gaming Status: delete_session found no match for %r at %r on %s", game, start_time, self.entity_id)
+            else:
+                _LOGGER.warning("Gaming Status: delete_session found no match for %r at %r on %s", game, start_time, self.entity_id)
             return
 
         self._recent_sessions.remove(target_entry)

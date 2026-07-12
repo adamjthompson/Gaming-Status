@@ -186,9 +186,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await target.async_delete_game(call.data["game"])
 
     async def _handle_delete_session(call):
-        targets = _resolve_targets(call.data["player"], call.data.get("platform"))
+        platform = call.data.get("platform")
+        targets = _resolve_targets(call.data["player"], platform)
         for target in targets:
-            await target.async_delete_session(call.data["game"], call.data["start_time"])
+            await target.async_delete_session(call.data["game"], call.data["start_time"], quiet_if_missing=platform is None)
 
     if not hass.services.has_service(DOMAIN, "rename_game"):
         hass.services.async_register(DOMAIN, "rename_game", _handle_rename, schema=vol.Schema({
