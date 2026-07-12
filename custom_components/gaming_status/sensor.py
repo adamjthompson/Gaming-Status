@@ -2725,12 +2725,18 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     xbox_ghost_sources = {}
     for p_name, p_data in players.items():
+        _LOGGER.info(
+            "Gaming Status: [ghost-debug] player=%r suppresses_xbox_sensors=%r platforms=%r",
+            p_name, p_data.get("suppresses_xbox_sensors"),
+            {plat: p_data.get(plat) for plat in PLAYER_PLATFORMS},
+        )
         for xbox_entity_id in p_data.get("suppresses_xbox_sensors", []):
             sources = xbox_ghost_sources.setdefault(xbox_entity_id, [])
             for plat in PLAYER_PLATFORMS:
                 if plat == "xbox": continue
                 ent = p_data.get(plat)
                 if ent: sources.append(ent)
+    _LOGGER.info("Gaming Status: [ghost-debug] xbox_ghost_sources = %r", xbox_ghost_sources)
 
     for player_name, player_data in players.items():
         exclude_games = player_data.get("exclude_games", [])
@@ -2751,8 +2757,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             entity_id = player_data.get(platform)
             if entity_id:
                 ghosted_by = xbox_ghost_sources.get(entity_id, []) if platform == "xbox" else []
-                if platform == "xbox" and ghosted_by:
-                    _LOGGER.info("Gaming Status: %s will be suppressed when any of %s is confirmed playing the same game", entity_id, ghosted_by)
+                if platform == "xbox":
+                    _LOGGER.info("Gaming Status: [ghost-debug] %s ghosted_by=%r", entity_id, ghosted_by)
                 sensor_entity = PersistentStatusSensor(hass, entity_id, platform, player_name, ghosted_by, exclude_games, active_settings, global_exclusions, available_avatars)
                 ents.append(sensor_entity)
                 hass.data.setdefault(DOMAIN, {}).setdefault("platform_sensors", {})[sensor_entity.entity_id] = sensor_entity
