@@ -2730,12 +2730,18 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             p_name, p_data.get("suppresses_xbox_sensors"),
             {plat: p_data.get(plat) for plat in PLAYER_PLATFORMS},
         )
+        p_safe_owner = re.sub(r'[^a-z0-9_]', '_', p_name.lower().replace(" ", "_"))
         for xbox_entity_id in p_data.get("suppresses_xbox_sensors", []):
             sources = xbox_ghost_sources.setdefault(xbox_entity_id, [])
             for plat in PLAYER_PLATFORMS:
-                if plat == "xbox": continue
-                ent = p_data.get(plat)
-                if ent: sources.append(ent)
+                if plat == "xbox" or plat not in enabled_platforms: continue
+                # The ghost check needs Gaming Status's OWN derived sensor (which
+                # publishes a sanitized `current_game` attribute), not the raw
+                # source entity configured here -- raw platform integrations
+                # (e.g. the official Steam sensor) have no such attribute and
+                # completely different state semantics, so comparing against
+                # them can never match.
+                if p_data.get(plat): sources.append(f"sensor.gaming_status_{p_safe_owner}_{plat}")
     _LOGGER.info("Gaming Status: [ghost-debug] xbox_ghost_sources = %r", xbox_ghost_sources)
 
     for player_name, player_data in players.items():
