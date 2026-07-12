@@ -344,16 +344,21 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         self.entity_id, ghost_entity_id,
                     )
                 continue
-            if state.state not in [STATE_UNKNOWN, STATE_UNAVAILABLE, "Offline", "offline"]:
-                other_game = state.attributes.get("current_game") or state.state
-                clean_other = _format_game_name_for_display(get_base_game_name(other_game))
-                # Exact match always counts, independent of the same-game-prefix
-                # setting below, so disabling that heuristic never accidentally
-                # disables ghosting for identically-named games.
-                if _normalize_game_name(clean_target) == _normalize_game_name(clean_other):
-                    return True
-                if _is_same_base_game(clean_target, clean_other, self._active_settings["SAME_GAME_PREFIX_WORDS"]):
-                    return True
+            other_game = state.attributes.get("current_game") or state.state
+            clean_other = _format_game_name_for_display(get_base_game_name(other_game))
+            # Exact match always counts, independent of the same-game-prefix
+            # setting below, so disabling that heuristic never accidentally
+            # disables ghosting for identically-named games.
+            is_match = (
+                _normalize_game_name(clean_target) == _normalize_game_name(clean_other)
+                or _is_same_base_game(clean_target, clean_other, self._active_settings["SAME_GAME_PREFIX_WORDS"])
+            )
+            _LOGGER.debug(
+                "Gaming Status: %s ghost-check target=%r vs %s (state=%r, current_game=%r, normalized_other=%r) -> match=%s",
+                self.entity_id, clean_target, ghost_entity_id, state.state, state.attributes.get("current_game"), clean_other, is_match,
+            )
+            if state.state not in [STATE_UNKNOWN, STATE_UNAVAILABLE, "Offline", "offline"] and is_match:
+                return True
         return False
 
     def _is_game_active_elsewhere(self, current_game):
@@ -2737,6 +2742,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             entity_id = player_data.get(platform)
             if entity_id:
                 ghosted_by = xbox_ghost_sources.get(entity_id, []) if platform == "xbox" else []
+                if platform == "xbox" and ghosted_by:
+                    _LOGGER.info("Gaming Status: %s will be suppressed when any of %s is confirmed playing the same game", entity_id, ghosted_by)
                 sensor_entity = PersistentStatusSensor(hass, entity_id, platform, player_name, ghosted_by, exclude_games, active_settings, global_exclusions, available_avatars)
                 ents.append(sensor_entity)
                 hass.data.setdefault(DOMAIN, {}).setdefault("platform_sensors", {})[sensor_entity.entity_id] = sensor_entity
