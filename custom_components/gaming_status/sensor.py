@@ -344,6 +344,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         self.entity_id, ghost_entity_id,
                     )
                 continue
+            # The entity exists again -- clear any earlier "missing" warning so a
+            # genuine future disappearance (not just a one-time startup race,
+            # e.g. this sensor updating before the referenced one finished being
+            # added to hass) is still reported instead of staying silenced forever.
+            self._ghost_missing_warned.discard(ghost_entity_id)
             other_game = state.attributes.get("current_game") or state.state
             clean_other = _format_game_name_for_display(get_base_game_name(other_game))
             # Exact match always counts, independent of the same-game-prefix
