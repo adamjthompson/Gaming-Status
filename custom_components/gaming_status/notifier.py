@@ -384,6 +384,36 @@ class GamingNotifier:
     # State change handler
     # ------------------------------------------------------------------
 
+    async def _wait_for_enriched_state(self, entity_id):
+        """Poll up to 15s (every 3s) for artwork/color to populate after a
+        transition, so a notification doesn't fire off the early,
+        pre-enrichment state write a sensor publishes immediately on
+        detecting a new game (before the slower artwork/color pipeline
+        runs). Returns the refreshed state once real artwork (and color,
+        if Discord's color mode is "game") has appeared, or None if the
+        game closed/went offline/excluded during the wait, in which case
+        the caller should abort the notification."""
+        refreshed_state = None
+        for _ in range(5):
+            await asyncio.sleep(3)
+            temp_state = self.hass.states.get(entity_id)
+            if temp_state and temp_state.state.lower() not in (["offline", "unknown", "unavailable"] + self._cached_exclusions):
+                refreshed_state = temp_state
+
+                # If the API successfully populated custom art (not just the fallback Akamai link), stop waiting!
+                art_check = refreshed_state.attributes.get("game_hero_art") or refreshed_state.attributes.get("game_cover_art")
+                color_check = refreshed_state.attributes.get("game_dominant_color")
+
+                from .utils import url_host_matches
+                if art_check and not url_host_matches(art_check, "akamaihd.net"):
+                    # If Discord is set to Game Color, wait an extra tick for the extraction algorithm to finish!
+                    if self._cached_discord_colors.get("mode") == "game" and not color_check:
+                        continue
+                    break
+            else:
+                return None  # The game was closed instantly, abort notification
+        return refreshed_state
+
     async def _handle_state_change(self, event) -> None:
         if not self._enable_notifications:
             return
@@ -428,37 +458,29 @@ class GamingNotifier:
                 return
                 
             self._last_start_time[target_player] = now
-            
+
             # SMART POLLING DELAY: Give the API up to 15 seconds to fetch artwork, checking every 3 seconds
-            refreshed_state = None
-            for _ in range(5):
-                await asyncio.sleep(3)
-                temp_state = self.hass.states.get(entity_id)
-                if temp_state and temp_state.state.lower() not in (["offline", "unknown", "unavailable"] + self._cached_exclusions):
-                    refreshed_state = temp_state
-                    
-                    # If the API successfully populated custom art (not just the fallback Akamai link), stop waiting!
-                    art_check = refreshed_state.attributes.get("game_hero_art") or refreshed_state.attributes.get("game_cover_art")
-                    color_check = refreshed_state.attributes.get("game_dominant_color")
-                    
-                    from .utils import url_host_matches
-                    if art_check and not url_host_matches(art_check, "akamaihd.net"):
-                        # If Discord is set to Game Color, wait an extra tick for the extraction algorithm to finish!
-                        if self._cached_discord_colors.get("mode") == "game" and not color_check:
-                            continue
-                        break
-                else:
-                    return # The game was closed instantly, abort notification
-            
-            if refreshed_state:
-                new_state = refreshed_state
-                new_game = " ".join(str(new_state.state).split())
-                
+            refreshed_state = await self._wait_for_enriched_state(entity_id)
+            if refreshed_state is None:
+                return  # The game was closed instantly, abort notification
+            new_state = refreshed_state
+            new_game = " ".join(str(new_state.state).split())
+
         elif is_switch:
             last_start = self._last_start_time.get(target_player)
             # If a game launcher transitioned to the real game within 90 seconds, suppress the switch alert
             if last_start and (now - last_start).total_seconds() < 90:
                 return
+
+            # Same wait as is_start: the new game's own state write happens
+            # immediately on detection, before artwork/color extraction runs,
+            # so acting on it right away would always fall back to the
+            # default embed color instead of the real game's color.
+            refreshed_state = await self._wait_for_enriched_state(entity_id)
+            if refreshed_state is None:
+                return
+            new_state = refreshed_state
+            new_game = " ".join(str(new_state.state).split())
 
         if not (is_start or is_switch or is_end): return
 
