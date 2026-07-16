@@ -14,29 +14,29 @@ Some of the key features are listed below.
 * **Parental Controls:** Track daily playtime and recieve notifications when a limit, curfew, or age-rating threshold is reached.
 * **Discord Rich Presence:** Track hundreds of standalone games, emulators, and Epic/EA/Ubisoft launchers automatically by hooking into Discord's Rich Presence status. Automatically ignores custom text statuses to prevent false positives.
 * **Custom PC Game Support:** Track non-platform games (like Epic Games, Minecraft, or Genshin Impact) using template funnels or binary sensors.
-* **PC Sub-Master Sensor:** Automatically aggregates Custom, Steam, and Discord tracking into a single, unified "PC" status. It features smart platform yielding (e.g., Discord quietly steps aside if Steam is tracking the same game) to completely eliminate double-counting in your playtime analytics.
-* **Smart Ghosting Protection:** Prevents echo sessions on a shared PC — e.g., when the Windows Xbox app incorrectly broadcasts another player's Steam/Playnite game as its own. Configured on the *authoritative* player (pick which other players' Xbox sensors to suppress).
-* **Drop-Out Protection:** Built-in grace periods prevent a gamer from appearing "Offline" if their game crashes, they switch titles, or their internet briefly blips, keeping play sessions perfectly intact.
+* **PC Sub-Master Sensor:** Automatically aggregates Custom, Steam, PLaynite, and Discord tracking into a single, unified "PC" status. It features smart platform yielding (e.g., Discord quietly steps aside if Steam is tracking the same game) to eliminate double-counting in your playtime analytics.
+* **Smart Ghosting Protection:** Prevents echo sessions on a shared PC — e.g., when the Windows Xbox app incorrectly broadcasts another player's Steam game as its own. Configured on the *authoritative* player (pick which other players' Xbox sensors to suppress).
+* **Drop-Out Protection:** Built-in grace periods prevent a gamer from appearing "Offline" if their game crashes, they switch titles, or their internet briefly blips, keeping play sessions perfectly intact and avoiding unnecessary notifications.
 * **Playtime Analytics:** Automatically calculates session time, daily hours, and a rolling 7-day total for easy dashboard charting.
 * **Clean Dashboards:** Automatically sanitizes messy game titles (e.g., changes "Minecraft Launcher" to "Minecraft") and pulls high-quality cover art from SteamGridDB.
 * **Advanced Exclusion Filtering:** Prevent media apps (Netflix, YouTube, Spotify) or background processes from triggering gaming statuses using a global exclusions list.
-* **Customizable Cover Art:** Automatically fetches gorgeous images from SteamGridDB and passes them to your dashboard via URL and/or caches them locally for fast updates.
+* **Customizable Cover Art:** Automatically fetches gorgeous images from SteamGridDB and passes them to your dashboard via URL and caches them locally for fast updates.
 * **"Last Seen" Memory:** When gamers go offline, the sensor retains their last played game and calculates exactly how long ago they were active (e.g., *Last seen 3h ago: Genshin Impact (1h 37m)*).
-* **Custom Avatars:** Automatically pulls live gamer pictures from platform APIs, with the option to easily override missing or incorrect images with your own local images.
+* **Custom Avatars:** Automatically pulls live gamer pictures from platform APIs, with the option to override missing or incorrect images with your own local images.
 
 ## ⚠️ Prerequisites
-This integration acts as a "wrapper" that intelligently processes data from your existing integrations. Before installing, ensure you have any necessary base integrations installed and working in Home Assistant. Not all are required, but I recommend having at least ONE official integration installed. Discord and Playnite can also be used for game tracking with or without the other integrations, but they are more complicated to set up:
+This integration acts as a "wrapper" that intelligently processes data from your existing integrations. Before installing, ensure you have any necessary base integrations installed and working in Home Assistant. Not all are required, but it is recommended that you have at least ONE official integration installed. Discord and Playnite can also be used for game tracking with or without the other integrations, but they are more complicated to set up:
 * [Official PlayStation Network Integration](https://www.home-assistant.io/integrations/playstation_network)
 * [Official Steam Integration](https://www.home-assistant.io/integrations/steam_online)
 * [Official Xbox Integration](https://www.home-assistant.io/integrations/xbox)
 
 ## Recommended
-While not required for functionality, I recommend installing the following HACS for the most robust dashboard cards:
+While not required for functionality, I recommend installing the following for the most robust dashboard cards and tracking:
 * [SteamGridDB API Key](https://www.steamgriddb.com/) - Provides artwork for games. *This is not REQUIRED, but it is HIGHLY recommended!*
 * [Gaming Status Cards](https://github.com/adamjthompson/Gaming-Status-Cards) - Easy to use companion dashboard cards, so you don't have to make your own.
-* [Official Discord Integration](https://www.home-assistant.io/integrations/discord) - Requires setting up a Discord Bot. *REQUIRED if you want to use Discord for notifications.*
+* [Official Discord Integration](https://www.home-assistant.io/integrations/discord) - Requires setting up a Discord Bot. *REQUIRED if you want to use Discord for notifications but NOT required for Discord game tracking.*
 * [Mosquitto Broker](https://github.com/home-assistant/addons/tree/master/mosquitto) - *REQUIRED if you plan to use Playnite for tracking games.* You will also need an MQTT add-on installed in Playnite (such as [Playnite MQTT Client](https://playnite.link/addons.html#MQTTClient_90c44048-4f8f-43f7-a0c1-f8164bf1d7ef)) to broadcast your status to Home Assistant.
-* [HASS.Agent](https://www.hass-agent.io/2.2/getting-started/installation/#installing-hassagent) - Allows you to create custom sensors for otherwise untrackable games. Install both the PC app and the integration for Custom PC sensors. *Try using Discord or Playnite tracking first, if possible, since HASS Agent sensors have to be individually created for each tracked game.*
+* [HASS.Agent](https://www.hass-agent.io/2.2/getting-started/installation/#installing-hassagent) - Allows you to create custom sensors for otherwise untrackable games. Install both the PC app and the integration for Custom PC sensors. *Try using Discord or Playnite tracking first, if possible, since HASS Agent sensors have to be individually created for EACH tracked game on each device.*
 
 ### Obtaining a SteamGridDB API Key
 To display beautiful, high-resolution game covers on your dashboard, this integration requires a free API key from SteamGridDB.
@@ -46,7 +46,7 @@ To display beautiful, high-resolution game covers on your dashboard, this integr
 3. Click your profile picture in the top right and select **Preferences**.
 4. Navigate to the **API** tab on the left menu.
 5. Click **Generate API Key**.
-6. Copy the string of letters and numbers generated. 
+6. Copy the generated key and paste it into the **SteamGridDB API Key** field during Initial Setup or under the Advanced menu. 
 
 ### Obtaining a RAWG.io API Key (for Content Ratings)
 If you plan to use the **Content Rating Limit** parental control, this integration looks up each game's ESRB rating via a free API key from [RAWG.io](https://rawg.io/).
@@ -80,8 +80,8 @@ Gaming Status is configured entirely through the Home Assistant UI. **There is n
 ### Initial Setup
 1. In Home Assistant, navigate to **Settings** > **Devices & Services**.
 2. Click **+ Add Integration** and search for **Gaming Status**.
-3. You will be prompted to enter a **SteamGridDB API Key** (Optional). This is highly recommended to automatically fetch beautiful hero art for your games. You can get a free key [here](https://www.steamgriddb.com/profile/api).
-4. You'll also see a **RAWG.io API Key** (Optional) field, used to automatically look up content/age ratings for the Parental Controls Content Rating Limit rule. You can get a free key [here](https://rawg.io/apidocs), or add it later under Advanced.
+3. You will be prompted to enter a **SteamGridDB API Key** (Optional). This is highly recommended to automatically fetch beautiful hero art for your games. You can get a free key [here](https://www.steamgriddb.com/profile/api) or add it later under Advanced.
+4. You'll also see a **RAWG.io API Key** (Optional) field, used to automatically look up content/age ratings for the Parental Controls Content Rating Limit rule. You can get a free key [here](https://rawg.io/apidocs) or add it later under Advanced.
 5. Click Submit. 
 
 ### Options & Features
@@ -89,10 +89,10 @@ To configure your players, notifications, and rules, click the **Configure** but
 
 #### 1. Manage Players
 Add, edit, or delete the gamers in your household.
-* **Platform Sensors:** When adding a player, you simply select their respective integration sensors from the dropdowns. The integration will automatically filter your entities to show the correct Steam (`sensor.steam_*`), Xbox (`sensor.*_status`), PlayStation (`sensor.*_now_playing`), and Playnite (MQTT `binary_sensor.*_playnite_playing_game`) entities. *(Note: To remove a previously assigned sensor, simply click the 'X' to clear the entity dropdown and click Submit. The integration will safely save the empty state and stop tracking that platform).*
+* **Platform Sensors:** When adding a player, you simply select their respective integration sensors from the dropdowns. The integration will automatically filter your entities to show the correct Steam (`sensor.steam_*`), Xbox (`sensor.*_status`), PlayStation (`sensor.*_now_playing`), and Playnite (MQTT `binary_sensor.*_playnite_playing_game`) entities. *(Note: To remove a previously assigned sensor, simply click the 'X' to clear the entity dropdown and click Submit. The integration will save the empty state and stop tracking that platform).*
 * **Player Details:** After adding a player, you can configure:
   * **Session Notifications:** Select notification methods for when this specific player starts or stops gaming. *Note: These must be configured under Notifications.*
-  * **Suppress other players' Xbox sensors:** Configured on the player whose *own* sensor(s) are accurate — pick which other players' Xbox sensors should be suppressed whenever this player is confirmed playing. Fixes a shared-PC Xbox app misattributing this player's Steam/Playnite session to someone else's Xbox account. *Only for cross-player mixups; the same player's own overlapping sensors are already handled automatically.*
+  * **Suppress other players' Xbox sensors:** Configured on the player whose *own* sensor(s) are accurate. Pick which other players' Xbox sensors should be suppressed whenever this player is confirmed playing. Fixes a shared-PC Xbox app misattributing this player's Steam session to someone else's Xbox account. *Only for cross-player mixups; the same player's own overlapping sensors are already handled automatically.*
   * **Exclude Games:** Comma-separated list of games to ignore for this specific player.
 
 #### 2. Notifications (Requires Global Toggle)
@@ -100,19 +100,19 @@ Manage where your [gaming alerts and weekly reports](docs/notifications.md) are 
 * **Notify Artwork Style:** Choose which fetched artwork type (Cover, Hero, Logo, Icon) attaches to your notifications.
 * **Add Notification:** Map a friendly name (e.g., "Dad's Phone") to an existing Home Assistant `notify.` service. It fully supports standard mobile app notifications, Discord, and SMS.
 * **Discord Notification Colors:** Customize the embed colors for Discord alerts (Default, Platform Colors, Game Color, or Custom Hex).
-* **Weekly Report:** Send a beautifully formatted summary of everyone's weekly playtime and top games to your selected notification methods on a specific day and time.
+* **Weekly Report:** Send a formatted summary of everyone's weekly playtime and top games to your selected notification methods on a specific day and time.
 
 #### 3. Parental Controls (Requires Global Toggle)
 Set automated rules based on accumulated playtime, time of day, or game content rating.
 * **Screen Time:** Set distinct weekday and weekend daily minute limits.
 * **Curfew:** Set distinct weekday and weekend cutoff times (e.g., 22:00).
-* **Content Rating Limit:** Set a maximum allowed age rating (e.g., "Ages 13+"). Ratings are looked up automatically via a free [RAWG.io API key](#obtaining-a-rawgio-api-key-for-content-ratings) (configured under Advanced) and cached indefinitely once found for a game. If the player's active game exceeds the configured age, a notification is sent the moment that game starts — switching to a *different* over-the-limit game always sends a fresh notification, but the same game won't spam you again while it keeps running.
+* **Content Rating Limit:** Set a maximum allowed age rating (e.g., "Ages 13+"). Ratings are looked up automatically via a free [RAWG.io API key](#obtaining-a-rawgio-api-key-for-content-ratings) (configured under Advanced) and cached indefinitely once found for a game. If the player's active game rating exceeds the configured age, a notification is sent the moment that game starts — switching to a *different* over-the-limit game always sends a fresh notification, but the same game won't spam you again while it keeps running.
 * **Reminder Frequency:** *(Screen Time and Curfew only)* Set how often to repeat the notification(s).
 * **Notifications:** When a limit is reached, you can automatically send a notification using any of your configured methods.
 
 #### 4. Custom Artwork
 Manually assign artwork or colors to specific games using simple `Game = Value` lists.
-* **Custom Asset Maps (Grid, Hero, Logo, Icon):** Assign artwork for custom games or unrecognized titles. Fully supports web URLs and Home Assistant `/local/` paths. *(Example: `Marvel Rivals = /local/covers/marvel.png`)*
+* **Custom Asset Maps (Grid, Hero, Logo, Icon):** Assign artwork for custom games or unrecognized titles. Fully supports web URLs and Home Assistant `/local/` paths. *(Example: `Marvel Rivals = /local/covers/marvel_rivals.png`)*
 * **Custom Colors:** Override the automatic dominant color extractor by assigning specific hex codes to games. *(Example: `Cyberpunk 2077 = #fcee0a`)*
 
 #### 5. Advanced
@@ -161,7 +161,7 @@ Playnite is an incredible open-source library manager that can track games acros
 **The PC Sub-Master Priority Logic:**
 If a player launches a game, it is very common for multiple trackers (like Discord, Playnite, and Steam) to detect it simultaneously. To prevent double-counting your playtime hours and sending duplicate push notifications, the `sensor.gaming_status_XXXXX_pc` sensor uses strict **Smart Platform Yielding**. 
 
-Platforms are prioritized in this exact order: **Playnite > Custom > Steam > Discord**.
+Platforms are prioritized in this order: **Playnite > Custom > Steam > Discord**.
 * *Example:* If a player launches a Steam game, Discord will likely detect it first and claim the dashboard. Seconds later, when Steam wakes up and detects the same game, Discord will instantly pause its timer and yield control to Steam. 
 * *Result:* You get the lightning-fast notifications of Discord, but the pristine, deduplicated analytics of Steam!
 
