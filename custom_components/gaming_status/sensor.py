@@ -671,6 +671,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     # event loop delays) is added to the breakdown so the chart matches
                     # the session time shown on the card.
                     gap = int(effective_seconds) - session_ticks
+                    if gap != 0:
+                        _LOGGER.debug(
+                            "Gaming Status: %s session-close reconciliation for %r -- session_ticks=%s, blocked_seconds=%s, effective_seconds=%s, gap=%s",
+                            self.entity_id, self._current_game, session_ticks, blocked_seconds, effective_seconds, gap,
+                        )
                     if gap > 0:
                         self._bump_playtime(self._current_game, gap)
                         self._daily_play_time = int((self._daily_play_time or 0) + gap)
@@ -688,17 +693,22 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         self._weekly_play_time = max(0, int((self._weekly_play_time or 0) + gap))
 
                     # Log this completed session for the "recent_sessions" history.
-                    # Skip sessions with zero real accumulated ticks - these were
-                    # blocked ("Active Elsewhere") for their entire wall-clock
-                    # duration by another, higher-priority platform tracking the
-                    # same game, so logging them would create a duplicate row for
-                    # a session this platform never actually tracked.
+                    # Gated only on effective_seconds > 0 (guaranteed by the
+                    # enclosing branch, and already above MIN_SESSION_DURATION) --
+                    # NOT on session_ticks, which can legitimately stay at 0 even
+                    # for a genuinely-credited segment whenever ticks fall behind
+                    # wall-clock time (blocking, connectivity blips, timing delays)
+                    # and get reconciled via the gap top-up above. Gating on ticks
+                    # used to assume "ticks==0 always means a fully-blocked
+                    # duplicate," but that's not true once a partial/near-total gap
+                    # gets topped up -- it just silently dropped the session row
+                    # while still crediting the aggregate totals.
                     # Note: a brief network blip after 5+ minutes of play can end a
                     # session here and have it "resurrect" as a new one below, which
                     # will show as two rows instead of one continuous session - a
                     # known, accepted edge case (same tradeoff the aggregate totals
                     # above already make in favor of not losing playtime).
-                    if self._current_game and session_ticks > 0:
+                    if self._current_game:
                         self._all_time_session_count = getattr(self, "_all_time_session_count", 0) + 1
                         local_start = dt_util.as_local(start_dt)
                         local_end = dt_util.as_local(actual_end_time)
@@ -1370,6 +1380,16 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 self._current_game = None
                 self._play_start_time = None
                 self._attr_native_value = "Offline"
+            if self._current_game and _normalize_game_name(self._current_game) in (self._global_exclusions_lower | self._exclude_games):
+                # This game was added to the global or this player's own
+                # exclusion list since the session started -- end it
+                # immediately (crediting whatever time genuinely accrued
+                # before the exclusion was added), instead of silently
+                # continuing to track an app that should never count as a
+                # game, until the player naturally switches away.
+                self._handle_game_transition(None)
+                self._attr_native_value = "Offline"
+                self._attr_extra_state_attributes["current_game"] = None
             if self._last_game_stopped_timestamp: self._last_online_valid_timestamp = self._last_game_stopped_timestamp
         
         for zombie in ZOMBIE_ATTRIBUTES:
