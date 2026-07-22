@@ -1,6 +1,6 @@
 ![Gaming Status Logo](custom_components/gaming_status/brand/logo.png)
 
-# 🎮 Gaming Status for Home Assistant
+# Gaming Status for Home Assistant
 
 This is a powerful, unified custom integration for Home Assistant that tracks and consolidates gaming presence across Steam, Xbox Live, PlayStation Network, Discord, Playnite, and custom PC clients into a single, clean dashboard sensor for each person in your household / friend group. It's super useful if you want to be able to track who is online, what they're playing, and for how long. 
 
@@ -8,7 +8,7 @@ I started developing this as a way to have persistent sensors since I was annoye
 
 Some of the key features are listed below.
 
-## ✨ Features
+## Features
 * **Unified Master Sensor:** Combines Xbox, PlayStation, Steam, Discord, Playnite, and Custom PC clients into one clean "Master Status" sensor per person.
 * **Online/Offline Notifications:** Receive Discord, SMS, and/or Mobile notifications when users start or finish playing a game.
 * **Parental Controls:** Track daily playtime and recieve notifications when a limit, curfew, or age-rating threshold is reached.
@@ -24,7 +24,7 @@ Some of the key features are listed below.
 * **"Last Seen" Memory:** When gamers go offline, the sensor retains their last played game and calculates exactly how long ago they were active (e.g., *Last seen 3h ago: Genshin Impact (1h 37m)*).
 * **Custom Avatars:** Automatically pulls live gamer pictures from platform APIs, with the option to override missing or incorrect images with your own local images.
 
-## ⚠️ Prerequisites
+## Prerequisites
 This integration acts as a "wrapper" that intelligently processes data from your existing integrations. Before installing, ensure you have any necessary base integrations installed and working in Home Assistant. Not all are required, but it is recommended that you have at least ONE official integration installed. Discord and Playnite can also be used for game tracking with or without the other integrations, but they are more complicated to set up:
 * [Official PlayStation Network Integration](https://www.home-assistant.io/integrations/playstation_network)
 * [Official Steam Integration](https://www.home-assistant.io/integrations/steam_online)
@@ -57,7 +57,7 @@ If you plan to use the **Content Rating Limit** parental control, this integrati
 
 *Note: RAWG's rating coverage isn't complete for every title. If a game comes back unrated, you can manually assign it a rating using the Content Rating Overrides field under Advanced (see below).*
 
-## 📥 Installation
+## Installation
 
 **Method 1: HACS (Recommended)**
 Installation is easiest via the [Home Assistant Community Store (HACS)](https://hacs.xyz/). Gaming Status is a default repository in HACS, so you do not need to add any custom links! 
@@ -69,7 +69,7 @@ Simply click the button below (requires My Home Assistant configured) to open th
 **Method 2: Manual**
 Copy the `gaming_status` folder into your `custom_components` folder and restart Home Assistant.
 
-## ⚙️ Configuration
+## Configuration
 
 Go to Settings / Devices & Services and press the Add Integration button, or click the shortcut button below (requires My Homeassistant configured):
 
@@ -303,7 +303,7 @@ Permanently purges every trace of a named game from a player's stored history �
 
 Both services can also be triggered from a dashboard using the [Game Management card](https://github.com/adamjthompson/Gaming-Status-Cards#8-gaming-status---game-management), which provides player/platform/game dropdowns populated from real data instead of requiring you to type exact names.
 
-## ❓ What Next?
+## What Next?
 Once everything is up and running (with sensors showing up from the integration), try playing a game for at least 5 minutes to make sure the online status is reflected in the `_master` sensors. *Note that, by default, sessions shorter than 300 seconds (5 minutes) are discarded and do not count toward the total playtime hours.* If the sensors are working correctly, try some of the following! If not, see the [troubleshooting](docs/troubleshooting.md) documentation.
 
 - Add some sweet displays to your [dashboard](https://github.com/adamjthompson/Gaming-Status-Cards#1-gaming-status---list), showing who's online and what they're playing
