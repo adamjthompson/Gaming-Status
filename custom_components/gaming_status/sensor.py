@@ -116,6 +116,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._owner_name = owner_name
         self._ghosted_by = ghosted_by or []
         self._ghost_missing_warned = set()
+        self._init_time = dt_util.now()
         self._available_avatars = available_avatars or []
         
         self._avatar_entity_id = None
@@ -336,6 +337,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         for ghost_entity_id in self._ghosted_by:
             state = self.hass.states.get(ghost_entity_id)
             if state is None:
+                # Give referenced entities a brief window to finish being added
+                # to hass after a restart/reload -- asyncio scheduling order
+                # across many simultaneously-initializing entities isn't
+                # guaranteed, so a miss in the first moments is expected, not
+                # a misconfiguration. Don't mark it as warned during this
+                # window, so a genuine miss still gets flagged once it ends.
+                if dt_util.now() - self._init_time < timedelta(seconds=30):
+                    continue
                 if ghost_entity_id not in self._ghost_missing_warned:
                     self._ghost_missing_warned.add(ghost_entity_id)
                     _LOGGER.warning(
