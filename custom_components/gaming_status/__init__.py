@@ -175,21 +175,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 for p in platforms
                 if f"sensor.gaming_status_{safe_owner}_{p}" in sensors]
 
+    async def _refresh_master(player):
+        # The master sensor normally only re-merges reactively off its
+        # platform sensors' own state-change events -- a separate async
+        # task, not synchronous with the rename/delete/add/reassign call
+        # above. Force it to recompute immediately instead, so the service
+        # call doesn't return to the frontend until master's data (what the
+        # "All Platforms" card view actually reads) is already consistent,
+        # rather than relying on the reactive listener's timing.
+        safe_owner = re.sub(r'[^a-z0-9_]', '_', player.lower().replace(" ", "_"))
+        master = hass.data[DOMAIN].get("master_sensors", {}).get(f"sensor.gaming_status_{safe_owner}_master")
+        if master is not None:
+            await master._update_master_state()
+
     async def _handle_rename(call):
         targets = _resolve_targets(call.data["player"], call.data.get("platform"))
         for target in targets:
             await target.async_rename_game(call.data["old_name"], call.data["new_name"])
+        await _refresh_master(call.data["player"])
 
     async def _handle_delete(call):
         targets = _resolve_targets(call.data["player"], call.data.get("platform"))
         for target in targets:
             await target.async_delete_game(call.data["game"])
+        await _refresh_master(call.data["player"])
 
     async def _handle_delete_session(call):
         platform = call.data.get("platform")
         targets = _resolve_targets(call.data["player"], platform)
         for target in targets:
             await target.async_delete_session(call.data["game"], call.data["start_time"], quiet_if_missing=platform is None)
+        await _refresh_master(call.data["player"])
 
     async def _handle_add_session(call):
         targets = _resolve_targets(call.data["player"], call.data["platform"])
@@ -197,6 +213,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.warning("Gaming Status: add_session couldn't resolve a sensor for player=%r platform=%r", call.data["player"], call.data["platform"])
             return
         await targets[0].async_add_session(call.data["game"], call.data["start_time"], call.data["end_time"])
+        await _refresh_master(call.data["player"])
 
     async def _handle_reassign_session(call):
         from_targets = _resolve_targets(call.data["from_player"], call.data.get("from_platform"))
@@ -216,6 +233,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     hero_art_url=entry.get("hero_art_url"), game_dominant_color=entry.get("game_dominant_color"),
                 )
                 await source.async_delete_session(game, start_time)
+                await _refresh_master(call.data["from_player"])
+                if call.data["to_player"] != call.data["from_player"]:
+                    await _refresh_master(call.data["to_player"])
                 return
         _LOGGER.warning("Gaming Status: reassign_session found no match for %r at %r for player=%r", game, start_time, call.data["from_player"])
 

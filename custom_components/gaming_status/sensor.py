@@ -2966,7 +2966,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             if registry.async_get(target_id):
                 registry.async_remove(target_id)
 
-        ents.append(MasterGamingSensor(hass, player_name, player_data, rules, active_settings["SAME_GAME_PREFIX_WORDS"], active_settings["MASTER_HANDOFF_GRACE_SECONDS"]))
+        master_sensor = MasterGamingSensor(hass, player_name, player_data, rules, active_settings["SAME_GAME_PREFIX_WORDS"], active_settings["MASTER_HANDOFF_GRACE_SECONDS"])
+        ents.append(master_sensor)
+        hass.data.setdefault(DOMAIN, {}).setdefault("master_sensors", {})[master_sensor.entity_id] = master_sensor
 
     ents.append(GlobalOnlineCountSensor(hass, players))
     async_add_entities(ents)
