@@ -83,6 +83,9 @@ OPT_MASTER_HANDOFF_GRACE = "master_handoff_grace_seconds"
 
 OPT_ENABLED_PLATFORMS = "enabled_platforms"
 DEFAULT_ENABLED_PLATFORMS = ["steam", "xbox", "playstation", "discord", "custom", "playnite"]
+
+OPT_ENABLE_PS3_TRACKING = "enable_ps3_tracking"
+DEFAULT_ENABLE_PS3_TRACKING = False
 OPT_ENABLE_NOTIFICATIONS = "enable_notifications"
 DEFAULT_ENABLE_NOTIFICATIONS = False
 OPT_ENABLE_PARENTAL = "enable_parental"

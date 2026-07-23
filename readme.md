@@ -90,6 +90,7 @@ To configure your players, notifications, and rules, click the **Configure** but
 #### 1. Manage Players
 Add, edit, or delete the gamers in your household.
 * **Platform Sensors:** When adding a player, you simply select their respective integration sensors from the dropdowns. The integration will automatically filter your entities to show the correct Steam (`sensor.steam_*`), Xbox (`sensor.*_status`), PlayStation (`sensor.*_now_playing`), and Playnite (MQTT `binary_sensor.*_playnite_playing_game`) entities. *(Note: To remove a previously assigned sensor, simply click the 'X' to clear the entity dropdown and click Submit. The integration will save the empty state and stop tracking that platform).*
+* **PS3 Media Player:** *(Only shown when a player has a PlayStation sensor configured, and PS3 Tracking is enabled under Global Settings)* The PS3 predates the modern PlayStation Network status API, so it can't be tracked the same way as PS4/PS5 — instead, select its `media_player.*` entity (also provided by the official PlayStation Network integration). PS3 activity feeds directly into that player's existing PlayStation sensor and history, rather than creating a separate sensor.
 * **Player Details:** After adding a player, you can configure:
   * **Session Notifications:** Select notification methods for when this specific player starts or stops gaming. *Note: These must be configured under Notifications.*
   * **Suppress other players' Xbox sensors:** Configured on the player whose *own* sensor(s) are accurate. Pick which other players' Xbox sensors should be suppressed whenever this player is confirmed playing. Fixes a shared-PC Xbox app misattributing this player's Steam session to someone else's Xbox account. *Only for cross-player mixups; the same player's own overlapping sensors are already handled automatically.*
@@ -126,6 +127,7 @@ Update your API keys and fine-tune text processing rules.
 #### 6. Global Settings
 These variables control how the integration handles platforms, caching, and network drops across all players.
 * **Enabled Platforms:** Select which gaming platforms to track (Steam, Xbox, PlayStation, Discord, Playnite, and Custom).
+* **Enable PS3 Tracking:** Adds the PS3 Media Player field (see Manage Players above) to PlayStation-enabled player profiles.
 * **Master Toggles:** Enable or disable the Notifications and Parental Controls configuration hubs.
 * **Cache Settings:** Toggle local image caching, automatic vibrant color extraction, and configure background cleanup limits (Max Files & Max Days).
 * **Grace Periods (Network / Away / Transition):** Configure exactly how long the integration waits during network drops, idle statuses, or game switches before ending a session.

@@ -67,7 +67,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         "all_time_total_hours", "all_time_session_count", "all_time_top_games",
     })
 
-    def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None, active_settings=None, global_exclusions=None, available_avatars=None):
+    def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None, active_settings=None, global_exclusions=None, available_avatars=None, ps3_entity_id=None):
         
         # --- SILENT AUTO-CORRECTION FOR CONSOLES ---
         # Migrate legacy _online_status / _onlinestatus sources to _now_playing.
@@ -121,6 +121,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         
         self._avatar_entity_id = None
         self._xbox_now_playing_entity_id = None
+        self._ps3_entity_id = ps3_entity_id
 
         self._exclude_games = {_normalize_game_name(g) for g in (exclude_games or [])}
         self._global_exclusions_lower = {_normalize_game_name(x) for x in (global_exclusions or [])}
@@ -566,16 +567,38 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             data["avatar_url"] = image_state.attributes.get("entity_picture")
                 except Exception: pass
 
-            # State IS the game title; unknown/unavailable means not gaming
-            if is_globally_excluded or is_user_excluded:
+            # State IS the game title by default; unknown/unavailable means not
+            # gaming -- unless a PS3 media_player sibling is configured and is
+            # itself reporting "playing", in which case IT takes priority (PS3
+            # predates the modern PSN status API, so it has no now_playing
+            # sensor of its own -- it feeds into this same sensor instead).
+            potential_game = state
+            found_ps3 = False
+            ps3_state = None
+            if self._ps3_entity_id:
+                ps3_state = self.hass.states.get(self._ps3_entity_id)
+                if ps3_state and ps3_state.state.lower() == "playing":
+                    ps3_title = ps3_state.attributes.get("media_title")
+                    if ps3_title:
+                        potential_game = ps3_title
+                        found_ps3 = True
+
+            # Recompute exclusion against whichever source actually applies --
+            # is_globally_excluded/is_user_excluded above were derived from the
+            # primary source's raw state, which is irrelevant once the PS3
+            # sibling is the one actually supplying the game title.
+            if _normalize_game_name(potential_game) in (self._global_exclusions_lower | self._exclude_games):
                 data["is_online"] = False
-            elif state_clean not in ["unknown", "unavailable", "unknown game", "none", "", "offline"]:
-                if self._is_game_active_elsewhere(state):
+            elif found_ps3 or state_clean not in ["unknown", "unavailable", "unknown game", "none", "", "offline"]:
+                if self._is_game_active_elsewhere(potential_game):
                     data["is_online"] = False
                 else:
                     data["is_online"] = True
-                    data["current_game"] = state
-                    if attrs.get("entity_picture"):
+                    data["current_game"] = potential_game
+                    if found_ps3:
+                        if ps3_state.attributes.get("entity_picture"):
+                            data["game_cover_url"] = ps3_state.attributes.get("entity_picture")
+                    elif attrs.get("entity_picture"):
                         data["game_cover_url"] = attrs.get("entity_picture")
 
         elif self._gaming_type == "playnite":
@@ -1418,6 +1441,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             
             entities_to_watch = [self._source_entity_id]
             if self._avatar_entity_id: entities_to_watch.append(self._avatar_entity_id)
+            if self._gaming_type == "playstation" and self._ps3_entity_id:
+                # Unlike the Xbox now_playing sibling (same device, tends to
+                # update in tandem with its primary source), a PS3 media_player
+                # is a fully independent entity -- watch it explicitly so its
+                # own state changes trigger an update promptly, rather than
+                # only being read reactively whenever the primary source
+                # happens to fire.
+                entities_to_watch.append(self._ps3_entity_id)
 
             # Fallback: track avatar image entity if device lookup didn't find it.
             # Use translation_key to strip the (possibly translated) suffix from the
@@ -2799,7 +2830,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 ghosted_by = xbox_ghost_sources.get(entity_id, []) if platform == "xbox" else []
                 if platform == "xbox":
                     _LOGGER.info("Gaming Status: [ghost-debug] %s ghosted_by=%r", entity_id, ghosted_by)
-                sensor_entity = PersistentStatusSensor(hass, entity_id, platform, player_name, ghosted_by, exclude_games, active_settings, global_exclusions, available_avatars)
+                ps3_entity_id = player_data.get("ps3") if platform == "playstation" else None
+                sensor_entity = PersistentStatusSensor(hass, entity_id, platform, player_name, ghosted_by, exclude_games, active_settings, global_exclusions, available_avatars, ps3_entity_id=ps3_entity_id)
                 ents.append(sensor_entity)
                 hass.data.setdefault(DOMAIN, {}).setdefault("platform_sensors", {})[sensor_entity.entity_id] = sensor_entity
 

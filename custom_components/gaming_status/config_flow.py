@@ -231,20 +231,20 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         enabled_platforms = self._temp_user_input.get(OPT_ENABLED_PLATFORMS, [])
         schema = {vol.Required("player_name", default="Player 1"): str}
 
-        def _get_filtered_selector(integration: str, suffix: str | tuple | None = None):
+        def _get_filtered_selector(integration: str, suffix: str | tuple | None = None, domain: str = "sensor"):
             options = []
             try:
                 registry = er.async_get(self.hass)
                 tk_match = suffix.lstrip("_") if suffix else None
                 for entry in registry.entities.values():
-                    if entry.domain == "sensor" and entry.platform == integration:
+                    if entry.domain == domain and entry.platform == integration:
                         if suffix:
                             if not entry.entity_id.endswith(suffix) and getattr(entry, "translation_key", None) != tk_match:
                                 continue
                         options.append(entry.entity_id)
                 if suffix and not options:
                     for entry in registry.entities.values():
-                        if entry.domain == "sensor" and entry.platform == integration:
+                        if entry.domain == domain and entry.platform == integration:
                             options.append(entry.entity_id)
             except Exception:
                 pass
@@ -254,7 +254,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return selector.SelectSelector(
                     selector.SelectSelectorConfig(options=options, mode=selector.SelectSelectorMode.DROPDOWN, custom_value=True)
                 )
-            return selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", integration=integration))
+            return selector.EntitySelector(selector.EntitySelectorConfig(domain=domain, integration=integration))
 
         if "steam" in enabled_platforms:
             schema[vol.Optional("steam")] = _get_filtered_selector("steam", None)
@@ -379,7 +379,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             OPT_MIN_SESSION, DEFAULT_MIN_SESSION_DURATION,
             OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS,
             OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY,
-            OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS
+            OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS,
+            OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING
         )
 
         opts = self._options
@@ -399,7 +400,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             opts[OPT_MASTER_HANDOFF_GRACE] = user_input.get(OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS)
             opts[OPT_RESET_HISTORY] = user_input.get(OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY)
             opts[OPT_REMOVE_DISABLED_SENSORS] = user_input.get(OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS)
-            
+            opts[OPT_ENABLE_PS3_TRACKING] = user_input.get(OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING)
+
             self._options = opts
             return await self._update_and_return()
 
@@ -446,6 +448,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional(OPT_MASTER_HANDOFF_GRACE, default=opts.get(OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS)): vol.All(int, vol.Range(min=0)),
                     vol.Optional(OPT_RESET_HISTORY, default=opts.get(OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY)): bool,
                     vol.Optional(OPT_REMOVE_DISABLED_SENSORS, default=opts.get(OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS)): bool,
+                    vol.Optional(OPT_ENABLE_PS3_TRACKING, default=opts.get(OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING)): bool,
                 }
             ),
         )
@@ -529,10 +532,13 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 self._options[OPT_PARENTAL] = _dump_json(parental)
                 return await self._update_and_return()
             else:
-                from .const import OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS
+                from .const import (
+                    OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS,
+                    OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING,
+                )
                 updated_platforms = self._player_data_from_input(user_input)
                 enabled_platforms = self._options.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
-                
+
                 for p in enabled_platforms:
                     if p in updated_platforms:
                         existing[p] = updated_platforms[p]
@@ -540,7 +546,20 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                         # Platform was removed! Purge it from the registry.
                         await self._cleanup_player_entities(name, [p])
                         del existing[p]
-                
+
+                # PS3 isn't in enabled_platforms (it's a secondary source that
+                # feeds into the "playstation" sensor, not its own platform, so
+                # it has no sensor entity of its own to purge). Only touch it
+                # while its field is actually visible (playstation + PS3
+                # tracking both on), so toggling PS3 tracking off elsewhere
+                # doesn't silently wipe a saved selection.
+                ps3_tracking_enabled = self._options.get(OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING)
+                if "playstation" in enabled_platforms and ps3_tracking_enabled:
+                    if "ps3" in updated_platforms:
+                        existing["ps3"] = updated_platforms["ps3"]
+                    elif "ps3" in existing:
+                        del existing["ps3"]
+
                 players[name] = existing
                 self._options[OPT_PLAYERS] = _dump_json(players)
                 return await self.async_step_player_details()
@@ -1204,16 +1223,20 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     # ---------------------------------------------------------------------------
 
     def _player_schema(self, existing: dict | None = None, is_new: bool = False) -> vol.Schema:
-        from .const import OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS
-        
+        from .const import (
+            OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS,
+            OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING,
+        )
+
         existing = existing or {}
         schema = {}
         enabled_platforms = self._options.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
+        ps3_tracking_enabled = self._options.get(OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING)
         
         if is_new:
             schema[vol.Required("player_name")] = str
 
-        def _get_filtered_selector(integration: str, suffix: str | tuple | None = None, current_val: str = ""):
+        def _get_filtered_selector(integration: str, suffix: str | tuple | None = None, current_val: str = "", domain: str = "sensor"):
             options = []
 
             try:
@@ -1222,7 +1245,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 # Step 1: Run the strict suffix filter, also matching by translation_key
                 # so non-English locales (e.g. _spielt_gerade for German) are included.
                 for entry in registry.entities.values():
-                    if entry.domain == "sensor" and entry.platform == integration:
+                    if entry.domain == domain and entry.platform == integration:
                         if suffix:
                             if not entry.entity_id.endswith(suffix) and getattr(entry, "translation_key", None) != tk_match:
                                 continue
@@ -1232,14 +1255,14 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 # remove the restriction and pull all sensors for this integration.
                 if suffix and not options:
                     for entry in registry.entities.values():
-                        if entry.domain == "sensor" and entry.platform == integration:
+                        if entry.domain == domain and entry.platform == integration:
                             options.append(entry.entity_id)
             except Exception:
                 pass
 
             if current_val and current_val not in options and current_val.lower() != "none":
                 options.append(current_val)
-                
+
             options = sorted(list(set(options)))
             options.insert(0, "none")
 
@@ -1251,9 +1274,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                         custom_value=True
                     )
                 )
-            
+
             return selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", integration=integration)
+                selector.EntitySelectorConfig(domain=domain, integration=integration)
             )
 
         def _field(platform: str):
@@ -1270,7 +1293,16 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             
         if "playstation" in enabled_platforms:
             schema[_field("playstation")] = _get_filtered_selector("playstation_network", "_now_playing", existing.get("playstation", ""))
-            
+
+        if "playstation" in enabled_platforms and ps3_tracking_enabled:
+            # PS3 predates the modern PSN status API, so it has no equivalent
+            # _now_playing sensor -- it's tracked via its media_player entity
+            # instead, feeding into this same PlayStation sensor as a secondary
+            # source (see _get_platform_data's "playstation" branch).
+            schema[_field("ps3")] = _get_filtered_selector(
+                "playstation_network", None, existing.get("ps3", ""), domain="media_player"
+            )
+
         if "discord" in enabled_platforms:
             if self._discord_members:
                 dc_options = [selector.SelectOptionDict(value=m[0], label=f"{m[1]} ({m[0]})") for m in self._discord_members]
@@ -1307,6 +1339,14 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 val = str(val).strip()
                 if val and val.lower() != "none":
                     data[platform] = val
+        # PS3 isn't a standalone entry in PLAYER_PLATFORMS -- it's a secondary
+        # media_player source that feeds into the "playstation" sensor, so it's
+        # saved the same way as the platforms above but handled separately.
+        ps3_val = user_input.get("ps3")
+        if ps3_val is not None:
+            ps3_val = str(ps3_val).strip()
+            if ps3_val and ps3_val.lower() != "none":
+                data["ps3"] = ps3_val
         return data
 
     def _get_notify_services(self) -> list[str]:
