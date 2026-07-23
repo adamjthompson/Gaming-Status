@@ -121,7 +121,7 @@ Update your API keys and fine-tune text processing rules.
 * **API Keys & Tokens:** Update your SteamGridDB API key, RAWG.io API key (for content ratings), or your Discord Bot Token and Server ID.
 * **Game Title Overrides:** Clean up messy or lengthy names. Format as `raw name = display name`. *(Example: `Minecraft Launcher = Minecraft`)*
 * **Title Cleanups:** A list of strings to automatically strip from game names. *(Example: `Tom Clancy's, Sid Meier's`)*
-* **Global Exclusions:** Games or apps that should be universally ignored by the tracker. *(Example: `Home, YouTube, Netflix, Xbox App`)*
+* **Global Exclusions:** Games or apps that should be universally ignored by the tracker. *(Example: `Home, YouTube, Netflix, Xbox App`)* Overrides are applied first, then Cleanups, in that order — an Override is a whole-name swap, and any Cleanup pattern still gets a chance to run against its result afterward. Exclusions are checked against *both* the pre-Cleanup and the fully-cleaned name, so it doesn't matter which form your exclusion entry happens to match: excluding `Minecraft` catches it even if a Cleanup is what produces that name from something longer, and excluding `Minecraft Launcher` still works even if a separate Cleanup (e.g. one that strips `Launcher` generally) would otherwise erase the very word that entry is matching on.
 * **Content Rating Overrides:** *(Only shown when Parental Controls is enabled)* Manually assign a rating to games your rating provider has no data for. Format as `Game = Code`, using the codes `E`, `E10`, `T`, `M`, or `AO`. *(Example: `Skull and Bones = M`)*
 
 #### 6. Global Settings
