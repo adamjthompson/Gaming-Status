@@ -654,16 +654,24 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 data["avatar_url"] = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.png"
 
         if data.get("is_online") and data.get("current_game"):
-            # STEP 1 & 2: Get base name and apply manual overrides
-            current_title = self._apply_title_override(get_base_game_name(data["current_game"]))
-            
+            # STEP 1 & 2: Get base name, apply manual overrides AND title
+            # cleanups -- cleanups must run before the exclusion check below,
+            # not after. _unified_update applies the same title-cleanup step
+            # (via _format_game_name_for_display) when computing the name it
+            # actually tracks/displays, so a cleanup pattern that strips a
+            # raw title down to something on the exclusion list (e.g. down
+            # to "Minecraft") must be excluded here using that same cleaned
+            # name, or the two would disagree: excluded here on the raw
+            # title, but visibly tracked as the excluded name once cleaned up.
+            current_title = _format_game_name_for_display(get_base_game_name(data["current_game"]))
+
             # STEP 3: Check Exclusions BEFORE sanitizing (so exact text matches still work)
-            if _normalize_game_name(current_title) in (self._global_exclusions_lower | self._exclude_games): 
+            if _normalize_game_name(current_title) in (self._global_exclusions_lower | self._exclude_games):
                 data["is_online"], data["current_game"] = False, None
             else:
                 # STEP 4: Sanitize the final string to unify punctuation across platforms
                 data["current_game"] = self._sanitize_game_title(current_title)
-                
+
         return data
 
     def _handle_game_transition(self, new_game_name, explicit_end_time=None):
