@@ -400,7 +400,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             opts[OPT_MASTER_HANDOFF_GRACE] = user_input.get(OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS)
             opts[OPT_RESET_HISTORY] = user_input.get(OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY)
             opts[OPT_REMOVE_DISABLED_SENSORS] = user_input.get(OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS)
-            opts[OPT_ENABLE_PS3_TRACKING] = user_input.get(OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING)
+            if "playstation" in opts[OPT_ENABLED_PLATFORMS]:
+                opts[OPT_ENABLE_PS3_TRACKING] = user_input.get(OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING)
 
             self._options = opts
             return await self._update_and_return()
@@ -417,40 +418,46 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             
         dynamic_color_default = False if is_pi else DEFAULT_EXTRACT_COLOR
 
+        global_schema = {
+            vol.Optional(OPT_ENABLED_PLATFORMS, default=opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(value="steam", label="Steam"),
+                        selector.SelectOptionDict(value="xbox", label="Xbox"),
+                        selector.SelectOptionDict(value="playstation", label="PlayStation"),
+                        selector.SelectOptionDict(value="discord", label="Discord"),
+                        selector.SelectOptionDict(value="custom", label="Custom"),
+                        selector.SelectOptionDict(value="playnite", label="Playnite"),
+                    ],
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.LIST
+                )
+            ),
+        }
+        # Only meaningful once PlayStation itself is being tracked, so it's
+        # only offered as an option directly below "Platforms to Track" when
+        # "playstation" is already checked there.
+        if "playstation" in opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS):
+            global_schema[vol.Optional(OPT_ENABLE_PS3_TRACKING, default=opts.get(OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING))] = bool
+        global_schema.update({
+            vol.Optional(OPT_ENABLE_NOTIFICATIONS, default=opts.get(OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS)): bool,
+            vol.Optional(OPT_ENABLE_PARENTAL, default=opts.get(OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL)): bool,
+            vol.Optional(OPT_USE_CACHE, default=opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)): bool,
+            vol.Optional(OPT_EXTRACT_COLOR, default=opts.get(OPT_EXTRACT_COLOR, dynamic_color_default)): bool,
+            vol.Optional(OPT_CACHE_MAX_FILES, default=opts.get(OPT_CACHE_MAX_FILES, DEFAULT_CACHE_MAX_FILES)): vol.All(int, vol.Range(min=0)),
+            vol.Optional(OPT_CACHE_MAX_DAYS, default=opts.get(OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS)): vol.All(int, vol.Range(min=0)),
+            vol.Optional(OPT_GRACE_PERIOD, default=opts.get(OPT_GRACE_PERIOD, DEFAULT_GRACE_PERIOD_SECONDS)): vol.All(int, vol.Range(min=0)),
+            vol.Optional(OPT_AWAY_GRACE_PERIOD, default=opts.get(OPT_AWAY_GRACE_PERIOD, DEFAULT_AWAY_GRACE_PERIOD_SECONDS)): vol.All(int, vol.Range(min=0)),
+            vol.Optional(OPT_TRANSITION_GRACE, default=opts.get(OPT_TRANSITION_GRACE, DEFAULT_GAME_TRANSITION_GRACE_SECONDS)): vol.All(int, vol.Range(min=0)),
+            vol.Optional(OPT_MIN_SESSION, default=opts.get(OPT_MIN_SESSION, DEFAULT_MIN_SESSION_DURATION)): vol.All(int, vol.Range(min=0)),
+            vol.Optional(OPT_MASTER_HANDOFF_GRACE, default=opts.get(OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS)): vol.All(int, vol.Range(min=0)),
+            vol.Optional(OPT_RESET_HISTORY, default=opts.get(OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY)): bool,
+            vol.Optional(OPT_REMOVE_DISABLED_SENSORS, default=opts.get(OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS)): bool,
+        })
+
         return self.async_show_form(
             step_id=MENU_GLOBAL_SETTINGS,
-            data_schema=vol.Schema(
-                {
-                    vol.Optional(OPT_ENABLED_PLATFORMS, default=opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)): selector.SelectSelector(
-                        selector.SelectSelectorConfig(
-                            options=[
-                                selector.SelectOptionDict(value="steam", label="Steam"),
-                                selector.SelectOptionDict(value="xbox", label="Xbox"),
-                                selector.SelectOptionDict(value="playstation", label="PlayStation"),
-                                selector.SelectOptionDict(value="discord", label="Discord"),
-                                selector.SelectOptionDict(value="custom", label="Custom"),
-                                selector.SelectOptionDict(value="playnite", label="Playnite"),
-                            ],
-                            multiple=True,
-                            mode=selector.SelectSelectorMode.LIST
-                        )
-                    ),
-                    vol.Optional(OPT_ENABLE_NOTIFICATIONS, default=opts.get(OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS)): bool,
-                    vol.Optional(OPT_ENABLE_PARENTAL, default=opts.get(OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL)): bool,
-                    vol.Optional(OPT_USE_CACHE, default=opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)): bool,
-                    vol.Optional(OPT_EXTRACT_COLOR, default=opts.get(OPT_EXTRACT_COLOR, dynamic_color_default)): bool,
-                    vol.Optional(OPT_CACHE_MAX_FILES, default=opts.get(OPT_CACHE_MAX_FILES, DEFAULT_CACHE_MAX_FILES)): vol.All(int, vol.Range(min=0)),
-                    vol.Optional(OPT_CACHE_MAX_DAYS, default=opts.get(OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS)): vol.All(int, vol.Range(min=0)),
-                    vol.Optional(OPT_GRACE_PERIOD, default=opts.get(OPT_GRACE_PERIOD, DEFAULT_GRACE_PERIOD_SECONDS)): vol.All(int, vol.Range(min=0)),
-                    vol.Optional(OPT_AWAY_GRACE_PERIOD, default=opts.get(OPT_AWAY_GRACE_PERIOD, DEFAULT_AWAY_GRACE_PERIOD_SECONDS)): vol.All(int, vol.Range(min=0)),
-                    vol.Optional(OPT_TRANSITION_GRACE, default=opts.get(OPT_TRANSITION_GRACE, DEFAULT_GAME_TRANSITION_GRACE_SECONDS)): vol.All(int, vol.Range(min=0)),
-                    vol.Optional(OPT_MIN_SESSION, default=opts.get(OPT_MIN_SESSION, DEFAULT_MIN_SESSION_DURATION)): vol.All(int, vol.Range(min=0)),
-                    vol.Optional(OPT_MASTER_HANDOFF_GRACE, default=opts.get(OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS)): vol.All(int, vol.Range(min=0)),
-                    vol.Optional(OPT_RESET_HISTORY, default=opts.get(OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY)): bool,
-                    vol.Optional(OPT_REMOVE_DISABLED_SENSORS, default=opts.get(OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS)): bool,
-                    vol.Optional(OPT_ENABLE_PS3_TRACKING, default=opts.get(OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING)): bool,
-                }
-            ),
+            data_schema=vol.Schema(global_schema),
         )
 
     # -----------------------------------------------------------------------
