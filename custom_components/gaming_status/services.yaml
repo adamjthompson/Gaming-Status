@@ -68,3 +68,75 @@ delete_session:
       example: "2026-07-08T09:56:07.162310-04:00"
       selector:
         text:
+
+add_session:
+  name: Add Session
+  description: Manually insert a completed session into a player's history (e.g. to backfill play that was never tracked), correcting daily/weekly/lifetime totals the same way an organically-tracked session would.
+  fields:
+    player:
+      required: true
+      example: "Adam"
+      selector:
+        text:
+    platform:
+      required: true
+      description: Exactly one platform to add this session to (e.g. xbox, discord, steam).
+      example: "steam"
+      selector:
+        text:
+    game:
+      required: true
+      example: "Call of Duty"
+      selector:
+        text:
+    start_time:
+      required: true
+      description: ISO timestamp the session started.
+      example: "2026-07-08T09:56:07-04:00"
+      selector:
+        text:
+    end_time:
+      required: true
+      description: ISO timestamp the session ended. Must be after start_time.
+      example: "2026-07-08T10:24:49-04:00"
+      selector:
+        text:
+
+reassign_session:
+  name: Reassign Session
+  description: Move one specific recorded session from one player's history to another (optionally onto a different platform), correcting daily/weekly/lifetime totals on both ends. Useful when a session was tracked under the wrong person's profile (e.g. the wrong account signed into a shared app/console).
+  fields:
+    from_player:
+      required: true
+      description: The player the session is currently attributed to.
+      example: "Adam"
+      selector:
+        text:
+    from_platform:
+      required: false
+      description: Limit the search to one of from_player's platforms (e.g. xbox, discord, steam). Omit to search all of their platforms.
+      selector:
+        text:
+    game:
+      required: true
+      example: "Call of Duty"
+      selector:
+        text:
+    start_time:
+      required: true
+      description: The exact start_time value (ISO timestamp) of the session to reassign, as recorded in the source sensor's recent_sessions attribute.
+      example: "2026-07-08T09:56:07.162310-04:00"
+      selector:
+        text:
+    to_player:
+      required: true
+      description: The player this session should be attributed to instead.
+      example: "Josh"
+      selector:
+        text:
+    to_platform:
+      required: true
+      description: Exactly one platform on to_player to move this session onto.
+      example: "steam"
+      selector:
+        text:

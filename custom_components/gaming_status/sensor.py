@@ -1097,6 +1097,19 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         await self._store.async_save(self._get_store_data())
         self.async_write_ha_state()
 
+    def get_session_entry(self, game, start_time):
+        """Read-only lookup of one specific recorded session in this sensor's
+        own recent_sessions, by (fuzzy-matched) game name + exact start_time.
+        Shared by async_delete_session and the reassign_session service
+        handler (which needs to find the source entry without removing it
+        until the destination add has already succeeded)."""
+        clean_target = _format_game_name_for_display(get_base_game_name(game))
+        return next(
+            (s for s in self._recent_sessions
+             if self._game_name_matches(s.get("game"), clean_target) and s.get("start_time") == start_time),
+            None
+        )
+
     async def async_delete_session(self, game, start_time, quiet_if_missing=False):
         """Permanently remove one specific recorded session, correcting only
         that session's contribution to daily/weekly/all-time totals -- unlike
@@ -1113,11 +1126,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         miss is still logged, since that's a genuine anomaly."""
         clean_target = _format_game_name_for_display(get_base_game_name(game))
 
-        target_entry = next(
-            (s for s in self._recent_sessions
-             if self._game_name_matches(s.get("game"), clean_target) and s.get("start_time") == start_time),
-            None
-        )
+        target_entry = self.get_session_entry(game, start_time)
         if target_entry is None:
             if quiet_if_missing:
                 _LOGGER.debug("Gaming Status: delete_session found no match for %r at %r on %s", game, start_time, self.entity_id)
@@ -1209,6 +1218,112 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             )
             if not still_exists:
                 self._last_played_game = None
+
+        self._write_common_attributes()
+        await self._store.async_save(self._get_store_data())
+        self.async_write_ha_state()
+
+    async def async_add_session(self, game, start_time, end_time, hero_art_url=None, game_dominant_color=None):
+        """Manually insert a completed session into this sensor's history --
+        the mirror image of async_delete_session. Credits the exact same
+        buckets that method debits: recent_sessions, weekly/all-time totals,
+        play_history (today's live buckets, an existing archived day, or a
+        freshly-synthesized one), and longest-session records. If the caller
+        doesn't already have art to pass through (e.g. reassign_session,
+        which carries over the original session's real art), a best-effort
+        SteamGridDB lookup is attempted here since utils.fetch_game_assets is
+        self-contained and safe to call outside the live tracking flow --
+        unlike dominant-color extraction, which needs a locally-cached image
+        file and isn't worth reproducing for a one-off manual entry, so
+        game_dominant_color stays None unless explicitly passed in."""
+        clean_title = _format_game_name_for_display(get_base_game_name(game))
+        start_dt = _safe_parse_datetime(start_time)
+        end_dt = _safe_parse_datetime(end_time)
+        if not start_dt or not end_dt or end_dt <= start_dt:
+            _LOGGER.warning("Gaming Status: add_session got an invalid time range (%r -> %r) for %r on %s", start_time, end_time, game, self.entity_id)
+            return
+
+        if hero_art_url is None:
+            try:
+                fetched = await utils.fetch_game_assets(self.hass, clean_title)
+                # Matches organic sessions exactly: hero_art_url only ever
+                # holds the "hero" (wide) asset, never "grid" (cover-style,
+                # different aspect ratio) as a substitute.
+                hero_art_url = fetched.get("hero")
+            except Exception as e:
+                _LOGGER.error("Gaming Status: artwork fetch failed for manually-added session %r: %s", clean_title, e)
+
+        local_start = dt_util.as_local(start_dt)
+        local_end = dt_util.as_local(end_dt)
+        secs = int((local_end - local_start).total_seconds())
+        date_str = local_start.strftime("%Y-%m-%d")
+
+        self._recent_sessions.insert(0, {
+            "game": clean_title,
+            "platform": PLATFORM_CONFIG.get(self._gaming_type, {}).get("name_suffix", self._gaming_type.title()),
+            "duration_seconds": secs,
+            "date": date_str,
+            "start_time": local_start.isoformat(),
+            "end_time": local_end.isoformat(),
+            "hero_art_url": hero_art_url,
+            "game_dominant_color": game_dominant_color,
+        })
+        if len(self._recent_sessions) > MAX_RECENT_SESSIONS:
+            del self._recent_sessions[MAX_RECENT_SESSIONS:]
+
+        self._all_time_session_count = getattr(self, "_all_time_session_count", 0) + 1
+
+        # All-time total is never pruned, so it's credited regardless of date --
+        # find an existing (possibly differently-cased/spelled) bucket to merge
+        # into, same fuzzy lookup async_delete_session uses, falling back to
+        # this normalized title as a brand-new key if none matches.
+        match_key = next((k for k in self._all_time_game_seconds if self._game_name_matches(k, clean_title)), clean_title)
+        self._all_time_game_seconds[match_key] = self._all_time_game_seconds.get(match_key, 0) + secs
+
+        if date_str == self._last_reset_date:
+            # Today's still-live per-game breakdown + daily/weekly totals.
+            match_key = next((k for k in self._weekly_game_breakdown if self._game_name_matches(k, clean_title)), clean_title)
+            self._weekly_game_breakdown[match_key] = self._weekly_game_breakdown.get(match_key, 0) + secs
+            self._daily_play_time = int((self._daily_play_time or 0) + secs)
+            self._weekly_play_time = int((self._weekly_play_time or 0) + secs)
+            if secs > self._longest_session_details.get("duration", 0):
+                self._longest_session_details = {"game": clean_title, "duration": secs}
+        elif date_str in self._play_history and isinstance(self._play_history[date_str], dict):
+            day_data = self._play_history[date_str]
+            gb = day_data.setdefault("game_breakdown", {})
+            match_key = next((k for k in gb if self._game_name_matches(k, clean_title)), clean_title)
+            gb[match_key] = gb.get(match_key, 0) + secs
+            day_data["total_seconds"] = day_data.get("total_seconds", 0) + secs
+            # weekly_play_time accumulates across the whole current week
+            # independent of the daily reset, so an archived-but-still-
+            # this-week day must also be credited here.
+            if day_data.get("week_str") == self._last_weekly_reset:
+                self._weekly_play_time = int((self._weekly_play_time or 0) + secs)
+            hist_longest = day_data.get("longest_session") or {}
+            if secs > hist_longest.get("duration", 0):
+                day_data["longest_session"] = {"game": clean_title, "duration": secs}
+        else:
+            # No existing archived entry for this date at all -- synthesize a
+            # fresh one in the same shape organic daily-reset archiving uses.
+            week_str = local_start.strftime("%Y-%U")
+            self._play_history[date_str] = {
+                "total_seconds": secs,
+                "game_breakdown": {clean_title: secs},
+                "longest_session": {"game": clean_title, "duration": secs},
+                "week_str": week_str,
+            }
+            if week_str == self._last_weekly_reset:
+                self._weekly_play_time = int((self._weekly_play_time or 0) + secs)
+
+        # Only advance last_played_game/last_online_valid_timestamp if this
+        # session is chronologically the most recent thing tracked -- a
+        # backfilled OLDER session shouldn't override what's already
+        # correctly showing as "last played."
+        current_last_ts = _safe_parse_datetime(self._last_online_valid_timestamp) if self._last_online_valid_timestamp else None
+        if not current_last_ts or local_end > current_last_ts:
+            self._last_played_game = clean_title
+            self._last_online_valid_timestamp = local_end.isoformat()
+            self._last_session_play_time = secs
 
         self._write_common_attributes()
         await self._store.async_save(self._get_store_data())

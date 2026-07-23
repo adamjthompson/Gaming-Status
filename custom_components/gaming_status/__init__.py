@@ -191,6 +191,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         for target in targets:
             await target.async_delete_session(call.data["game"], call.data["start_time"], quiet_if_missing=platform is None)
 
+    async def _handle_add_session(call):
+        targets = _resolve_targets(call.data["player"], call.data["platform"])
+        if not targets:
+            _LOGGER.warning("Gaming Status: add_session couldn't resolve a sensor for player=%r platform=%r", call.data["player"], call.data["platform"])
+            return
+        await targets[0].async_add_session(call.data["game"], call.data["start_time"], call.data["end_time"])
+
+    async def _handle_reassign_session(call):
+        from_targets = _resolve_targets(call.data["from_player"], call.data.get("from_platform"))
+        to_targets = _resolve_targets(call.data["to_player"], call.data["to_platform"])
+        if not to_targets:
+            _LOGGER.warning("Gaming Status: reassign_session couldn't resolve destination sensor for player=%r platform=%r", call.data["to_player"], call.data["to_platform"])
+            return
+        game, start_time = call.data["game"], call.data["start_time"]
+        for source in from_targets:
+            entry = source.get_session_entry(game, start_time)
+            if entry is not None:
+                # Add to the destination FIRST -- if this fails, the source is
+                # untouched. Deleting first would risk losing the session
+                # entirely if the destination add then failed.
+                await to_targets[0].async_add_session(
+                    entry["game"], entry["start_time"], entry["end_time"],
+                    hero_art_url=entry.get("hero_art_url"), game_dominant_color=entry.get("game_dominant_color"),
+                )
+                await source.async_delete_session(game, start_time)
+                return
+        _LOGGER.warning("Gaming Status: reassign_session found no match for %r at %r for player=%r", game, start_time, call.data["from_player"])
+
     if not hass.services.has_service(DOMAIN, "rename_game"):
         hass.services.async_register(DOMAIN, "rename_game", _handle_rename, schema=vol.Schema({
             vol.Required("player"): str, vol.Optional("platform"): str,
@@ -205,6 +233,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_register(DOMAIN, "delete_session", _handle_delete_session, schema=vol.Schema({
             vol.Required("player"): str, vol.Optional("platform"): str,
             vol.Required("game"): str, vol.Required("start_time"): str,
+        }))
+    if not hass.services.has_service(DOMAIN, "add_session"):
+        hass.services.async_register(DOMAIN, "add_session", _handle_add_session, schema=vol.Schema({
+            vol.Required("player"): str, vol.Required("platform"): str,
+            vol.Required("game"): str, vol.Required("start_time"): str, vol.Required("end_time"): str,
+        }))
+    if not hass.services.has_service(DOMAIN, "reassign_session"):
+        hass.services.async_register(DOMAIN, "reassign_session", _handle_reassign_session, schema=vol.Schema({
+            vol.Required("from_player"): str, vol.Optional("from_platform"): str,
+            vol.Required("game"): str, vol.Required("start_time"): str,
+            vol.Required("to_player"): str, vol.Required("to_platform"): str,
         }))
 
     return True
