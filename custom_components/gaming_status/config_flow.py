@@ -390,7 +390,12 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             opts[OPT_ENABLE_NOTIFICATIONS] = user_input.get(OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS)
             opts[OPT_ENABLE_PARENTAL] = user_input.get(OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL)
             opts[OPT_USE_CACHE] = user_input.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
-            opts[OPT_EXTRACT_COLOR] = user_input.get(OPT_EXTRACT_COLOR, DEFAULT_EXTRACT_COLOR) if user_input.get(OPT_USE_CACHE, DEFAULT_USE_CACHE) else False
+            # Field is only in the form (and thus in user_input) when caching
+            # is enabled -- see the conditional schema entry below. Leave the
+            # stored preference alone otherwise, rather than stomping it to
+            # False, so it comes back as-is if caching is re-enabled later.
+            if opts[OPT_USE_CACHE]:
+                opts[OPT_EXTRACT_COLOR] = user_input.get(OPT_EXTRACT_COLOR, DEFAULT_EXTRACT_COLOR)
             opts[OPT_CACHE_MAX_FILES] = user_input.get(OPT_CACHE_MAX_FILES, DEFAULT_CACHE_MAX_FILES)
             opts[OPT_CACHE_MAX_DAYS] = user_input.get(OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS)
             opts[OPT_GRACE_PERIOD] = user_input.get(OPT_GRACE_PERIOD, DEFAULT_GRACE_PERIOD_SECONDS)
@@ -443,7 +448,15 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(OPT_ENABLE_NOTIFICATIONS, default=opts.get(OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS)): bool,
             vol.Optional(OPT_ENABLE_PARENTAL, default=opts.get(OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL)): bool,
             vol.Optional(OPT_USE_CACHE, default=opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)): bool,
-            vol.Optional(OPT_EXTRACT_COLOR, default=opts.get(OPT_EXTRACT_COLOR, dynamic_color_default)): bool,
+        })
+        # Only meaningful (and shown) once local caching is enabled -- it
+        # samples pixels from a locally-cached image file, so it can't do
+        # anything with caching off. Mirrors the PS3-tracking conditional
+        # field above; keeps the stored preference in opts even while
+        # hidden (see the save logic above), it just isn't offered here.
+        if opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE):
+            global_schema[vol.Optional(OPT_EXTRACT_COLOR, default=opts.get(OPT_EXTRACT_COLOR, dynamic_color_default))] = bool
+        global_schema.update({
             vol.Optional(OPT_CACHE_MAX_FILES, default=opts.get(OPT_CACHE_MAX_FILES, DEFAULT_CACHE_MAX_FILES)): vol.All(int, vol.Range(min=0)),
             vol.Optional(OPT_CACHE_MAX_DAYS, default=opts.get(OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS)): vol.All(int, vol.Range(min=0)),
             vol.Optional(OPT_GRACE_PERIOD, default=opts.get(OPT_GRACE_PERIOD, DEFAULT_GRACE_PERIOD_SECONDS)): vol.All(int, vol.Range(min=0)),

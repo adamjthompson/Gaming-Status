@@ -164,8 +164,9 @@ async def fetch_game_assets(hass, game_name):
         def _ensure_dir():
             if not cache_dir.exists():
                 cache_dir.mkdir(parents=True, exist_ok=True)
-        await hass.async_add_executor_job(_ensure_dir)
-            
+        if USE_LOCAL_CACHE:
+            await hass.async_add_executor_job(_ensure_dir)
+
         # 2. Check Custom UI Overrides & Ensure Local Cache
         search_name = cache_key
         override_maps = {
@@ -192,6 +193,14 @@ async def fetch_game_assets(hass, game_name):
                         assets[asset_type] = remote_url
                     continue
                 
+                # With local caching disabled, hotlink the override's own
+                # remote URL directly rather than downloading a local copy --
+                # this is the toggle's actual point of control, not just the
+                # background cleanup task below.
+                if not USE_LOCAL_CACHE:
+                    assets[asset_type] = remote_url
+                    continue
+
                 # Determine extension for external HTTP links
                 ext = safe_image_ext(remote_url)
                 file_name = f"{safe_file_prefix}_{asset_type}.{ext}"
@@ -208,7 +217,7 @@ async def fetch_game_assets(hass, game_name):
                                 await hass.async_add_executor_job(lambda: file_path.write_bytes(img_bytes))
                 except Exception as e:
                     _LOGGER.error("Failed to cache override for %s (%s): %s", game_name, asset_type, e)
-                
+
                 try:
                     mt = int(await hass.async_add_executor_job(os.path.getmtime, file_path))
                 except Exception:
@@ -281,6 +290,13 @@ async def fetch_game_assets(hass, game_name):
                                 
                             best_art = sorted(asset_data["data"], key=get_score, reverse=True)[0]
                             remote_url = best_art["url"]
+
+                            # Same "toggle actually controls the download" fix
+                            # as the override branch above -- hotlink SteamGridDB's
+                            # own CDN URL directly instead of caching it locally.
+                            if not USE_LOCAL_CACHE:
+                                fetched_assets[asset_type] = remote_url
+                                continue
 
                             ext = safe_image_ext(remote_url)
                             file_name = f"{safe_file_prefix}_{asset_type}.{ext}"

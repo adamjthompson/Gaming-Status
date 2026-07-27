@@ -2722,7 +2722,13 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     is_pi = await hass.async_add_executor_job(_check_is_pi)
         
     dynamic_color_default = False if is_pi else DEFAULT_EXTRACT_COLOR
-    utils.ENABLE_VIBRANT_COLOR = opts.get(OPT_EXTRACT_COLOR, dynamic_color_default)
+    # Color extraction samples pixels from a locally-cached image file, so it
+    # can never actually do anything with local caching off -- the stored
+    # preference itself is left alone (config_flow.py preserves it across
+    # toggling caching on/off) so it comes back once caching is re-enabled,
+    # but the *effective* runtime flag (and the color_extraction_enabled
+    # attribute derived from it) must reflect what can actually happen now.
+    utils.ENABLE_VIBRANT_COLOR = utils.USE_LOCAL_CACHE and opts.get(OPT_EXTRACT_COLOR, dynamic_color_default)
     
     utils.CACHE_MAX_FILES = opts.get(OPT_CACHE_MAX_FILES, DEFAULT_CACHE_MAX_FILES)
     utils.CACHE_MAX_DAYS = opts.get(OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS)
