@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 from dateutil import parser
 
 from homeassistant.components.sensor import RestoreSensor, SensorEntity, SensorStateClass
-from homeassistant.const import STATE_UNKNOWN, STATE_UNAVAILABLE
+from homeassistant.const import STATE_UNKNOWN, STATE_UNAVAILABLE, CONF_API_KEY
 from homeassistant.core import callback
 from homeassistant.util import dt as dt_util
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
@@ -35,6 +35,11 @@ from .const import (
     PLAYER_PLATFORMS, OPT_USE_CACHE, DEFAULT_USE_CACHE, 
     OPT_EXTRACT_COLOR, DEFAULT_EXTRACT_COLOR, OPT_CACHE_MAX_FILES,
     DEFAULT_CACHE_MAX_FILES, OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS,
+    HA_STEAM_ONLINE_DOMAIN, HA_PLAYSTATION_NETWORK_DOMAIN, HA_PSN_NPSSO_KEY,
+    OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT,
+    CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, CONF_PSN_NPSSO_OVERRIDE,
+    OPT_ACHIEVEMENT_RECHECK_SECONDS, DEFAULT_ACHIEVEMENT_RECHECK_SECONDS,
+    MIN_ACHIEVEMENT_RECHECK_SECONDS,
 )
 
 from . import utils
@@ -46,6 +51,18 @@ from .utils import (
 )
 
 XBOX_IDLE_STATES = frozenset(s.lower() for s in PLATFORM_CONFIG["xbox"]["idle_states"])
+
+
+def _parse_fraction_attr(value):
+    """Parses the Xbox integration's "31 / 50"-style attribute strings into
+    (earned, total) ints. Returns (None, None) for anything unparseable."""
+    if not value or not isinstance(value, str) or "/" not in value:
+        return (None, None)
+    try:
+        earned_str, total_str = value.split("/", 1)
+        return (int(earned_str.strip()), int(total_str.strip()))
+    except (ValueError, TypeError):
+        return (None, None)
 
 # ------------------------------------------------------------------
 # 1. PLATFORM SENSOR CLASS
@@ -65,6 +82,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         "last_played_game", "daily_play_time", "weekly_play_time", "weekly_play_time_last_week",
         "play_history", "game_content_rating", "recent_sessions",
         "all_time_total_hours", "all_time_session_count", "all_time_top_games",
+        "current_game_achievements_earned", "current_game_achievements_total",
+        "achievements_source",
+        "current_game_gamerscore_earned", "current_game_gamerscore_total",
+        "current_game_trophies_bronze", "current_game_trophies_bronze_total",
+        "current_game_trophies_silver", "current_game_trophies_silver_total",
+        "current_game_trophies_gold", "current_game_trophies_gold_total",
+        "current_game_trophies_platinum", "current_game_trophies_platinum_total",
     })
 
     def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None, active_settings=None, global_exclusions=None, available_avatars=None, ps3_entity_id=None):
@@ -158,6 +182,27 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # Content-rating cache
         self._cached_game_rating = None
         self._rating_fetch_attempted = False
+
+        # Native achievement/trophy enrichment (steam/xbox/playstation only;
+        # opt-in via OPT_ENABLE_PLATFORM_ENRICHMENT -- see utils.py).
+        self._cached_achievements_earned = None
+        self._cached_achievements_total = None
+        self._cached_achievements_source = None
+        self._cached_gamerscore_earned = None
+        self._cached_gamerscore_total = None
+        self._cached_trophies_earned = None
+        self._cached_trophies_total = None
+        self._achievements_fetch_attempted = False
+        self._last_achievements_check_dt = None
+        self._cached_steam_appid = None
+
+        # Resolved once in async_added_to_hass from the owning steam_online/
+        # playstation_network config entry (or the manual override), reused
+        # for every enrichment fetch for this sensor's lifetime.
+        self._steam_api_key = None
+        self._steam_id64 = None
+        self._psn_npsso = None
+        self._psn_account_id = None
 
         self._current_game = None
         self._play_start_time = None
@@ -272,6 +317,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             "game_dominant_color": getattr(self, "_cached_game_color", None),
             "color_history_cache": getattr(self, "_color_history_cache", {}),
             "cached_game_rating": getattr(self, "_cached_game_rating", None),
+            "cached_achievements_earned": getattr(self, "_cached_achievements_earned", None),
+            "cached_achievements_total": getattr(self, "_cached_achievements_total", None),
+            "cached_achievements_source": getattr(self, "_cached_achievements_source", None),
+            "cached_gamerscore_earned": getattr(self, "_cached_gamerscore_earned", None),
+            "cached_gamerscore_total": getattr(self, "_cached_gamerscore_total", None),
+            "cached_trophies_earned": getattr(self, "_cached_trophies_earned", None),
+            "cached_trophies_total": getattr(self, "_cached_trophies_total", None),
             "all_time": {
                 "game_seconds": getattr(self, "_all_time_game_seconds", {}),
                 "session_count": getattr(self, "_all_time_session_count", 0),
@@ -479,11 +531,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     elif state.lower() == "playing": data["is_online"] = True 
                     else: data["is_online"] = False
                 
+                app_id = str(attrs.get("app_id") or attrs.get("game_id") or "")
+                if app_id.isdigit():
+                    data["steam_appid"] = int(app_id)
+
                 cover = attrs.get("game_image_main") or attrs.get("game_image_header") or attrs.get("header_image")
                 if cover: data["game_cover_url"] = cover
-                else:
-                    app_id = str(attrs.get("app_id") or attrs.get("game_id") or "")
-                    if app_id and app_id.isdigit(): data["game_cover_url"] = f"https://cdn.cloudflare.steamstatic.com/steam/apps/{app_id}/library_hero.jpg"
+                elif app_id.isdigit(): data["game_cover_url"] = f"https://cdn.cloudflare.steamstatic.com/steam/apps/{app_id}/library_hero.jpg"
             
         elif self._gaming_type == "xbox":
             if is_globally_excluded or is_user_excluded: data["is_online"] = False
@@ -511,6 +565,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         if sibling_state.attributes.get("entity_picture"):
                             data["game_cover_url"] = sibling_state.attributes.get("entity_picture")
                         found_sibling = True
+
+                        # Native enrichment: the official Xbox integration's own
+                        # now_playing sensor already exposes these as plain
+                        # attributes -- no separate credential/API call needed.
+                        if utils.ENABLE_PLATFORM_ENRICHMENT:
+                            data["xbox_achievements_attr"] = sibling_state.attributes.get("achievements")
+                            data["xbox_gamerscore_attr"] = sibling_state.attributes.get("gamerscore")
+                            data["xbox_min_age_attr"] = sibling_state.attributes.get("min_age")
 
                 if attrs.get("game_queue_games") and not found_sibling: 
                     potential_game = attrs.get("game_queue_games")[0]
@@ -818,6 +880,16 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._cached_game_color = None
             self._rating_fetch_attempted = False
             self._cached_game_rating = None
+            self._achievements_fetch_attempted = False
+            self._last_achievements_check_dt = None
+            self._cached_steam_appid = None
+            self._cached_achievements_earned = None
+            self._cached_achievements_total = None
+            self._cached_achievements_source = None
+            self._cached_gamerscore_earned = None
+            self._cached_gamerscore_total = None
+            self._cached_trophies_earned = None
+            self._cached_trophies_total = None
             self._store.async_delay_save(self._get_store_data, 5.0)
 
     def _get_session_info(self):
@@ -906,6 +978,22 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._attr_extra_state_attributes["game_dominant_color"] = self._cached_game_color
         self._attr_extra_state_attributes["cached_game_cover"] = self._cached_game_cover
         self._attr_extra_state_attributes["game_content_rating"] = self._cached_game_rating
+
+        # Native achievement/trophy enrichment (steam/xbox/playstation only,
+        # opt-in -- see utils.ENABLE_PLATFORM_ENRICHMENT / _unified_update).
+        self._attr_extra_state_attributes["current_game_achievements_earned"] = self._cached_achievements_earned
+        self._attr_extra_state_attributes["current_game_achievements_total"] = self._cached_achievements_total
+        self._attr_extra_state_attributes["achievements_source"] = self._cached_achievements_source
+        if self._gaming_type == "xbox":
+            self._attr_extra_state_attributes["current_game_gamerscore_earned"] = self._cached_gamerscore_earned
+            self._attr_extra_state_attributes["current_game_gamerscore_total"] = self._cached_gamerscore_total
+        elif self._gaming_type == "playstation":
+            _trophies_earned = self._cached_trophies_earned or {}
+            _trophies_total = self._cached_trophies_total or {}
+            for _tier in ("bronze", "silver", "gold", "platinum"):
+                self._attr_extra_state_attributes[f"current_game_trophies_{_tier}"] = _trophies_earned.get(_tier)
+                self._attr_extra_state_attributes[f"current_game_trophies_{_tier}_total"] = _trophies_total.get(_tier)
+
         # Global integration setting, exposed so cards can hide dynamic-color
         # options entirely when color extraction is disabled instead of
         # showing a mode that can never produce a color.
@@ -1363,6 +1451,50 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         self._avatar_entity_id = e.entity_id
                 elif e.domain == "sensor" and self._gaming_type == "xbox" and getattr(e, "translation_key", None) == "now_playing":
                     self._xbox_now_playing_entity_id = e.entity_id
+
+        # --- NATIVE ENRICHMENT CREDENTIAL/ID RESOLUTION (steam/playstation only) ---
+        # Reuses the credential + account ID already configured on the owning
+        # steam_online/playstation_network config entry -- the sibling entity
+        # this sensor already watches (`entry` above) belongs to that entry,
+        # so entry.config_entry_id IS that entry's id. Only entry.data (a
+        # stable, public part of the ConfigEntry model) is read here -- never
+        # runtime_data. Falls back to the manual Advanced Settings override
+        # if no owning entry is found (or it's missing the expected key).
+        if utils.ENABLE_PLATFORM_ENRICHMENT and self._gaming_type in ("steam", "playstation"):
+            try:
+                owning_entry = None
+                subentry_unique_id = None
+                if entry and entry.config_entry_id:
+                    owning_entry = self.hass.config_entries.async_get_entry(entry.config_entry_id)
+                    if owning_entry and entry.config_subentry_id:
+                        subentry = (owning_entry.subentries or {}).get(entry.config_subentry_id)
+                        subentry_unique_id = getattr(subentry, "unique_id", None)
+
+                if self._gaming_type == "steam":
+                    if owning_entry and owning_entry.domain == HA_STEAM_ONLINE_DOMAIN:
+                        self._steam_api_key = owning_entry.data.get(CONF_API_KEY)
+                        self._steam_id64 = subentry_unique_id or owning_entry.unique_id
+                    if not self._steam_api_key:
+                        self._steam_api_key = utils.STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE
+                        self._steam_id64 = self._steam_id64 or subentry_unique_id or (owning_entry.unique_id if owning_entry else None)
+
+                elif self._gaming_type == "playstation":
+                    if owning_entry and owning_entry.domain == HA_PLAYSTATION_NETWORK_DOMAIN:
+                        self._psn_npsso = owning_entry.data.get(HA_PSN_NPSSO_KEY)
+                        if not self._psn_npsso:
+                            _LOGGER.warning(
+                                "Gaming Status: found the playstation_network config entry for %s "
+                                "but it has no NPSSO stored under the expected key -- native "
+                                "PlayStation enrichment will fall back to the manual override, if set.",
+                                self._source_entity_id,
+                            )
+                        self._psn_account_id = subentry_unique_id or owning_entry.unique_id
+                    if not self._psn_npsso:
+                        self._psn_npsso = utils.PSN_NPSSO_OVERRIDE
+                        self._psn_account_id = self._psn_account_id or subentry_unique_id or (owning_entry.unique_id if owning_entry else None)
+            except Exception:
+                _LOGGER.debug("Gaming Status: native enrichment credential resolution failed for %s", self._source_entity_id, exc_info=True)
+
         stored_data = await self._store.async_load()
         if stored_data:
             self._play_history = stored_data.get("history", {})
@@ -1401,6 +1533,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._cached_game_logo = stored_data.get("game_logo_art")
             self._cached_game_icon = stored_data.get("game_icon_art")
             self._cached_game_rating = stored_data.get("cached_game_rating")
+            self._cached_achievements_earned = stored_data.get("cached_achievements_earned")
+            self._cached_achievements_total = stored_data.get("cached_achievements_total")
+            self._cached_achievements_source = stored_data.get("cached_achievements_source")
+            self._cached_gamerscore_earned = stored_data.get("cached_gamerscore_earned")
+            self._cached_gamerscore_total = stored_data.get("cached_gamerscore_total")
+            self._cached_trophies_earned = stored_data.get("cached_trophies_earned")
+            self._cached_trophies_total = stored_data.get("cached_trophies_total")
             _raw_color = stored_data.get("game_dominant_color")
             if _raw_color and not re.match(r'^#[0-9A-Fa-f]{6}$', str(_raw_color)):
                 _raw_color = None
@@ -1486,6 +1625,27 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if not getattr(self, "_cached_game_logo", None): self._cached_game_logo = attrs.get("game_logo_art")
             if not getattr(self, "_cached_game_icon", None): self._cached_game_icon = attrs.get("game_icon_art")
             if not getattr(self, "_cached_game_rating", None): self._cached_game_rating = attrs.get("game_content_rating")
+            if getattr(self, "_cached_achievements_earned", None) is None: self._cached_achievements_earned = attrs.get("current_game_achievements_earned")
+            if getattr(self, "_cached_achievements_total", None) is None: self._cached_achievements_total = attrs.get("current_game_achievements_total")
+            if not getattr(self, "_cached_achievements_source", None): self._cached_achievements_source = attrs.get("achievements_source")
+            if getattr(self, "_cached_gamerscore_earned", None) is None: self._cached_gamerscore_earned = attrs.get("current_game_gamerscore_earned")
+            if getattr(self, "_cached_gamerscore_total", None) is None: self._cached_gamerscore_total = attrs.get("current_game_gamerscore_total")
+            if not getattr(self, "_cached_trophies_earned", None):
+                _restored_trophies_earned = {
+                    tier: attrs[f"current_game_trophies_{tier}"]
+                    for tier in ("bronze", "silver", "gold", "platinum")
+                    if f"current_game_trophies_{tier}" in attrs
+                }
+                if _restored_trophies_earned:
+                    self._cached_trophies_earned = _restored_trophies_earned
+            if not getattr(self, "_cached_trophies_total", None):
+                _restored_trophies_total = {
+                    tier: attrs[f"current_game_trophies_{tier}_total"]
+                    for tier in ("bronze", "silver", "gold", "platinum")
+                    if f"current_game_trophies_{tier}_total" in attrs
+                }
+                if _restored_trophies_total:
+                    self._cached_trophies_total = _restored_trophies_total
 
             if not stored_data or "internal_state" not in stored_data:
                 self._temp_offline_start = _safe_parse_datetime(attrs.get("temp_offline_start"))
@@ -1649,6 +1809,42 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self.hass.async_create_task(self._unified_update(state, attrs))
 
     @callback
+    async def _recheck_achievements(self):
+        """Periodic mid-session recheck for newly-earned Steam achievements /
+        PSN trophies (Xbox needs none -- its sibling entity's attributes are
+        already re-read every _unified_update). Dispatched via
+        hass.async_create_task from the synchronous _update_play_time tick,
+        same non-blocking shape as the existing _trigger_source_update
+        pattern there -- never delays/blocks the core play-time tick that
+        scheduled it."""
+        try:
+            game_name_display = self._current_game
+            if not game_name_display:
+                return
+            if self._gaming_type == "steam" and self._steam_api_key and self._steam_id64 and self._cached_steam_appid:
+                result = await utils.fetch_steam_achievements(
+                    self.hass, self._steam_id64, self._steam_api_key, self._cached_steam_appid
+                )
+                if result:
+                    self._cached_achievements_earned = result.get("earned")
+                    self._cached_achievements_total = result.get("total")
+                    self._cached_achievements_source = "steam"
+                    self.async_write_ha_state()
+            elif self._gaming_type == "playstation" and self._psn_npsso and self._psn_account_id:
+                title_id = await utils.resolve_psn_title_id(self.hass, self._psn_npsso, self._psn_account_id)
+                result = await utils.fetch_psn_trophies(
+                    self.hass, self._psn_npsso, self._psn_account_id, game_name_display, title_id=title_id
+                )
+                if result:
+                    self._cached_trophies_earned = result.get("earned")
+                    self._cached_trophies_total = result.get("total")
+                    self._cached_achievements_source = "psn"
+                    self._cached_achievements_earned = sum((result.get("earned") or {}).values())
+                    self._cached_achievements_total = sum((result.get("total") or {}).values())
+                    self.async_write_ha_state()
+        except Exception as e:
+            _LOGGER.error("Achievement/trophy recheck failed for %s: %s", self.entity_id, e)
+
     def _update_play_time(self, now=None):
         try:
             # --- PREVENT CRASHES: Ensure restored JSON cache objects are dicts, not NoneTypes ---
@@ -1698,6 +1894,15 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     
                     self._bump_playtime(self._current_game, delta_seconds)
                     self._session_ticks_persistent[self._current_game] = self._session_ticks_persistent.get(self._current_game, 0) + int(delta_seconds)
+
+                    if utils.ENABLE_PLATFORM_ENRICHMENT and self._gaming_type in ("steam", "playstation"):
+                        due = (
+                            self._last_achievements_check_dt is None
+                            or (now_dt - self._last_achievements_check_dt).total_seconds() >= utils.ACHIEVEMENT_RECHECK_SECONDS
+                        )
+                        if due:
+                            self._last_achievements_check_dt = now_dt
+                            self.hass.async_create_task(self._recheck_achievements())
 
                     timer_status = "Running"
                 else: timer_status = f"Paused ({block_reason})"
@@ -1825,13 +2030,79 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         _LOGGER.error("Artwork fetch failed for %s: %s", game_name_display, e)
                         self._cached_game_cover = platform_data.get("game_cover_url")
 
+                # Resolved once here (if applicable) and reused for both the
+                # native-rating lookup below and the trophy fetch further
+                # down, so a PSN player only gets one get_presence() call per
+                # transition, not two.
+                _psn_title_id = None
+                if (
+                    utils.ENABLE_PLATFORM_ENRICHMENT and self._gaming_type == "playstation"
+                    and self._psn_npsso and self._psn_account_id
+                    and (not self._rating_fetch_attempted or not self._achievements_fetch_attempted)
+                ):
+                    _psn_title_id = await utils.resolve_psn_title_id(self.hass, self._psn_npsso, self._psn_account_id)
+
                 if normalized_new and not self._rating_fetch_attempted:
                     self._rating_fetch_attempted = True
                     try:
-                        self._cached_game_rating = await utils.fetch_game_rating(self.hass, game_name_display)
+                        native_platform, native_context = None, None
+                        if utils.ENABLE_PLATFORM_ENRICHMENT:
+                            if self._gaming_type == "xbox":
+                                native_platform, native_context = "xbox", {"min_age": platform_data.get("xbox_min_age_attr")}
+                            elif self._gaming_type == "steam" and platform_data.get("steam_appid"):
+                                native_platform, native_context = "steam", {"appid": platform_data["steam_appid"]}
+                            elif self._gaming_type == "playstation" and self._psn_npsso and _psn_title_id:
+                                native_platform, native_context = "psn", {"npsso": self._psn_npsso, "title_id": _psn_title_id}
+                        self._cached_game_rating = await utils.fetch_game_rating(
+                            self.hass, game_name_display, platform=native_platform, platform_context=native_context
+                        )
                     except Exception as e:
                         _LOGGER.error("Rating fetch failed for %s: %s", game_name_display, e)
                         self._cached_game_rating = None
+
+                # --- Native achievement/trophy enrichment (steam/xbox/playstation, opt-in) ---
+                if utils.ENABLE_PLATFORM_ENRICHMENT and self._gaming_type == "xbox":
+                    # Cheap local-attribute read (no HTTP call) -- refreshed
+                    # every update rather than gated by _achievements_fetch_attempted,
+                    # since the official Xbox integration's sibling sensor
+                    # already keeps these current on its own schedule.
+                    ach_earned, ach_total = _parse_fraction_attr(platform_data.get("xbox_achievements_attr"))
+                    gs_earned, gs_total = _parse_fraction_attr(platform_data.get("xbox_gamerscore_attr"))
+                    self._cached_achievements_earned = ach_earned
+                    self._cached_achievements_total = ach_total
+                    self._cached_achievements_source = "xbox_native" if ach_total is not None else None
+                    self._cached_gamerscore_earned = gs_earned
+                    self._cached_gamerscore_total = gs_total
+
+                if (
+                    normalized_new and utils.ENABLE_PLATFORM_ENRICHMENT
+                    and not self._achievements_fetch_attempted
+                    and self._gaming_type in ("steam", "playstation")
+                ):
+                    self._achievements_fetch_attempted = True
+                    self._last_achievements_check_dt = now_dt
+                    try:
+                        if self._gaming_type == "steam" and self._steam_api_key and self._steam_id64 and platform_data.get("steam_appid"):
+                            self._cached_steam_appid = platform_data["steam_appid"]
+                            result = await utils.fetch_steam_achievements(
+                                self.hass, self._steam_id64, self._steam_api_key, platform_data["steam_appid"]
+                            )
+                            if result:
+                                self._cached_achievements_earned = result.get("earned")
+                                self._cached_achievements_total = result.get("total")
+                                self._cached_achievements_source = "steam"
+                        elif self._gaming_type == "playstation" and self._psn_npsso and self._psn_account_id:
+                            result = await utils.fetch_psn_trophies(
+                                self.hass, self._psn_npsso, self._psn_account_id, game_name_display, title_id=_psn_title_id
+                            )
+                            if result:
+                                self._cached_trophies_earned = result.get("earned")
+                                self._cached_trophies_total = result.get("total")
+                                self._cached_achievements_source = "psn"
+                                self._cached_achievements_earned = sum((result.get("earned") or {}).values())
+                                self._cached_achievements_total = sum((result.get("total") or {}).values())
+                    except Exception as e:
+                        _LOGGER.error("Achievement/trophy fetch failed for %s: %s", game_name_display, e)
 
                 # --- NEW BACKGROUND DISK SCAN (Runs ONLY once per game transition) ---
                 def _scan_local_disk():
@@ -2709,6 +2980,13 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     utils.STEAMGRIDDB_API_KEY = config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, "")
     utils.RAWG_API_KEY = config_entry.data.get(CONF_RAWG_API_KEY, "")
     utils.USE_LOCAL_CACHE = opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
+    utils.ENABLE_PLATFORM_ENRICHMENT = opts.get(OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT)
+    utils.STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE = config_entry.data.get(CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, "") or None
+    utils.PSN_NPSSO_OVERRIDE = config_entry.data.get(CONF_PSN_NPSSO_OVERRIDE, "") or None
+    utils.ACHIEVEMENT_RECHECK_SECONDS = max(
+        MIN_ACHIEVEMENT_RECHECK_SECONDS,
+        opts.get(OPT_ACHIEVEMENT_RECHECK_SECONDS, DEFAULT_ACHIEVEMENT_RECHECK_SECONDS),
+    )
     
     # --- HARDWARE SAFETY NET ---
     # Detect Raspberry Pi hardware to prevent SD card I/O lockups during color extraction

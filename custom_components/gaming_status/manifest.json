@@ -1,7 +1,7 @@
 {
   "domain": "gaming_status",
   "name": "Gaming Status",
-  "after_dependencies": ["playstation_network", "xbox", "steam"],
+  "after_dependencies": ["playstation_network", "xbox", "steam_online"],
   "codeowners": ["@adamjthompson"],
   "config_flow": true,
   "dependencies": [],
@@ -12,5 +12,5 @@
     "python-dateutil>=2.8.2",
     "nextcord>=3.1,<4.0"
   ],
-  "version": "3.6.8"
+  "version": "4.0.0-alpha1"
 }

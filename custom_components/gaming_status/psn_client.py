@@ -1,0 +1,335 @@
+"""PlayStation Network client for native achievement/trophy + rating
+enrichment of the currently-tracked game only -- ported/adapted from the
+sibling "Trophy Hub" integration's psn_client.py. Its self-healing NPSSO->
+OAuth token lifecycle is ported verbatim (the single most valuable piece of
+code to reuse rather than rebuild); the public surface is trimmed to what
+Gaming Status actually needs (no full-library trophyTitles listing as the
+primary path) and extended with presence/title-concepts lookups Trophy Hub
+never needed.
+
+Auth is fundamentally different from Steam's static API key: the user
+provides an NPSSO cookie (derived from a one-time browser login to their PSN
+account, or reused from the official playstation_network integration's own
+config entry -- see utils.py), which this client exchanges for a short-lived
+access token (~60 min) and a refresh token confirmed (by Trophy Hub, during
+its own development) to last only ~10 days -- not the ~2 months some
+community docs claim. Calling the refresh grant does NOT rotate to a new
+refresh token or extend its lifetime -- it returns the exact same
+refresh_token value, with refresh_token_expires_in just counting down from
+the original exchange.
+
+`_async_ensure_session()` treats a failed refresh as recoverable, not fatal
+-- it automatically re-derives a whole new session from the still-held NPSSO
+(no user interaction needed) before giving up. Only when that also fails
+(the NPSSO cookie itself has expired) does this raise ReauthRequiredError.
+"""
+from __future__ import annotations
+
+import logging
+import time
+from urllib.parse import parse_qsl, urlparse
+
+import aiohttp
+
+from .const import (
+    PSN_AUTH_BASE,
+    PSN_CATALOG_API_BASE,
+    PSN_LEGACY_PROFILE_BASE,
+    PSN_OAUTH_BASIC_AUTH_HEADER,
+    PSN_OAUTH_CLIENT_ID,
+    PSN_OAUTH_REDIRECT_URI,
+    PSN_OAUTH_SCOPE,
+    PSN_PRESENCE_API_BASE,
+    PSN_PROFILE_BASE,
+    PSN_TROPHY_API_BASE,
+    RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS,
+)
+from .platform_exceptions import (
+    AuthError,
+    MalformedResponseError,
+    NetworkError,
+    NotFoundError,
+    PsnTrophyListPrivateError,
+    RateLimitedError,
+    ReauthRequiredError,
+)
+from .rate_limiter import RateLimiter
+
+_LOGGER = logging.getLogger(__name__)
+
+_TIMEOUT = aiohttp.ClientTimeout(total=15)
+
+# A fresh NPSSO login always produces a redirect whose Location query string
+# includes this specific error_code when the NPSSO itself is invalid/expired.
+_NPSSO_EXPIRED_ERROR_CODE = "4165"
+
+# Refresh proactively a little before the server-reported expiry rather than
+# waiting for an actual 401.
+_EXPIRY_SAFETY_MARGIN_SECONDS = 30
+
+# Hard circuit breaker on the rare full trophyTitles fallback scan's
+# pagination loop -- purely defensive, the loop's own termination logic
+# should always fire first.
+_MAX_TROPHY_TITLE_PAGES = 20
+
+
+class PsnClient:
+    def __init__(self, session: aiohttp.ClientSession, npsso: str, rate_limiter: RateLimiter) -> None:
+        self._session = session
+        self._npsso = npsso
+        self._rate_limiter = rate_limiter
+        self._access_token: str | None = None
+        self._access_token_expires_at: float = 0.0
+        self._refresh_token: str | None = None
+        self._refresh_token_expires_at: float = 0.0
+
+    async def _request(self, method: str, url: str, **kwargs) -> tuple[int, dict]:
+        await self._rate_limiter.async_acquire(timeout=RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS)
+        try:
+            async with self._session.request(method, url, timeout=_TIMEOUT, **kwargs) as resp:
+                if resp.status == 429:
+                    retry_after_header = resp.headers.get("Retry-After")
+                    retry_after = float(retry_after_header) if retry_after_header else None
+                    self._rate_limiter.notify_rate_limited(retry_after)
+                    raise RateLimitedError(f"PSN rate-limited {url}", retry_after=retry_after)
+                if resp.status >= 500:
+                    raise NetworkError(f"PSN returned HTTP {resp.status} for {url}")
+                try:
+                    body = await resp.json(content_type=None)
+                except (ValueError, aiohttp.ContentTypeError):
+                    body = {}
+                return resp.status, (body or {})
+        except aiohttp.ClientError as err:
+            raise NetworkError(f"Error communicating with PSN ({url}): {err}") from err
+        except TimeoutError as err:
+            raise NetworkError(f"Timed out reaching PSN ({url}): {err}") from err
+
+    # ---- Auth / token lifecycle ----------------------------------------
+
+    async def _async_get_authorization_code(self) -> str:
+        params = {
+            "access_type": "offline",
+            "client_id": PSN_OAUTH_CLIENT_ID,
+            "response_type": "code",
+            "scope": PSN_OAUTH_SCOPE,
+            "redirect_uri": PSN_OAUTH_REDIRECT_URI,
+        }
+        headers = {"Cookie": f"npsso={self._npsso}"}
+        await self._rate_limiter.async_acquire(timeout=RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS)
+        try:
+            async with self._session.get(
+                f"{PSN_AUTH_BASE}/authorize", params=params, headers=headers, timeout=_TIMEOUT, allow_redirects=False,
+            ) as resp:
+                location = resp.headers.get("Location", "")
+        except aiohttp.ClientError as err:
+            raise NetworkError(f"Error communicating with PSN (authorize): {err}") from err
+        except TimeoutError as err:
+            raise NetworkError(f"Timed out reaching PSN (authorize): {err}") from err
+
+        if not location:
+            raise ReauthRequiredError("PSN did not return a redirect -- the NPSSO cookie is likely invalid or expired")
+
+        query_dict = dict(parse_qsl(urlparse(location).query))
+        if "error" in query_dict:
+            if _NPSSO_EXPIRED_ERROR_CODE in (query_dict.get("error_code") or ""):
+                raise ReauthRequiredError("PSN NPSSO cookie has expired or is invalid -- a fresh one is required")
+            raise AuthError(f"PSN rejected the authorization request: {query_dict.get('error')}")
+
+        code = query_dict.get("code")
+        if not code:
+            raise MalformedResponseError(f"No 'code' in PSN's redirect: {location}")
+        return code
+
+    async def _async_exchange_code_for_tokens(self, code: str) -> None:
+        headers = {"Authorization": PSN_OAUTH_BASIC_AUTH_HEADER, "Content-Type": "application/x-www-form-urlencoded"}
+        data = {
+            "code": code,
+            "redirect_uri": PSN_OAUTH_REDIRECT_URI,
+            "grant_type": "authorization_code",
+            "token_format": "jwt",
+        }
+        status, body = await self._request("POST", f"{PSN_AUTH_BASE}/token", headers=headers, data=data)
+        if status != 200:
+            raise AuthError(f"PSN rejected the authorization code exchange (HTTP {status})")
+        self._store_token_response(body)
+
+    async def _async_refresh_access_token(self) -> None:
+        headers = {"Authorization": PSN_OAUTH_BASIC_AUTH_HEADER, "Content-Type": "application/x-www-form-urlencoded"}
+        data = {
+            "refresh_token": self._refresh_token,
+            "grant_type": "refresh_token",
+            "scope": PSN_OAUTH_SCOPE,
+            "token_format": "jwt",
+        }
+        status, body = await self._request("POST", f"{PSN_AUTH_BASE}/token", headers=headers, data=data)
+        if status != 200:
+            raise AuthError(f"PSN rejected the refresh_token grant (HTTP {status})")
+        self._store_token_response(body)
+
+    def _store_token_response(self, body: dict) -> None:
+        now = time.time()
+        access_token = body.get("access_token")
+        refresh_token = body.get("refresh_token")
+        if not access_token or not refresh_token:
+            raise MalformedResponseError(f"Unexpected PSN token response shape: {body!r}")
+        self._access_token = access_token
+        self._access_token_expires_at = now + float(body.get("expires_in", 0))
+        self._refresh_token = refresh_token
+        self._refresh_token_expires_at = now + float(body.get("refresh_token_expires_in", 0))
+
+    async def _async_ensure_session(self) -> None:
+        now = time.time()
+        if self._access_token and now < self._access_token_expires_at - _EXPIRY_SAFETY_MARGIN_SECONDS:
+            return
+
+        if self._refresh_token and now < self._refresh_token_expires_at - _EXPIRY_SAFETY_MARGIN_SECONDS:
+            try:
+                await self._async_refresh_access_token()
+                return
+            except AuthError:
+                _LOGGER.debug("PSN refresh_token grant failed -- falling back to a fresh NPSSO-based session")
+
+        code = await self._async_get_authorization_code()
+        await self._async_exchange_code_for_tokens(code)
+
+    async def _authenticated_request(self, method: str, url: str, **kwargs) -> tuple[int, dict]:
+        await self._async_ensure_session()
+        headers = kwargs.pop("headers", {}) or {}
+        headers["Authorization"] = f"Bearer {self._access_token}"
+        return await self._request(method, url, headers=headers, **kwargs)
+
+    # ---- Public API ------------------------------------------------------
+
+    async def async_get_presence(self, account_id: str) -> dict | None:
+        """Currently-playing lookup -- a single, lightweight, non-paginated
+        call, the same one Sony's own official playstation_network
+        integration makes every ~30s for the account owner *and* every
+        tracked friend. Returns the raw presence dict (callers read
+        presence["basicPresence"]["gameTitleInfoList"][0]["npTitleId"]/
+        ["titleName"]) or None if the account's presence isn't visible to
+        the configured NPSSO's account (privacy settings) or the call
+        otherwise fails -- never raises, since a failed presence lookup
+        should just mean "no title info available this cycle", not an
+        enrichment-breaking error."""
+        try:
+            status, body = await self._authenticated_request(
+                "GET",
+                f"{PSN_PRESENCE_API_BASE}/{account_id}/basicPresences",
+                params={"type": "primary", "platforms": "PS4,PS5,MOBILE_APP,PSPC", "withOwnGameTitleInfo": "true"},
+            )
+        except (NetworkError, RateLimitedError, ReauthRequiredError, AuthError):
+            return None
+        if status != 200:
+            return None
+        return body or None
+
+    async def async_get_trophy_summary_for_title(self, account_id: str, title_id: str) -> dict | None:
+        """Targeted, non-paginated single-title trophy lookup -- confirmed
+        live (psnawp_api's own trophy_titles.py, the library HA core's
+        official integration depends on) to be a single request, not a
+        full-library scan. Returns the matched trophyTitle dict (with
+        npCommunicationId/earnedTrophies/definedTrophies) or None if the
+        title isn't found for this account (e.g. never played) or the call
+        fails."""
+        try:
+            status, body = await self._authenticated_request(
+                "GET",
+                f"{PSN_TROPHY_API_BASE}/users/{account_id}/titles/trophyTitles",
+                params={"npTitleIds": f"{title_id},"},
+            )
+        except (NetworkError, RateLimitedError, ReauthRequiredError, AuthError):
+            return None
+        if status != 200:
+            return None
+        titles = (body.get("titles") or [{}])[0].get("trophyTitles") or []
+        return titles[0] if titles else None
+
+    async def async_get_title_concepts(self, title_id: str) -> dict | None:
+        """Native rating source -- confirmed live via a real recorded PSN
+        API response (psnawp_api's own test fixtures) to include a
+        `contentRating` object ({"authority": "ESRB", "description": ...})
+        and a top-level `minimumAge`. Same authenticated session as
+        everything else here. Returns None on any failure -- a rating
+        lookup failing should never be louder than "no native rating"."""
+        try:
+            status, body = await self._authenticated_request(
+                "GET", f"{PSN_CATALOG_API_BASE}/{title_id}/concepts", params={"age": 99}
+            )
+        except (NetworkError, RateLimitedError, ReauthRequiredError, AuthError):
+            return None
+        if status != 200 or not isinstance(body, list) or not body:
+            return None
+        entry = body[0]
+        return {"contentRating": entry.get("contentRating") or {}, "minimumAge": entry.get("minimumAge")}
+
+    async def async_resolve_online_id(self, online_id_or_account_id: str) -> tuple[str, str]:
+        """Returns (account_id, canonical_online_id) -- only used for the
+        manual-NPSSO-override config path, where a per-player identifier
+        might be typed as a username rather than the numeric account_id HA's
+        own registry already resolves in the common (reused-credential)
+        case."""
+        candidate = online_id_or_account_id.strip()
+        if candidate.isdigit():
+            status, body = await self._authenticated_request("GET", f"{PSN_PROFILE_BASE}/{candidate}/profiles")
+            if status in (400, 404):
+                raise NotFoundError(f"No PSN account found for account ID '{candidate}'")
+            if status != 200:
+                raise AuthError(f"PSN rejected the profile lookup for account ID '{candidate}' (HTTP {status})")
+            online_id = body.get("onlineId")
+            if not online_id:
+                raise NotFoundError(f"No PSN account found for account ID '{candidate}'")
+            return candidate, online_id
+
+        status, body = await self._authenticated_request(
+            "GET",
+            f"{PSN_LEGACY_PROFILE_BASE}/{candidate}/profile2",
+            params={"fields": "accountId,onlineId,currentOnlineId"},
+        )
+        if status == 404:
+            raise NotFoundError(f"No PSN account found for online ID '{candidate}'")
+        if status != 200:
+            raise AuthError(f"PSN rejected the profile lookup for '{candidate}' (HTTP {status})")
+        profile = body.get("profile") or {}
+        account_id = profile.get("accountId")
+        canonical_online_id = profile.get("currentOnlineId") or profile.get("onlineId") or candidate
+        if not account_id:
+            raise NotFoundError(f"No PSN account found for online ID '{candidate}'")
+        return str(account_id), canonical_online_id
+
+    async def async_get_trophy_titles(self, account_id: str) -> list[dict]:
+        """Rare fallback only -- the full trophyTitles list for an account,
+        used solely when async_get_presence() doesn't yield a usable
+        title_id even though a game was already detected by name via
+        Gaming Status's existing platform tracking. Paginates defensively
+        (max page size 800). Raises PsnTrophyListPrivateError on 403 --
+        PSN's visibility depends on the relationship between the NPSSO's
+        own account and the target account (friendship/privacy settings),
+        not a single flag."""
+        titles: list[dict] = []
+        offset = 0
+        for _ in range(_MAX_TROPHY_TITLE_PAGES):
+            status, body = await self._authenticated_request(
+                "GET", f"{PSN_TROPHY_API_BASE}/users/{account_id}/trophyTitles", params={"limit": 800, "offset": offset}
+            )
+            if status == 403:
+                raise PsnTrophyListPrivateError(
+                    f"PSN account {account_id}'s trophy list isn't visible to the configured NPSSO account"
+                )
+            if status == 404:
+                raise NotFoundError(f"No PSN account found for account ID '{account_id}'")
+            if status != 200:
+                raise AuthError(f"PSN rejected the trophyTitles request (HTTP {status})")
+
+            page = body.get("trophyTitles") or []
+            titles.extend(page)
+            next_offset = body.get("nextOffset")
+            if next_offset is None or next_offset <= offset or len(page) == 0:
+                break
+            offset = next_offset
+        else:
+            _LOGGER.warning(
+                "PSN trophyTitles pagination hit the %s-page safety cap for account %s -- "
+                "stopping early with %s titles collected so far.",
+                _MAX_TROPHY_TITLE_PAGES, account_id, len(titles),
+            )
+        return titles

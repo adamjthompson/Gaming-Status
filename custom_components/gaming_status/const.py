@@ -142,3 +142,64 @@ RATING_THRESHOLD_OPTIONS = [
 # which get resolved to the same board-agnostic age floor used everywhere else.
 OPT_RATING_OVERRIDES = "rating_overrides"
 RATING_OVERRIDE_CODES = {"E": 0, "E10": 10, "T": 13, "M": 17, "AO": 18}
+
+# ---------------------------------------------------------------------------
+# Native platform achievement/trophy/rating enrichment (current game only,
+# never a full library -- see steam_client.py/psn_client.py). Opt-in, off by
+# default: existing installs must not start any new API traffic (especially
+# a brand-new PSN OAuth session) just from updating Gaming Status.
+# ---------------------------------------------------------------------------
+OPT_ENABLE_PLATFORM_ENRICHMENT = "enable_platform_enrichment"
+DEFAULT_ENABLE_PLATFORM_ENRICHMENT = False
+
+# Manual override credentials -- only used when the matching official
+# integration (steam_online/playstation_network) isn't installed/configured,
+# or the user explicitly wants a different credential than the one already
+# in use there. Stored in entry.data like the other API keys.
+CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE = "steam_achievements_api_key_override"
+CONF_PSN_NPSSO_OVERRIDE = "psn_npsso_override"
+
+OPT_ACHIEVEMENT_RECHECK_SECONDS = "achievement_recheck_seconds"
+DEFAULT_ACHIEVEMENT_RECHECK_SECONDS = 900
+MIN_ACHIEVEMENT_RECHECK_SECONDS = 300
+
+# HA core's official steam_online integration stores the raw Steam Web API
+# key at entry.data[homeassistant.const.CONF_API_KEY] -- safe to import
+# directly since CONF_API_KEY is a generic core constant. Its own domain,
+# though, is only ever referenced as a literal string (never imported),
+# since "import homeassistant.components.steam_online" would fail hard if
+# that integration isn't installed at all.
+HA_STEAM_ONLINE_DOMAIN = "steam_online"
+
+# HA core's official playstation_network integration stores the NPSSO at
+# entry.data["npsso"] -- confirmed live against HA core's dev branch source
+# (homeassistant/components/playstation_network/const.py: CONF_NPSSO =
+# "npsso"). Kept as a literal (not imported) for the same reason as above --
+# this domain may not be installed at all.
+HA_PLAYSTATION_NETWORK_DOMAIN = "playstation_network"
+HA_PSN_NPSSO_KEY = "npsso"
+
+# Steam Web API -- official, static key, no OAuth.
+STEAM_API_BASE = "https://api.steampowered.com"
+STEAM_STORE_API_BASE = "https://store.steampowered.com/api"
+
+# PSN Trophy/Catalog API -- unofficial but stable, community-documented
+# (https://andshrew.github.io/PlayStation-Trophies/#/APIv2). Base URLs
+# confirmed live against psnawp_api's own endpoints.py (the library HA
+# core's official playstation_network integration itself depends on).
+PSN_AUTH_BASE = "https://ca.account.sony.com/api/authz/v3/oauth"
+PSN_TROPHY_API_BASE = "https://m.np.playstation.com/api/trophy/v1"
+PSN_CATALOG_API_BASE = "https://m.np.playstation.com/api/catalog/v2/titles"
+PSN_PRESENCE_API_BASE = "https://m.np.playstation.com/api/userProfile/v2/internal/users"
+PSN_PROFILE_BASE = "https://m.np.playstation.com/api/userProfile/v1/internal/users"
+PSN_LEGACY_PROFILE_BASE = "https://us-prof.np.community.playstation.net/userProfile/v1/users"
+PSN_OAUTH_CLIENT_ID = "09515159-7237-4370-9b40-3806e67c0891"
+PSN_OAUTH_BASIC_AUTH_HEADER = "Basic MDk1MTUxNTktNzIzNy00MzcwLTliNDAtMzgwNmU2N2MwODkxOnVjUGprYTV0bnRCMktxc1A="
+PSN_OAUTH_SCOPE = "psn:mobile.v2.core psn:clientapp"
+PSN_OAUTH_REDIRECT_URI = "com.scee.psxandroid.scecompcall://redirect"
+
+RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS = 20
+STEAM_RATE_LIMIT_CAPACITY = 20
+STEAM_RATE_LIMIT_PER_SECOND = 4
+PSN_RATE_LIMIT_CAPACITY = 15
+PSN_RATE_LIMIT_PER_SECOND = 250 / 900  # ~250/15min effective ceiling

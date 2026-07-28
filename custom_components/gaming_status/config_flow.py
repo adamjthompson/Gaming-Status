@@ -64,6 +64,13 @@ from .const import (
     DEFAULT_CACHE_MAX_FILES,
     OPT_CACHE_MAX_DAYS,
     DEFAULT_CACHE_MAX_DAYS,
+    OPT_ENABLE_PLATFORM_ENRICHMENT,
+    DEFAULT_ENABLE_PLATFORM_ENRICHMENT,
+    CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE,
+    CONF_PSN_NPSSO_OVERRIDE,
+    OPT_ACHIEVEMENT_RECHECK_SECONDS,
+    DEFAULT_ACHIEVEMENT_RECHECK_SECONDS,
+    MIN_ACHIEVEMENT_RECHECK_SECONDS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -1136,16 +1143,25 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 opts[key] = _dump_json(parsed_list)
 
             opts[OPT_SAME_GAME_PREFIX_WORDS] = user_input.get(OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS)
+            opts[OPT_ENABLE_PLATFORM_ENRICHMENT] = user_input.get(OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT)
+            opts[OPT_ACHIEVEMENT_RECHECK_SECONDS] = max(
+                MIN_ACHIEVEMENT_RECHECK_SECONDS,
+                user_input.get(OPT_ACHIEVEMENT_RECHECK_SECONDS, DEFAULT_ACHIEVEMENT_RECHECK_SECONDS),
+            )
 
             api_key = user_input.get(CONF_STEAMGRIDDB_API_KEY, "").strip()
             rawg_key = user_input.get(CONF_RAWG_API_KEY, "").strip()
             dc_token = user_input.get(CONF_DISCORD_TOKEN, "").strip()
             dc_server = user_input.get(CONF_DISCORD_SERVER, "").strip()
+            steam_achievements_key_override = user_input.get(CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, "").strip()
+            psn_npsso_override = user_input.get(CONF_PSN_NPSSO_OVERRIDE, "").strip()
             new_data = dict(self._config_entry.data)
             new_data[CONF_STEAMGRIDDB_API_KEY] = api_key
             new_data[CONF_RAWG_API_KEY] = rawg_key
             new_data[CONF_DISCORD_TOKEN] = dc_token
             new_data[CONF_DISCORD_SERVER] = dc_server
+            new_data[CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE] = steam_achievements_key_override
+            new_data[CONF_PSN_NPSSO_OVERRIDE] = psn_npsso_override
             self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
 
             if not errors:
@@ -1183,6 +1199,26 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             ): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
             ),
+            vol.Optional(
+                OPT_ENABLE_PLATFORM_ENRICHMENT,
+                default=opts.get(OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT),
+            ): bool,
+            vol.Optional(
+                CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE,
+                description={"suggested_value": self._config_entry.data.get(CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, "")},
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+            ),
+            vol.Optional(
+                CONF_PSN_NPSSO_OVERRIDE,
+                description={"suggested_value": self._config_entry.data.get(CONF_PSN_NPSSO_OVERRIDE, "")},
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+            ),
+            vol.Optional(
+                OPT_ACHIEVEMENT_RECHECK_SECONDS,
+                default=opts.get(OPT_ACHIEVEMENT_RECHECK_SECONDS, DEFAULT_ACHIEVEMENT_RECHECK_SECONDS),
+            ): vol.All(int, vol.Range(min=MIN_ACHIEVEMENT_RECHECK_SECONDS)),
         }
 
         if "discord" in enabled_platforms:

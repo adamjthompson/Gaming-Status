@@ -29,6 +29,23 @@ COMPILED_TITLE_CLEANUPS = []
 STEAMGRIDDB_API_KEY = None
 RAWG_API_KEY = None
 
+# Native platform achievement/trophy/rating enrichment (current game only --
+# see steam_client.py/psn_client.py). Opt-in, off by default.
+ENABLE_PLATFORM_ENRICHMENT = False
+STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE = None
+PSN_NPSSO_OVERRIDE = None
+ACHIEVEMENT_RECHECK_SECONDS = 900
+
+# Static per-game data that never needs re-fetching once known -- unlike
+# earned/total achievement *counts* (which the caller re-fetches on its own
+# recheck interval, since those genuinely change), a game's total-achievement
+# count and PSN title_id/np_communication_id resolution are effectively
+# permanent, so they're cached forever (LRU-capped) rather than time-limited
+# like RATING_CACHE.
+STEAM_SCHEMA_CACHE = OrderedDict()
+PSN_TITLE_ID_CACHE = OrderedDict()  # normalized_game_name -> title_id, rare-fallback-path only
+MAX_ENRICHMENT_CACHE_SIZE = 500
+
 # Cache Settings
 USE_LOCAL_CACHE = True
 ENABLE_VIBRANT_COLOR = True
@@ -334,18 +351,26 @@ async def get_steamgriddb_game_cover(hass, game_name):
     assets = await fetch_game_assets(hass, game_name)
     return assets.get("hero") or assets.get("grid")
 
-async def fetch_game_rating(hass, game_name):
+async def fetch_game_rating(hass, game_name, platform=None, platform_context=None):
     """
     Fetch content/age-rating metadata for a game.
     A manual entry in RATING_OVERRIDES always takes priority and skips the
-    cache/API entirely. Otherwise, fetches from RAWG.io. A confirmed rating
-    is cached forever (ratings don't change). An "unrated"
-    result (no match, no ESRB data, or a failed lookup) is only cached for
-    RATING_RECHECK_SECONDS, then retried, since it may reflect a transient
-    failure or data RAWG hasn't added yet.
+    cache/API entirely. Otherwise, if platform enrichment is enabled and the
+    caller passed enough context, tries a platform-native rating first (see
+    _fetch_native_rating) -- only falling through to RAWG.io if that's
+    unavailable/fails. A confirmed rating (from either source) is cached
+    forever (ratings don't change). An "unrated" result (no match, no ESRB
+    data, or a failed lookup) is only cached for RATING_RECHECK_SECONDS, then
+    retried, since it may reflect a transient failure or data not yet added.
+
+    `platform`/`platform_context` are optional and only used for the native
+    lookup: platform="xbox" -> {"min_age": <already-known value, no HTTP
+    call needed>}; platform="steam" -> {"appid": int}; platform="psn" ->
+    {"npsso": str, "title_id": str}.
+
     Returns a dict like {"esrb": "M", "pegi": None, "age_floor": 17,
     "descriptors": [...], "unrated": False, "source": "rawg"}, or None if no
-    API key is configured.
+    rating source (native or RAWG) is available.
     """
     import asyncio
     global _RATINGS_MISSING_KEY_WARNED
@@ -372,6 +397,16 @@ async def fetch_game_rating(hass, game_name):
         if not is_stale:
             RATING_CACHE.move_to_end(cache_key)
             return cached
+
+    if ENABLE_PLATFORM_ENRICHMENT and platform and platform_context:
+        native = await _fetch_native_rating(hass, platform, platform_context)
+        if native is not None:
+            native["checked_at"] = time.time()
+            RATING_CACHE[cache_key] = native
+            RATING_CACHE.move_to_end(cache_key)
+            if len(RATING_CACHE) > MAX_RATING_CACHE_SIZE:
+                RATING_CACHE.popitem(last=False)
+            return native
 
     if "gaming_status_rating_locks" not in hass.data:
         hass.data["gaming_status_rating_locks"] = {}
@@ -453,6 +488,248 @@ async def fetch_game_rating(hass, game_name):
     finally:
         lock.set()
         hass.data["gaming_status_rating_locks"].pop(cache_key, None)
+
+
+# ---------------------------------------------------------------------------
+# Native platform achievement/trophy/rating enrichment (current game only --
+# see steam_client.py/psn_client.py for the actual HTTP clients this section
+# orchestrates). Opt-in (ENABLE_PLATFORM_ENRICHMENT), off by default.
+# ---------------------------------------------------------------------------
+
+def _get_rate_limiter(hass, platform: str):
+    """One shared token-bucket limiter per platform, since credentials here
+    are shared (reused from the official steam_online/playstation_network
+    integration, or one manual override) across every tracked player, not
+    per-player -- the budget has to be shared too."""
+    from .const import PSN_RATE_LIMIT_CAPACITY, PSN_RATE_LIMIT_PER_SECOND, STEAM_RATE_LIMIT_CAPACITY, STEAM_RATE_LIMIT_PER_SECOND
+    from .rate_limiter import RateLimiter
+
+    limiters = hass.data.setdefault("gaming_status_rate_limiters", {})
+    if platform not in limiters:
+        if platform == "steam":
+            limiters[platform] = RateLimiter(STEAM_RATE_LIMIT_CAPACITY, STEAM_RATE_LIMIT_PER_SECOND, name="steam")
+        elif platform == "psn":
+            limiters[platform] = RateLimiter(PSN_RATE_LIMIT_CAPACITY, PSN_RATE_LIMIT_PER_SECOND, name="psn")
+        else:
+            raise ValueError(f"No rate limiter configured for platform {platform!r}")
+    return limiters[platform]
+
+
+def _get_steam_client(hass, api_key: str = ""):
+    """Steam Web API client. A blank api_key is valid for the public,
+    unauthenticated appdetails (rating) lookup -- only the achievement
+    endpoints actually need a real key. Cached per-key so repeated calls for
+    the same player reuse one client rather than constructing a new one
+    every time."""
+    from .steam_client import SteamClient
+
+    clients = hass.data.setdefault("gaming_status_steam_clients", {})
+    if api_key not in clients:
+        clients[api_key] = SteamClient(async_get_clientsession(hass), api_key, _get_rate_limiter(hass, "steam"))
+    return clients[api_key]
+
+
+def _get_psn_client(hass, npsso: str):
+    """PSN client singleton per NPSSO -- holds live OAuth token state, so
+    reusing one instance across every player sharing the same NPSSO (the
+    common case: one playstation_network entry, many tracked friends) avoids
+    each of them independently re-deriving a separate session."""
+    from .psn_client import PsnClient
+
+    clients = hass.data.setdefault("gaming_status_psn_clients", {})
+    if npsso not in clients:
+        clients[npsso] = PsnClient(async_get_clientsession(hass), npsso, _get_rate_limiter(hass, "psn"))
+    return clients[npsso]
+
+
+_STEAM_ESRB_AGE_FLOOR = {"e": 0, "e10": 10, "e10+": 10, "t": 13, "m": 17, "ao": 18}
+
+
+async def _fetch_native_rating(hass, platform, platform_context):
+    """Tries a platform-native rating source. Returns a rating dict in the
+    same shape fetch_game_rating returns (and caches), or None if
+    unavailable/the lookup fails -- callers fall through to RAWG in that
+    case. Never raises."""
+    try:
+        if platform == "xbox":
+            min_age = platform_context.get("min_age")
+            if min_age is None:
+                return None
+            # Xbox's min_age is a numeric age floor Microsoft synthesizes
+            # from whatever regional rating board applies to that title --
+            # not guaranteed to sit on the exact same 0/10/13/17/18 buckets
+            # Steam/RAWG use, but age_floor is already a "board-agnostic
+            # numeric" field meant to be compared with >=, not exact-matched
+            # against those 5 labels, so a raw numeric value from a
+            # different board is still meaningful here.
+            return {
+                "esrb": None, "pegi": None, "age_floor": int(min_age),
+                "descriptors": [], "unrated": False, "source": "xbox_native",
+            }
+
+        if platform == "steam":
+            appid = platform_context.get("appid")
+            if not appid:
+                return None
+            client = _get_steam_client(hass)
+            details = await client.async_get_appdetails(appid)
+            if not details:
+                return None
+            esrb = (details.get("ratings") or {}).get("esrb") or {}
+            rating_code = str(esrb.get("rating") or "").lower()
+            age_floor = _STEAM_ESRB_AGE_FLOOR.get(rating_code)
+            if age_floor is None:
+                required_age = details.get("required_age")
+                age_floor = int(required_age) if required_age else None
+            if age_floor is None:
+                return None
+            descriptors = [d.strip() for d in str(esrb.get("descriptors") or "").split("\n") if d.strip()]
+            return {
+                "esrb": rating_code.upper() or None, "pegi": None, "age_floor": age_floor,
+                "descriptors": descriptors, "unrated": False, "source": "steam_native",
+            }
+
+        if platform == "psn":
+            npsso = platform_context.get("npsso")
+            title_id = platform_context.get("title_id")
+            if not npsso or not title_id:
+                return None
+            client = _get_psn_client(hass, npsso)
+            concepts = await client.async_get_title_concepts(title_id)
+            if not concepts:
+                return None
+            min_age = concepts.get("minimumAge")
+            if min_age is None:
+                return None
+            content_rating = concepts.get("contentRating") or {}
+            authority = content_rating.get("authority")
+            description = content_rating.get("description") or content_rating.get("name")
+            return {
+                "esrb": description if authority == "ESRB" else None,
+                "pegi": description if authority == "PEGI" else None,
+                "age_floor": int(min_age), "descriptors": [], "unrated": False, "source": "psn_native",
+            }
+    except Exception as e:
+        _LOGGER.debug("[Gaming Status] Native rating lookup failed for platform=%s: %s", platform, e)
+        return None
+    return None
+
+
+async def fetch_steam_achievements(hass, steamid64, api_key, appid):
+    """Earned/total achievement counts for one game on one Steam account.
+    Never raises -- returns None on any failure (missing key, network
+    error, or Steam's own per-account achievement-data restriction, see
+    steam_client.py). The schema call (total achievements) is cached
+    forever per appid, since it's static; the earned count is always
+    fetched fresh -- the caller (sensor.py) controls how often via its own
+    recheck-interval guard, so caching it here would just serve stale data.
+    """
+    if not steamid64 or not api_key or not appid:
+        return None
+    try:
+        client = _get_steam_client(hass, api_key)
+
+        if appid in STEAM_SCHEMA_CACHE:
+            STEAM_SCHEMA_CACHE.move_to_end(appid)
+            total = STEAM_SCHEMA_CACHE[appid]
+        else:
+            schema = await client.async_get_schema_for_game(appid)
+            total = schema.get("total_achievements", 0)
+            STEAM_SCHEMA_CACHE[appid] = total
+            STEAM_SCHEMA_CACHE.move_to_end(appid)
+            if len(STEAM_SCHEMA_CACHE) > MAX_ENRICHMENT_CACHE_SIZE:
+                STEAM_SCHEMA_CACHE.popitem(last=False)
+
+        if not total:
+            return {"earned": 0, "total": 0}
+
+        achievements = await client.async_get_player_achievements(steamid64, appid)
+        earned = sum(1 for a in achievements if a.get("achieved"))
+        return {"earned": earned, "total": total}
+    except Exception as e:
+        _LOGGER.debug("[Gaming Status] Steam achievement fetch failed for appid %s: %s", appid, e)
+        return None
+
+
+async def resolve_psn_title_id(hass, npsso, account_id):
+    """Resolves the PSN `npTitleId` for whatever the account is currently
+    playing, via one lightweight get_presence() call -- works identically
+    for the account owner or any tracked friend (see psn_client.py). Never
+    raises; returns None if presence isn't visible this cycle or no game
+    title info is present."""
+    if not npsso or not account_id:
+        return None
+    try:
+        client = _get_psn_client(hass, npsso)
+        presence = await client.async_get_presence(account_id)
+        if not presence:
+            return None
+        titles = ((presence.get("basicPresence") or {}).get("gameTitleInfoList")) or []
+        return titles[0].get("npTitleId") if titles else None
+    except Exception as e:
+        _LOGGER.debug("[Gaming Status] PSN presence/title_id resolution failed: %s", e)
+        return None
+
+
+async def fetch_psn_trophies(hass, npsso, account_id, game_name, title_id=None):
+    """Earned/total trophy counts (by tier) for one game on one PSN account.
+    Never raises -- returns None on any failure. Resolution order:
+
+    1. If `title_id` is already known (resolved via a fresh get_presence()
+       call in sensor.py), call the targeted, non-paginated
+       trophy_titles_for_title lookup directly -- one request, works
+       identically for the account owner or any tracked friend.
+    2. Otherwise (presence didn't yield a usable title_id this cycle):
+       check the in-memory {normalized_game_name: title_id} cache from a
+       previous fallback resolution for this same game, and use that
+       instead of scanning again.
+    3. Only if neither of the above works: fall back to scanning the full
+       trophyTitles list by name -- a rare path, and only ever hit once per
+       distinct game per HA runtime (the resolved title_id gets cached for
+       next time).
+    """
+    if not npsso or not account_id:
+        return None
+    try:
+        client = _get_psn_client(hass, npsso)
+        cache_key = _normalize_game_name(game_name) if game_name else None
+
+        entry = None
+        if title_id:
+            entry = await client.async_get_trophy_summary_for_title(account_id, title_id)
+        elif cache_key and cache_key in PSN_TITLE_ID_CACHE:
+            cached_title_id = PSN_TITLE_ID_CACHE[cache_key]
+            PSN_TITLE_ID_CACHE.move_to_end(cache_key)
+            entry = await client.async_get_trophy_summary_for_title(account_id, cached_title_id)
+
+        if entry is None and cache_key:
+            # Rare fallback -- full list scan, name-matched. Only reached
+            # when presence-based title_id resolution isn't available.
+            titles = await client.async_get_trophy_titles(account_id)
+            for candidate in titles:
+                if _normalize_game_name(candidate.get("trophyTitleName") or "") == cache_key:
+                    entry = candidate
+                    break
+
+        if entry is None:
+            return None
+
+        if cache_key and title_id:
+            PSN_TITLE_ID_CACHE[cache_key] = title_id
+            PSN_TITLE_ID_CACHE.move_to_end(cache_key)
+            if len(PSN_TITLE_ID_CACHE) > MAX_ENRICHMENT_CACHE_SIZE:
+                PSN_TITLE_ID_CACHE.popitem(last=False)
+
+        earned = entry.get("earnedTrophies") or {}
+        defined = entry.get("definedTrophies") or {}
+        return {
+            "earned": {k: int(earned.get(k, 0)) for k in ("bronze", "silver", "gold", "platinum")},
+            "total": {k: int(defined.get(k, 0)) for k in ("bronze", "silver", "gold", "platinum")},
+        }
+    except Exception as e:
+        _LOGGER.debug("[Gaming Status] PSN trophy fetch failed for %s: %s", game_name, e)
+        return None
+
 
 async def fetch_and_cache_image(hass, remote_url, file_name):
     """Generic helper to cache any remote image locally."""
