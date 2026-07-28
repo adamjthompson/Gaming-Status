@@ -221,11 +221,19 @@
           "title_cleanups": "Title Cleanups, one per line (Regex/Text to strip from titles)",
           "global_exclusions": "Global Exclusions, one per line (Ignored apps/games)",
           "rating_overrides": "Content Rating Overrides, one per line (e.g., Skull and Bones = M)",
-          "same_game_prefix_words": "Same-Game Prefix Match (leading words, 0 = off)"
+          "same_game_prefix_words": "Same-Game Prefix Match (leading words, 0 = off)",
+          "enable_platform_enrichment": "Enable Native Achievement/Trophy/Rating Enrichment",
+          "steam_achievements_api_key_override": "Steam Web API Key Override (Optional)",
+          "psn_npsso_override": "PSN NPSSO Override (Optional)",
+          "achievement_recheck_seconds": "Achievement/Trophy Recheck Interval (seconds)"
         },
         "data_description": {
           "rating_overrides": "Manually set a rating for games your rating provider has no data for, one per line. Codes: E, E10, T, M, AO.",
-          "same_game_prefix_words": "Game names starting with this many matching words (e.g. \"Call of Duty ...\") are treated as the same game instead of a switch. Default: 2. Set to 0 to disable."
+          "same_game_prefix_words": "Game names starting with this many matching words (e.g. \"Call of Duty ...\") are treated as the same game instead of a switch. Default: 2. Set to 0 to disable.",
+          "enable_platform_enrichment": "Adds achievement/trophy counts and native content ratings to the current game's Steam/Xbox/PlayStation sensor, reusing credentials already configured on the steam_online/playstation_network integrations where possible. Off by default.",
+          "steam_achievements_api_key_override": "Only needed if steam_online isn't installed, or you want a different key than the one already configured there. Leave blank to auto-detect.",
+          "psn_npsso_override": "Only needed if playstation_network isn't installed, or you want a different account's NPSSO than the one already configured there. Leave blank to auto-detect.",
+          "achievement_recheck_seconds": "How often to re-check for newly-earned achievements/trophies while a game keeps running. Default 900 (15 min), minimum 300 (5 min)."
         }
       },
       "global_settings": {

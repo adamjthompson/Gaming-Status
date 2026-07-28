@@ -1109,6 +1109,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         opts = self._options
         errors = {}
         parental_enabled = opts.get(OPT_ENABLE_PARENTAL, False)
+        enrichment_enabled = opts.get(OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT)
 
         if user_input is not None:
             for key, field in [
@@ -1144,17 +1145,26 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
             opts[OPT_SAME_GAME_PREFIX_WORDS] = user_input.get(OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS)
             opts[OPT_ENABLE_PLATFORM_ENRICHMENT] = user_input.get(OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT)
-            opts[OPT_ACHIEVEMENT_RECHECK_SECONDS] = max(
-                MIN_ACHIEVEMENT_RECHECK_SECONDS,
-                user_input.get(OPT_ACHIEVEMENT_RECHECK_SECONDS, DEFAULT_ACHIEVEMENT_RECHECK_SECONDS),
-            )
+            if enrichment_enabled:
+                # Only parse/overwrite these while the fields are actually
+                # shown -- when the toggle is off they're hidden from the
+                # form entirely, so user_input has no key for them at all,
+                # and blindly defaulting would silently wipe/reset whatever
+                # was already stored the next time this form gets saved.
+                opts[OPT_ACHIEVEMENT_RECHECK_SECONDS] = max(
+                    MIN_ACHIEVEMENT_RECHECK_SECONDS,
+                    user_input.get(OPT_ACHIEVEMENT_RECHECK_SECONDS, DEFAULT_ACHIEVEMENT_RECHECK_SECONDS),
+                )
+                steam_achievements_key_override = user_input.get(CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, "").strip()
+                psn_npsso_override = user_input.get(CONF_PSN_NPSSO_OVERRIDE, "").strip()
+            else:
+                steam_achievements_key_override = self._config_entry.data.get(CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, "")
+                psn_npsso_override = self._config_entry.data.get(CONF_PSN_NPSSO_OVERRIDE, "")
 
             api_key = user_input.get(CONF_STEAMGRIDDB_API_KEY, "").strip()
             rawg_key = user_input.get(CONF_RAWG_API_KEY, "").strip()
             dc_token = user_input.get(CONF_DISCORD_TOKEN, "").strip()
             dc_server = user_input.get(CONF_DISCORD_SERVER, "").strip()
-            steam_achievements_key_override = user_input.get(CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, "").strip()
-            psn_npsso_override = user_input.get(CONF_PSN_NPSSO_OVERRIDE, "").strip()
             new_data = dict(self._config_entry.data)
             new_data[CONF_STEAMGRIDDB_API_KEY] = api_key
             new_data[CONF_RAWG_API_KEY] = rawg_key
@@ -1203,23 +1213,27 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 OPT_ENABLE_PLATFORM_ENRICHMENT,
                 default=opts.get(OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT),
             ): bool,
-            vol.Optional(
-                CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE,
-                description={"suggested_value": self._config_entry.data.get(CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, "")},
-            ): selector.TextSelector(
-                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
-            ),
-            vol.Optional(
-                CONF_PSN_NPSSO_OVERRIDE,
-                description={"suggested_value": self._config_entry.data.get(CONF_PSN_NPSSO_OVERRIDE, "")},
-            ): selector.TextSelector(
-                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
-            ),
-            vol.Optional(
-                OPT_ACHIEVEMENT_RECHECK_SECONDS,
-                default=opts.get(OPT_ACHIEVEMENT_RECHECK_SECONDS, DEFAULT_ACHIEVEMENT_RECHECK_SECONDS),
-            ): vol.All(int, vol.Range(min=MIN_ACHIEVEMENT_RECHECK_SECONDS)),
         }
+
+        if enrichment_enabled:
+            schema_dict.update({
+                vol.Optional(
+                    OPT_ACHIEVEMENT_RECHECK_SECONDS,
+                    default=opts.get(OPT_ACHIEVEMENT_RECHECK_SECONDS, DEFAULT_ACHIEVEMENT_RECHECK_SECONDS),
+                ): vol.All(int, vol.Range(min=MIN_ACHIEVEMENT_RECHECK_SECONDS)),
+                vol.Optional(
+                    CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE,
+                    description={"suggested_value": self._config_entry.data.get(CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, "")},
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
+                vol.Optional(
+                    CONF_PSN_NPSSO_OVERRIDE,
+                    description={"suggested_value": self._config_entry.data.get(CONF_PSN_NPSSO_OVERRIDE, "")},
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
+            })
 
         if "discord" in enabled_platforms:
             schema_dict.update({
