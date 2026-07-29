@@ -520,20 +520,44 @@ def resolve_owning_config_entry(hass, source_entity_id):
         return None, None, None
 
 
+_STEAM_ENTITY_UNIQUE_ID_PREFIX = "sensor.steam_"
+
+
 def resolve_steam_credentials(hass, source_entity_id):
     """Returns (api_key, steamid64), reusing steam_online's own config entry
     (entry.data[CONF_API_KEY], a stable/public ConfigEntry field) if present,
-    falling back to the manual Advanced Settings override. Never raises."""
+    falling back to the manual Advanced Settings override. Never raises.
+
+    steam_online has two incompatible generations for tracking friends:
+    -- 2026.8+ (not yet in any shipped stable release as of this writing):
+       one ConfigSubentry per tracked friend, subentry.unique_id holding
+       that friend's own steamid64 -- handled by subentry_unique_id above.
+    -- every currently-shipped stable release: the account owner AND every
+       tracked friend share one flat config entry with no subentry
+       distinction at all, so config_subentry_id/subentry_unique_id is
+       always None for everyone -- confirmed live against steam_online's
+       real sensor.py. There, the only thing that actually distinguishes
+       one tracked account from another is each entity's own unique_id,
+       which steam_online sets to literally f"sensor.steam_{steamid}".
+       Falling back to owning_entry.unique_id here (the API key owner's
+       own steamid) would silently resolve every tracked friend to the
+       account owner's own Steam data -- so parse the entity's own
+       unique_id first, and only fall back to the owner's id if that
+       fails (e.g. a genuinely unresolvable/legacy entity)."""
     from homeassistant.const import CONF_API_KEY
     from .const import HA_STEAM_ONLINE_DOMAIN
 
     try:
-        _, owning_entry, subentry_unique_id = resolve_owning_config_entry(hass, source_entity_id)
+        entry, owning_entry, subentry_unique_id = resolve_owning_config_entry(hass, source_entity_id)
         api_key = None
         steam_id64 = None
         if owning_entry and owning_entry.domain == HA_STEAM_ONLINE_DOMAIN:
             api_key = owning_entry.data.get(CONF_API_KEY)
-            steam_id64 = subentry_unique_id or owning_entry.unique_id
+            steam_id64 = subentry_unique_id
+            if not steam_id64 and entry and entry.unique_id and entry.unique_id.startswith(_STEAM_ENTITY_UNIQUE_ID_PREFIX):
+                steam_id64 = entry.unique_id[len(_STEAM_ENTITY_UNIQUE_ID_PREFIX):]
+            if not steam_id64:
+                steam_id64 = owning_entry.unique_id
         if not api_key:
             api_key = STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE
             steam_id64 = steam_id64 or subentry_unique_id or (owning_entry.unique_id if owning_entry else None)
