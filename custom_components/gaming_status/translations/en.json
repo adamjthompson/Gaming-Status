@@ -189,7 +189,11 @@
         "title": "Parental Controls",
         "description": "Select a player to configure screen time, curfew, and game ratings rules.",
         "data": {
-          "player_choice": "Player"
+          "player_choice": "Player",
+          "enable_native_ratings": "Enable Native Content Ratings (applies to all players)"
+        },
+        "data_description": {
+          "enable_native_ratings": "Looks up each game's ESRB rating directly from Steam/Xbox/PlayStation so Content Rating Limit has something to compare against. This is a global setting shared across all players -- the same toggle also appears under Achievements & Ratings; enabling it here or there has the same effect. Content Rating Limit's fields only appear on a player's screen once this is on."
         }
       },
       "parental_player": {
@@ -205,13 +209,9 @@
           "cf_weekend": "Weekend curfew time (HH:MM)",
           "cf_repeat": "Curfew action frequency",
           "cf_action_targets": "Notification method(s) at curfew",
-          "enable_native_ratings": "Enable Native Content Ratings (applies to all players)",
           "rt_enabled": "Enable content rating limit",
           "rt_max_age_floor": "Maximum allowed age rating",
           "rt_action_targets": "Notification method(s) when rating exceeded"
-        },
-        "data_description": {
-          "enable_native_ratings": "Looks up each game's ESRB rating directly from Steam/Xbox/PlayStation so Content Rating Limit has something to compare against. This is a global setting shared across all players -- the same toggle also appears under Achievements & Ratings; enabling it here or there has the same effect."
         }
       },
       "overrides_exclusions": {
@@ -229,7 +229,7 @@
       },
       "achievements_ratings": {
         "title": "Achievements & Ratings",
-        "description": "Native achievement/trophy/rating enrichment and full game library scanning, reusing credentials already configured on the steam_online/xbox/playstation_network integrations where possible.",
+        "description": "Native achievement/trophy/rating enrichment and full game library scanning, reusing credentials already configured on the official  integrations where possible.",
         "data": {
           "enable_native_ratings": "Enable Native Content Ratings",
           "enable_achievement_tracking": "Enable Achievement/Trophy Tracking",
@@ -241,10 +241,10 @@
         },
         "data_description": {
           "enable_native_ratings": "Looks up each game's ESRB rating directly from Steam/Xbox/PlayStation -- feeds the game_content_rating sensor attribute and Parental Controls' Content Rating Limit rule. Independent of achievement tracking below: Steam and Xbox ratings need no credential at all, PlayStation reuses the same session achievement tracking uses. Off by default. Also shown on the per-player Parental Controls screen (same setting, shown in both places for convenience).",
-          "enable_achievement_tracking": "Adds achievement/trophy counts and unlock details to the current game's Steam/Xbox/PlayStation sensor, reusing credentials already configured on the steam_online/xbox/playstation_network integrations where possible. Off by default. The recheck interval, credential overrides, and library scan fields below only take effect once this is on.",
+          "enable_achievement_tracking": "Adds achievement/trophy counts and unlock details to the current game's Steam/Xbox/PlayStation sensor, reusing credentials already configured on the official  integrations where possible. Off by default. The recheck interval, credential overrides, and library scan fields below only take effect once this is on.",
           "achievement_recheck_seconds": "How often to re-check for newly-earned achievements/trophies while a game keeps running. Default 900 (15 min), minimum 300 (5 min).",
-          "steam_achievements_api_key_override": "Only needed if steam_online isn't installed, or you want a different key than the one already configured there. Leave blank to auto-detect.",
-          "psn_npsso_override": "Only needed if playstation_network isn't installed, or you want a different account's NPSSO than the one already configured there. Leave blank to auto-detect. Used by both native ratings and achievement tracking.",
+          "steam_achievements_api_key_override": "Only needed if the Steam integration isn't installed, or you want a different key than the one already configured there. Leave blank to auto-detect.",
+          "psn_npsso_override": "Only needed if the PlayStation Network integration isn't installed, or you want a different account's NPSSO than the one already configured there. Leave blank to auto-detect. Used by both native ratings and achievement tracking.",
           "enable_library_scan": "Adds a Game Library sensor (plus one per tracked platform) with your full game collection -- total achievements/trophies, completion percentage, and per-game details -- scanned periodically in the background. Only created for platforms you already track. Off by default.",
           "library_scan_interval_hours": "How often to rescan your full game library. Default 12 hours, range 1-24."
         }

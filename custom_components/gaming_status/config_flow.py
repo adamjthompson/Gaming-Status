@@ -909,12 +909,27 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
         if user_input is not None:
             self._editing_player = user_input.get("player_choice")
+            # Set before navigating on, so async_step_parental_player (a
+            # later step in this same flow session) sees the just-submitted
+            # value immediately -- unlike fields co-located on the SAME
+            # form, a value set on a PRIOR step is never subject to HA's
+            # "can't react to this submission's own checkbox" limitation,
+            # so it can safely gate that step's Content Rating Limit fields.
+            self._options[OPT_ENABLE_NATIVE_RATINGS] = user_input.get(
+                OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS
+            )
             return await self.async_step_parental_player()
 
         return self.async_show_form(
             step_id=MENU_PARENTAL,
             data_schema=vol.Schema(
-                {vol.Required("player_choice"): vol.In(player_names)}
+                {
+                    vol.Required("player_choice"): vol.In(player_names),
+                    vol.Optional(
+                        OPT_ENABLE_NATIVE_RATINGS,
+                        default=self._options.get(OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS),
+                    ): bool,
+                }
             ),
         )
 
@@ -941,22 +956,24 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             selector.SelectOptionDict(value=k, label=v["name"]) for k, v in endpoints.items()
         ]
 
+        # Set on the prior step (async_step_parental_controls), within this
+        # same flow session -- reading it here is never subject to HA's
+        # "can't react to this submission's own checkbox" limitation, since
+        # it was already submitted and applied to self._options one step
+        # ago, not on this same form.
+        ratings_enabled = self._options.get(OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS)
+
         if user_input is not None:
-            # Preserve existing actions if the UI hides them, otherwise grab new user input
+            # Preserve existing values if the UI hides them, otherwise grab new user input
             st_action_final = user_input.get("st_action_targets", st.get("action", [])) if notifications_enabled else st.get("action", [])
             cf_action_final = user_input.get("cf_action_targets", cf.get("action", [])) if notifications_enabled else cf.get("action", [])
+            rt_enabled_final = user_input.get("rt_enabled", rt.get("enabled", False)) if ratings_enabled else rt.get("enabled", False)
+            rt_max_age_floor_final = int(user_input.get("rt_max_age_floor", rt.get("max_age_floor", 13))) if ratings_enabled else rt.get("max_age_floor", 13)
             rt_action_final = (
                 user_input.get("rt_action_targets", rt.get("action", []))
-                if (notifications_enabled and rt.get("enabled", False))
+                if (notifications_enabled and ratings_enabled and rt.get("enabled", False))
                 else rt.get("action", [])
             )
-
-            # Mirrors the same global option as async_step_achievements_ratings
-            # (not a separate copy) -- exposed here too since this is the
-            # primary consumer of game_content_rating (Content Rating Limit),
-            # so a parental-controls-only user doesn't have to leave this
-            # screen to turn ratings on.
-            self._options[OPT_ENABLE_NATIVE_RATINGS] = user_input.get(OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS)
 
             rules["screen_time"] = {
                 "enabled": user_input.get("st_enabled", False),
@@ -973,8 +990,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 "action": cf_action_final,
             }
             rules["ratings"] = {
-                "enabled": user_input.get("rt_enabled", False),
-                "max_age_floor": int(user_input.get("rt_max_age_floor", 13)),
+                "enabled": rt_enabled_final,
+                "max_age_floor": rt_max_age_floor_final,
                 "action": rt_action_final,
             }
             parental[name] = rules
@@ -1039,31 +1056,36 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 )
             )
 
-        schema_dict.update({
-            vol.Optional(
-                OPT_ENABLE_NATIVE_RATINGS,
-                default=self._options.get(OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS),
-            ): bool,
-            vol.Optional("rt_enabled", default=rt.get("enabled", False)): bool,
-            vol.Optional("rt_max_age_floor", default=str(rt.get("max_age_floor", 13))): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=[
-                        selector.SelectOptionDict(value=str(age), label=label)
-                        for age, label in RATING_THRESHOLD_OPTIONS
-                    ],
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                )
-            ),
-        })
+        # Content Rating Limit is entirely hidden while native ratings are
+        # off -- there's no game_content_rating data for it to compare
+        # against in that case, so showing an inert rule here would just be
+        # confusing. ratings_enabled reflects the toggle on the PRIOR step
+        # (async_step_parental_controls) in this same flow session, so this
+        # is never subject to the "same form, unsaved checkbox" limitation
+        # that forces other fields in this integration to stay always-visible.
+        if ratings_enabled:
+            schema_dict.update({
+                vol.Optional("rt_enabled", default=rt.get("enabled", False)): bool,
+                vol.Optional("rt_max_age_floor", default=str(rt.get("max_age_floor", 13))): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value=str(age), label=label)
+                            for age, label in RATING_THRESHOLD_OPTIONS
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+            })
 
         # Contextual on rt_enabled (in addition to the existing
-        # notifications_enabled gate) -- showing "which method to notify"
-        # is moot while the rule itself is off. Safe to hide here (unlike
-        # Achievements & Ratings' fields) since the read-fallback above
-        # already preserves the existing stored value when this is hidden,
-        # so unchecking rt_enabled for an unrelated reason never wipes a
-        # previously-configured notification target.
-        if endpoint_options and notifications_enabled and rt.get("enabled", False):
+        # notifications_enabled/ratings_enabled gates) -- showing "which
+        # method to notify" is moot while the rule itself is off or ratings
+        # are off entirely. Safe to hide here (unlike Achievements &
+        # Ratings' fields) since the read-fallback above already preserves
+        # the existing stored value when this is hidden, so unchecking
+        # rt_enabled (or ratings_enabled) for an unrelated reason never
+        # wipes a previously-configured notification target.
+        if ratings_enabled and endpoint_options and notifications_enabled and rt.get("enabled", False):
             schema_dict[vol.Optional("rt_action_targets", default=rt_action)] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=endpoint_options,
@@ -1252,9 +1274,14 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         credential resolution + recheck polling. A Parental-Controls-only
         user can enable just ratings without opting into achievement
         polling. OPT_ENABLE_NATIVE_RATINGS is also mirrored (same option,
-        not a separate copy) on the per-player Parental Controls screen
-        (async_step_parental_player), since that's the primary consumer of
-        `game_content_rating` via the Content Rating Limit rule.
+        not a separate copy) on the main Parental Controls screen
+        (async_step_parental_controls), since that's the primary consumer
+        of `game_content_rating` via the Content Rating Limit rule --
+        placed there (a step before the per-player screen, not co-located
+        on it) specifically so Content Rating Limit's own fields on
+        async_step_parental_player can be gated on it without hitting the
+        "can't react to this same form's own checkbox" limitation described
+        above.
         """
         opts = self._options
         errors = {}
