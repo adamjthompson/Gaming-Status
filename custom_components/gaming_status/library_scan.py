@@ -42,8 +42,12 @@ _TIER_KEYS = ("bronze", "silver", "gold", "platinum")
 
 
 def _percent(earned, total):
+    # total == 0 covers both "this title genuinely has no achievements" and
+    # any remaining bad-data case -- either way 0.0% is the honest display
+    # value; returning None here used to surface as the literal string
+    # "None%" in dashboards.
     if not total:
-        return None
+        return 0.0
     return round(100 * earned / total, 1)
 
 
@@ -185,11 +189,28 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             achievement = getattr(title, "achievement", None)
             earned = getattr(achievement, "current_achievements", 0) or 0
             total = getattr(achievement, "total_achievements", 0) or 0
+            title_id = str(getattr(title, "title_id", "") or "")
+
+            # title-history's own totalAchievements is live-confirmed
+            # unreliable for some titles (observed 0 there despite a
+            # nonzero currentAchievements for the same title) -- total <
+            # earned is otherwise impossible, so treat it as a sure sign
+            # this title's summary is bad and re-fetch an authoritative
+            # count from the per-title endpoint instead of showing a
+            # misleadingly-low percent.
+            if title_id and total < earned:
+                detail = await utils.fetch_xbox_title_achievement_counts(
+                    self.hass, entry, session, xuid, title_id
+                )
+                if detail:
+                    earned = detail.get("earned", earned)
+                    total = detail.get("total", total)
+
             gs_earned = getattr(achievement, "current_gamerscore", 0) or 0
             gs_total = getattr(achievement, "total_gamerscore", 0) or 0
             art = await self._async_art_for(name)
             games.append({
-                "title": name, "platform": "xbox", "id": str(getattr(title, "title_id", "") or ""),
+                "title": name, "platform": "xbox", "id": title_id,
                 "achievements_earned": earned, "achievements_total": total,
                 "gamerscore_earned": gs_earned, "gamerscore_total": gs_total,
                 "percent": _percent(earned, total),
@@ -259,7 +280,7 @@ def _aggregate(raw_by_platform):
         platform_summaries[platform] = summary
         all_games.extend(games)
 
-    percents = [g["percent"] for g in all_games if g["percent"] is not None]
+    percents = [g["percent"] for g in all_games]
 
     return {
         "total_achievements_earned": sum(g["achievements_earned"] for g in all_games),

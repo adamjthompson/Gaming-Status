@@ -910,6 +910,29 @@ async def fetch_xbox_achievements(hass, xbox_config_entry, oauth_session, xuid, 
         return None
 
 
+async def fetch_xbox_title_achievement_counts(hass, xbox_config_entry, oauth_session, xuid, title_id):
+    """Authoritative earned/total achievement counts for one specific,
+    already-known title_id -- unlike fetch_xbox_achievements, this never
+    resolves "currently playing" (the title may not be running at all).
+    Used by library_scan.py as a fallback for titles where the title-history
+    endpoint's own totalAchievements field is live-confirmed unreliable
+    (observed 0 for titles with nonzero currentAchievements). Never raises;
+    returns None on any failure."""
+    if not xbox_config_entry or not oauth_session or not xuid or not title_id:
+        return None
+    try:
+        from . import xbox_client
+
+        client = xbox_client.get_xbox_client(hass, xbox_config_entry, oauth_session)
+        return await xbox_client.async_get_achievements(client, xuid, title_id, recent_limit=0)
+    except Exception as e:
+        _LOGGER.debug(
+            "[Gaming Status] Xbox per-title achievement fetch failed for xuid %s title %s: %s",
+            xuid, title_id, e,
+        )
+        return None
+
+
 async def fetch_steam_owned_games(hass, api_key, steamid64):
     """Full-library-scan source for Steam -- every game the account owns.
     Never raises; returns [] on any failure (missing key, the account's
