@@ -54,6 +54,7 @@ from .const import (
     MENU_NOTIFICATIONS,
     MENU_PARENTAL,
     MENU_OVERRIDES,
+    MENU_ACHIEVEMENTS_RATINGS,
     MENU_ADVANCED,
     PLAYER_PLATFORMS,
     OPT_USE_CACHE,
@@ -360,6 +361,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         menu_options.extend([
             MENU_CUSTOM_ARTWORK,
             MENU_OVERRIDES,
+            MENU_ACHIEVEMENTS_RATINGS,
             MENU_ADVANCED,
             MENU_GLOBAL_SETTINGS,
         ])
@@ -1199,36 +1201,100 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             errors=errors,
         )
 
+    async def async_step_achievements_ratings(self, user_input=None):
+        """Native achievement/trophy/rating enrichment + full-library scan --
+        split into its own always-visible menu (all fields shown together,
+        no conditional hiding) rather than nested under Advanced Settings.
+        HA's config-flow forms can't hide/reveal fields live as checkboxes
+        are toggled -- fields only recompute the NEXT time a step is opened
+        -- so nesting these behind their own toggle in Advanced Settings
+        meant a first-time user had no way to discover the sub-options
+        existed until they'd already saved and reopened the form.
+
+        Also fixes a real bug from when these WERE nested: the old save
+        logic gated processing of the sub-fields on the toggle's OLD
+        (pre-save) value, so checking "Enable Native..." and "Enable Full
+        Game Library Scan" together in the same save silently failed to
+        persist the library-scan flag. With every field always visible and
+        always present in user_input, every field is read unconditionally
+        here -- no stale-state gating possible.
+        """
+        opts = self._options
+        errors = {}
+
+        if user_input is not None:
+            opts[OPT_ENABLE_PLATFORM_ENRICHMENT] = user_input.get(OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT)
+            opts[OPT_ACHIEVEMENT_RECHECK_SECONDS] = max(
+                MIN_ACHIEVEMENT_RECHECK_SECONDS,
+                user_input.get(OPT_ACHIEVEMENT_RECHECK_SECONDS, DEFAULT_ACHIEVEMENT_RECHECK_SECONDS),
+            )
+            opts[OPT_ENABLE_LIBRARY_SCAN] = user_input.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN)
+            opts[OPT_LIBRARY_SCAN_INTERVAL_HOURS] = max(
+                MIN_LIBRARY_SCAN_INTERVAL_HOURS,
+                min(MAX_LIBRARY_SCAN_INTERVAL_HOURS, user_input.get(OPT_LIBRARY_SCAN_INTERVAL_HOURS, DEFAULT_LIBRARY_SCAN_INTERVAL_HOURS)),
+            )
+
+            steam_achievements_key_override = user_input.get(CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, "").strip()
+            psn_npsso_override = user_input.get(CONF_PSN_NPSSO_OVERRIDE, "").strip()
+            new_data = dict(self._config_entry.data)
+            new_data[CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE] = steam_achievements_key_override
+            new_data[CONF_PSN_NPSSO_OVERRIDE] = psn_npsso_override
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+
+            if not errors:
+                self._options = opts
+                return await self._update_and_return()
+
+        schema_dict = {
+            vol.Optional(
+                OPT_ENABLE_PLATFORM_ENRICHMENT,
+                default=opts.get(OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT),
+            ): bool,
+            vol.Optional(
+                OPT_ACHIEVEMENT_RECHECK_SECONDS,
+                default=opts.get(OPT_ACHIEVEMENT_RECHECK_SECONDS, DEFAULT_ACHIEVEMENT_RECHECK_SECONDS),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=MIN_ACHIEVEMENT_RECHECK_SECONDS, mode=selector.NumberSelectorMode.BOX)
+            ),
+            vol.Optional(
+                CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE,
+                description={"suggested_value": self._config_entry.data.get(CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, "")},
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+            ),
+            vol.Optional(
+                CONF_PSN_NPSSO_OVERRIDE,
+                description={"suggested_value": self._config_entry.data.get(CONF_PSN_NPSSO_OVERRIDE, "")},
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+            ),
+            vol.Optional(
+                OPT_ENABLE_LIBRARY_SCAN,
+                default=opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN),
+            ): bool,
+            vol.Optional(
+                OPT_LIBRARY_SCAN_INTERVAL_HOURS,
+                default=opts.get(OPT_LIBRARY_SCAN_INTERVAL_HOURS, DEFAULT_LIBRARY_SCAN_INTERVAL_HOURS),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=MIN_LIBRARY_SCAN_INTERVAL_HOURS, max=MAX_LIBRARY_SCAN_INTERVAL_HOURS,
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+        }
+
+        return self.async_show_form(
+            step_id=MENU_ACHIEVEMENTS_RATINGS,
+            data_schema=vol.Schema(schema_dict),
+            errors=errors,
+        )
+
     async def async_step_advanced(self, user_input=None):
         opts = self._options
         errors = {}
-        enrichment_enabled = opts.get(OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT)
-        library_scan_enabled = enrichment_enabled and opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN)
 
         if user_input is not None:
             opts[OPT_SAME_GAME_PREFIX_WORDS] = user_input.get(OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS)
-            opts[OPT_ENABLE_PLATFORM_ENRICHMENT] = user_input.get(OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT)
-            if enrichment_enabled:
-                # Only parse/overwrite these while the fields are actually
-                # shown -- when the toggle is off they're hidden from the
-                # form entirely, so user_input has no key for them at all,
-                # and blindly defaulting would silently wipe/reset whatever
-                # was already stored the next time this form gets saved.
-                opts[OPT_ACHIEVEMENT_RECHECK_SECONDS] = max(
-                    MIN_ACHIEVEMENT_RECHECK_SECONDS,
-                    user_input.get(OPT_ACHIEVEMENT_RECHECK_SECONDS, DEFAULT_ACHIEVEMENT_RECHECK_SECONDS),
-                )
-                steam_achievements_key_override = user_input.get(CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, "").strip()
-                psn_npsso_override = user_input.get(CONF_PSN_NPSSO_OVERRIDE, "").strip()
-                opts[OPT_ENABLE_LIBRARY_SCAN] = user_input.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN)
-                if library_scan_enabled:
-                    opts[OPT_LIBRARY_SCAN_INTERVAL_HOURS] = max(
-                        MIN_LIBRARY_SCAN_INTERVAL_HOURS,
-                        min(MAX_LIBRARY_SCAN_INTERVAL_HOURS, user_input.get(OPT_LIBRARY_SCAN_INTERVAL_HOURS, DEFAULT_LIBRARY_SCAN_INTERVAL_HOURS)),
-                    )
-            else:
-                steam_achievements_key_override = self._config_entry.data.get(CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, "")
-                psn_npsso_override = self._config_entry.data.get(CONF_PSN_NPSSO_OVERRIDE, "")
 
             api_key = user_input.get(CONF_STEAMGRIDDB_API_KEY, "").strip()
             dc_token = user_input.get(CONF_DISCORD_TOKEN, "").strip()
@@ -1237,8 +1303,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             new_data[CONF_STEAMGRIDDB_API_KEY] = api_key
             new_data[CONF_DISCORD_TOKEN] = dc_token
             new_data[CONF_DISCORD_SERVER] = dc_server
-            new_data[CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE] = steam_achievements_key_override
-            new_data[CONF_PSN_NPSSO_OVERRIDE] = psn_npsso_override
             self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
 
             if not errors:
@@ -1255,41 +1319,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             ): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
             ),
-            vol.Optional(
-                OPT_ENABLE_PLATFORM_ENRICHMENT,
-                default=opts.get(OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT),
-            ): bool,
         }
-
-        if enrichment_enabled:
-            schema_dict.update({
-                vol.Optional(
-                    OPT_ACHIEVEMENT_RECHECK_SECONDS,
-                    default=opts.get(OPT_ACHIEVEMENT_RECHECK_SECONDS, DEFAULT_ACHIEVEMENT_RECHECK_SECONDS),
-                ): vol.All(int, vol.Range(min=MIN_ACHIEVEMENT_RECHECK_SECONDS)),
-                vol.Optional(
-                    CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE,
-                    description={"suggested_value": self._config_entry.data.get(CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, "")},
-                ): selector.TextSelector(
-                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
-                ),
-                vol.Optional(
-                    CONF_PSN_NPSSO_OVERRIDE,
-                    description={"suggested_value": self._config_entry.data.get(CONF_PSN_NPSSO_OVERRIDE, "")},
-                ): selector.TextSelector(
-                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
-                ),
-                vol.Optional(
-                    OPT_ENABLE_LIBRARY_SCAN,
-                    default=opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN),
-                ): bool,
-            })
-
-        if library_scan_enabled:
-            schema_dict[vol.Optional(
-                OPT_LIBRARY_SCAN_INTERVAL_HOURS,
-                default=opts.get(OPT_LIBRARY_SCAN_INTERVAL_HOURS, DEFAULT_LIBRARY_SCAN_INTERVAL_HOURS),
-            )] = vol.All(int, vol.Range(min=MIN_LIBRARY_SCAN_INTERVAL_HOURS, max=MAX_LIBRARY_SCAN_INTERVAL_HOURS))
 
         if "discord" in enabled_platforms:
             schema_dict.update({

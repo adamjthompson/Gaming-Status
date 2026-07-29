@@ -55,6 +55,7 @@
           "parental_controls": "Parental Controls",
           "custom_artwork": "Custom Artwork & Colors",
           "overrides_exclusions": "Overrides & Exclusions",
+          "achievements_ratings": "Achievements & Ratings",
           "advanced": "Advanced Settings",
           "global_settings": "Global Settings"
         }
@@ -222,6 +223,26 @@
           "rating_overrides": "Manually set a rating for games your rating provider has no data for, one per line. Codes: E, E10, T, M, AO."
         }
       },
+      "achievements_ratings": {
+        "title": "Achievements & Ratings",
+        "description": "Native achievement/trophy/rating enrichment and full game library scanning, reusing credentials already configured on the steam_online/xbox/playstation_network integrations where possible.",
+        "data": {
+          "enable_platform_enrichment": "Enable Native Achievement/Trophy/Rating Enrichment",
+          "achievement_recheck_seconds": "Achievement/Trophy Recheck Interval (seconds)",
+          "steam_achievements_api_key_override": "Steam Web API Key Override (Optional)",
+          "psn_npsso_override": "PSN NPSSO Override (Optional)",
+          "enable_library_scan": "Enable Full Game Library Scan",
+          "library_scan_interval_hours": "Library Scan Interval (hours)"
+        },
+        "data_description": {
+          "enable_platform_enrichment": "Adds achievement/trophy counts and native content ratings to the current game's Steam/Xbox/PlayStation sensor. Off by default. The fields below only take effect once this is on.",
+          "achievement_recheck_seconds": "How often to re-check for newly-earned achievements/trophies while a game keeps running. Default 900 (15 min), minimum 300 (5 min).",
+          "steam_achievements_api_key_override": "Only needed if steam_online isn't installed, or you want a different key than the one already configured there. Leave blank to auto-detect.",
+          "psn_npsso_override": "Only needed if playstation_network isn't installed, or you want a different account's NPSSO than the one already configured there. Leave blank to auto-detect.",
+          "enable_library_scan": "Adds a Game Library sensor (plus one per tracked platform) with your full game collection -- total achievements/trophies, completion percentage, and per-game details -- scanned periodically in the background. Only created for platforms you already track. Off by default.",
+          "library_scan_interval_hours": "How often to rescan your full game library. Default 12 hours, range 1-24."
+        }
+      },
       "advanced": {
         "title": "Advanced Settings",
         "description": "Configure advanced integration behavior and API keys.",
@@ -229,22 +250,10 @@
           "steamgriddb_api_key": "SteamGridDB API Key (for fetching artwork)",
           "discord_bot_token": "Discord Bot Token (for game tracking)",
           "discord_server_id": "Discord Server ID (for game tracking)",
-          "same_game_prefix_words": "Same-Game Prefix Match (leading words, 0 = off)",
-          "enable_platform_enrichment": "Enable Native Achievement/Trophy/Rating Enrichment",
-          "steam_achievements_api_key_override": "Steam Web API Key Override (Optional)",
-          "psn_npsso_override": "PSN NPSSO Override (Optional)",
-          "achievement_recheck_seconds": "Achievement/Trophy Recheck Interval (seconds)",
-          "enable_library_scan": "Enable Full Game Library Scan",
-          "library_scan_interval_hours": "Library Scan Interval (hours)"
+          "same_game_prefix_words": "Same-Game Prefix Match (leading words, 0 = off)"
         },
         "data_description": {
-          "same_game_prefix_words": "Game names starting with this many matching words (e.g. \"Call of Duty ...\") are treated as the same game instead of a switch. Default: 2. Set to 0 to disable.",
-          "enable_platform_enrichment": "Adds achievement/trophy counts and native content ratings to the current game's Steam/Xbox/PlayStation sensor, reusing credentials already configured on the steam_online/playstation_network integrations where possible. Off by default.",
-          "steam_achievements_api_key_override": "Only needed if steam_online isn't installed, or you want a different key than the one already configured there. Leave blank to auto-detect.",
-          "psn_npsso_override": "Only needed if playstation_network isn't installed, or you want a different account's NPSSO than the one already configured there. Leave blank to auto-detect.",
-          "achievement_recheck_seconds": "How often to re-check for newly-earned achievements/trophies while a game keeps running. Default 900 (15 min), minimum 300 (5 min).",
-          "enable_library_scan": "Adds a Game Library sensor (plus one per tracked platform) with your full game collection -- total achievements/trophies, completion percentage, and per-game details -- scanned periodically in the background. Only created for platforms you already track. Off by default.",
-          "library_scan_interval_hours": "How often to rescan your full game library. Default 12 hours, range 1-24."
+          "same_game_prefix_words": "Game names starting with this many matching words (e.g. \"Call of Duty ...\") are treated as the same game instead of a switch. Default: 2. Set to 0 to disable."
         }
       },
       "global_settings": {

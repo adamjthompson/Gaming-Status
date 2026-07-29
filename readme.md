@@ -49,7 +49,7 @@ To display beautiful, high-resolution game covers on your dashboard, this integr
 6. Copy the generated key and paste it into the **SteamGridDB API Key** field during Initial Setup or under the Advanced menu. 
 
 ### Content Ratings
-If you plan to use the **Content Rating Limit** parental control, enable **Native Achievement/Trophy/Rating Enrichment** under Advanced Settings. This looks up each game's ESRB rating directly from Steam, Xbox, or PlayStation, reusing whatever credentials you already have configured on the official `steam_online`/`xbox`/`playstation_network` integrations — no separate API key or account needed.
+If you plan to use the **Content Rating Limit** parental control, enable **Native Achievement/Trophy/Rating Enrichment** under the **Achievements & Ratings** menu. This looks up each game's ESRB rating directly from Steam, Xbox, or PlayStation, reusing whatever credentials you already have configured on the official `steam_online`/`xbox`/`playstation_network` integrations — no separate API key or account needed.
 
 *Note: native rating coverage isn't complete for every title. If a game comes back unrated, you can manually assign it a rating using the Content Rating Overrides field under Overrides & Exclusions (see below).*
 
@@ -80,7 +80,7 @@ Gaming Status is configured entirely through the Home Assistant UI. **There is n
 4. Click Submit. 
 
 ### Options & Features
-To configure your players, notifications, and rules, click the **Configure** button (gear icon) on the Gaming Status integration card. This opens the main configuration hub, which is divided into seven menus based on your enabled features:
+To configure your players, notifications, and rules, click the **Configure** button (gear icon) on the Gaming Status integration card. This opens the main configuration hub, which is divided into eight menus based on your enabled features:
 
 #### 1. Manage Players
 Add, edit, or delete the gamers in your household.
@@ -102,7 +102,7 @@ Manage where your [gaming alerts and weekly reports](docs/notifications.md) are 
 Set automated rules based on accumulated playtime, time of day, or game content rating.
 * **Screen Time:** Set distinct weekday and weekend daily minute limits.
 * **Curfew:** Set distinct weekday and weekend cutoff times (e.g., 22:00).
-* **Content Rating Limit:** Set a maximum allowed age rating (e.g., "Ages 13+"). Ratings are looked up automatically from Steam/Xbox/PlayStation's own native rating data (requires [Native Platform Enrichment](#content-ratings), configured under Advanced) and cached indefinitely once found for a game. If the player's active game rating exceeds the configured age, a notification is sent the moment that game starts — switching to a *different* over-the-limit game always sends a fresh notification, but the same game won't spam you again while it keeps running.
+* **Content Rating Limit:** Set a maximum allowed age rating (e.g., "Ages 13+"). Ratings are looked up automatically from Steam/Xbox/PlayStation's own native rating data (requires [Native Platform Enrichment](#content-ratings), configured under Achievements & Ratings) and cached indefinitely once found for a game. If the player's active game rating exceeds the configured age, a notification is sent the moment that game starts — switching to a *different* over-the-limit game always sends a fresh notification, but the same game won't spam you again while it keeps running.
 * **Reminder Frequency:** *(Screen Time and Curfew only)* Set how often to repeat the notification(s).
 * **Notifications:** When a limit is reached, you can automatically send a notification using any of your configured methods.
 
@@ -118,12 +118,20 @@ Manually adjust game titles, ratings, and what gets tracked.
 * **Global Exclusions:** Games or apps that should be universally ignored by the tracker. *(Example: `Home, YouTube, Netflix, Xbox App`)* Overrides are applied first, then Cleanups, in that order. An Override is a whole-name swap, and any Cleanup pattern still gets a chance to run against its result afterward. Exclusions are checked against *both* the pre-Cleanup and the fully-cleaned name, so it doesn't matter which form your exclusion entry happens to match: excluding `Minecraft` catches it even if a Cleanup is what produces that name from something longer, and excluding `Minecraft Launcher` still works even if a separate Cleanup (e.g. one that strips `Launcher` generally) would otherwise erase the very word that entry is matching on.
 * **Content Rating Overrides:** *(Only shown when Parental Controls is enabled)* Manually assign a rating to games your rating provider has no data for. Format as `Game = Code`, using the codes `E`, `E10`, `T`, `M`, or `AO`. *(Example: `Skull and Bones = M`)*
 
-#### 6. Advanced
-Update your API keys and native platform enrichment settings.
-* **API Keys & Tokens:** Update your SteamGridDB API key, or your Discord Bot Token and Server ID.
-* **Native Achievement/Trophy/Rating Enrichment:** See [Content Ratings](#content-ratings) above. Also unlocks the optional Steam/PSN credential overrides, achievement/trophy recheck interval, and full Game Library scan settings.
+#### 6. Achievements & Ratings
+Native achievement/trophy/rating enrichment and full game library scanning, all in one place -- every field here is always visible together, regardless of which toggles are on, so you never have to save and reopen the menu just to find a setting.
+* **Enable Native Achievement/Trophy/Rating Enrichment:** See [Content Ratings](#content-ratings) above. Off by default; the rest of the fields on this menu only take effect once this is on.
+* **Achievement/Trophy Recheck Interval:** How often to re-check for newly-earned achievements/trophies while a game keeps running. Default 900 seconds (15 min), minimum 300 (5 min).
+* **Steam Web API Key Override / PSN NPSSO Override:** *(Optional)* Only needed if `steam_online`/`playstation_network` isn't installed, or you want to use a different credential than the one already configured there. Leave blank to auto-detect.
+* **Enable Full Game Library Scan:** Adds a Game Library sensor (plus one per tracked platform) with your full game collection — total achievements/trophies, completion percentage, and per-game details — scanned periodically in the background. Only created for platforms you already track. Off by default.
+* **Library Scan Interval:** How often to rescan your full game library. Default 12 hours, range 1–24.
 
-#### 7. Global Settings
+#### 7. Advanced
+Update your API keys and fine-tune the game-matching engine.
+* **API Keys & Tokens:** Update your SteamGridDB API key, or your Discord Bot Token and Server ID.
+* **Same-Game Prefix Match:** Game names starting with this many matching leading words (e.g. "Call of Duty ...") are treated as the same game instead of a switch. Default: 2. Set to 0 to disable.
+
+#### 8. Global Settings
 These variables control how the integration handles platforms, caching, and network drops across all players.
 * **Enabled Platforms:** Select which gaming platforms to track (Steam, Xbox, PlayStation, Discord, Playnite, and Custom).
 * **Enable PS3 Tracking:** Adds the PS3 Media Player field (see Manage Players above) to PlayStation-enabled player profiles.

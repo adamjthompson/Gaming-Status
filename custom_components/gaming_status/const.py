@@ -65,6 +65,7 @@ MENU_NOTIFICATIONS = "notifications"
 MENU_PARENTAL = "parental_controls"
 MENU_CUSTOM_ARTWORK = "custom_artwork"
 MENU_OVERRIDES = "overrides_exclusions"
+MENU_ACHIEVEMENTS_RATINGS = "achievements_ratings"
 MENU_ADVANCED = "advanced"
 
 # ---------------------------------------------------------------------------
