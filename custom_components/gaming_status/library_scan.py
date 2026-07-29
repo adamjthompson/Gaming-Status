@@ -293,7 +293,10 @@ def _aggregate(raw_by_platform):
         "game_count": len(all_games),
         "tracked_platforms": tracked_platforms,
         "last_sync_success": not platform_errors,
-        "platform_errors": platform_errors or None,
+        # A bare None here renders as the literal word "Unknown" in HA's
+        # frontend attribute list, which reads as broken/missing data --
+        # "None" is the honest no-errors value.
+        "platform_errors": platform_errors or "None",
         "games": all_games,
         "platforms": platform_summaries,
         "last_synced": dt_util.now().isoformat(),
