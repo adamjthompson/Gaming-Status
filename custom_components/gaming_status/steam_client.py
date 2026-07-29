@@ -19,7 +19,7 @@ import logging
 import aiohttp
 
 from .const import RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS, STEAM_API_BASE, STEAM_STORE_API_BASE
-from .platform_exceptions import AuthError, MalformedResponseError, NetworkError, RateLimitedError
+from .platform_exceptions import AuthError, GameDetailsPrivateError, MalformedResponseError, NetworkError, RateLimitedError
 from .rate_limiter import RateLimiter
 
 _LOGGER = logging.getLogger(__name__)
@@ -53,6 +53,24 @@ class SteamClient:
             raise NetworkError(f"Error communicating with Steam ({path}): {err}") from err
         except TimeoutError as err:
             raise NetworkError(f"Timed out reaching Steam ({path}): {err}") from err
+
+    async def async_get_owned_games(self, steamid64: str) -> list[dict]:
+        """Full-library-scan source for Steam -- returns raw {"appid", "name",
+        "playtime_forever", "playtime_2weeks", "rtime_last_played", ...}
+        dicts for every game the account owns. Raises
+        GameDetailsPrivateError if the response has no `games` key at all --
+        Steam's separate "Game details" privacy toggle, independent of
+        overall profile visibility. Re-introduced from Trophy Hub's own
+        steam_client.py (dropped during the current-game-only phase of this
+        integration, now needed again for the library scan)."""
+        data = await self._get(
+            "IPlayerService/GetOwnedGames/v1/",
+            {"steamid": steamid64, "include_appinfo": 1, "include_played_free_games": 1},
+        )
+        response = (data or {}).get("response")
+        if not response or "games" not in response:
+            raise GameDetailsPrivateError(f"Steam account {steamid64}'s game details are private")
+        return response.get("games") or []
 
     async def async_get_schema_for_game(self, appid: int) -> dict:
         """Returns {"total_achievements": int, "display_names": {apiname: str}}.

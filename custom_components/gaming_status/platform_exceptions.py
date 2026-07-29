@@ -1,9 +1,7 @@
 """Shared exception hierarchy for the native platform enrichment clients
-(steam_client.py, psn_client.py). Ported/trimmed from the sibling "Trophy
-Hub" integration's exceptions.py -- kept only what these current-game-only
-clients actually raise; Trophy Hub's own full-library-specific exceptions
-(e.g. ProfilePrivateError for a whole-profile privacy toggle) aren't needed
-here since Gaming Status never touches a full game list.
+(steam_client.py, psn_client.py, xbox_client.py) and the full-library-scan
+subsystem (library_scan.py). Ported/trimmed from the sibling "Trophy Hub"
+integration's exceptions.py.
 """
 from __future__ import annotations
 
@@ -49,6 +47,12 @@ class PsnTrophyListPrivateError(ApiError):
     """PSN: the target account's trophy list isn't visible to the account
     that owns the configured NPSSO -- depends on the *pair* of accounts
     (friendship/privacy settings), not a single public/private toggle."""
+
+
+class GameDetailsPrivateError(ApiError):
+    """Steam: the account's own "Game details" privacy toggle is set to
+    Private, independent of the overall profile visibility -- GetOwnedGames
+    returns no `games` key at all in this case rather than an HTTP error."""
 
 
 class MalformedResponseError(ApiError):

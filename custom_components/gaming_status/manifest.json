@@ -10,7 +10,8 @@
   "issue_tracker": "https://github.com/adamjthompson/Gaming-Status/issues",
   "requirements": [
     "python-dateutil>=2.8.2",
-    "nextcord>=3.1,<4.0"
+    "nextcord>=3.1,<4.0",
+    "python-xbox>=0.2.0"
   ],
   "version": "4.0.0-alpha2"
 }

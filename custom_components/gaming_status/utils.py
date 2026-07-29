@@ -344,6 +344,82 @@ async def fetch_game_assets(hass, game_name):
         lock.set()
         hass.data["gaming_status_locks"].pop(cache_key, None)
 
+
+async def fetch_game_grid_urls_remote(hass, game_name):
+    """Full-library-scan-only SteamGridDB lookup: a deliberately separate,
+    minimal search+score against SteamGridDB (not routed through
+    fetch_game_assets above) that ALWAYS returns SteamGridDB's own remote
+    CDN URLs -- never downloads/writes to www/gaming_status_cache,
+    regardless of the USE_LOCAL_CACHE setting. That setting stays scoped to
+    the handful of currently-playing games fetch_game_assets serves; caching
+    a full library's worth of art (hundreds of games) is what caused a 2GB+
+    local cache previously.
+
+    Kept as its own small function rather than threaded through
+    fetch_game_assets's local-cache/custom-override/memory-cache machinery,
+    which doesn't apply here and would risk destabilizing that already-
+    exercised current-game path for a feature that needs none of it.
+
+    Paced by its own shared rate limiter (matching Trophy Hub's own already-
+    proven SteamGridDB pacing: 5 capacity, 2/sec) -- a library scan can mean
+    hundreds of lookups in one pass, unlike the current-game path's implicit
+    one-request-per-session-cover pacing. Never raises; returns
+    {"grid": None, "hero": None, "logo": None, "icon": None} on any
+    failure or missing API key."""
+    assets = {"grid": None, "hero": None, "logo": None, "icon": None}
+    if not game_name or not STEAMGRIDDB_API_KEY:
+        return assets
+
+    try:
+        from .const import RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS
+
+        limiter = _get_rate_limiter(hass, "steamgriddb")
+        session = async_get_clientsession(hass)
+        headers = {"Authorization": f"Bearer {STEAMGRIDDB_API_KEY}"}
+
+        await limiter.async_acquire(timeout=RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS)
+        safe_title = quote(game_name, safe='')
+        async with session.get(
+            f"https://www.steamgriddb.com/api/v2/search/autocomplete/{safe_title}", headers=headers, timeout=10
+        ) as resp:
+            if resp.status != 200:
+                return assets
+            search_data = await resp.json()
+        if not search_data.get("data"):
+            return assets
+        game_id = search_data["data"][0]["id"]
+
+        endpoints = {
+            "grid": f"https://www.steamgriddb.com/api/v2/grids/game/{game_id}",
+            "hero": f"https://www.steamgriddb.com/api/v2/heroes/game/{game_id}",
+            "logo": f"https://www.steamgriddb.com/api/v2/logos/game/{game_id}",
+            "icon": f"https://www.steamgriddb.com/api/v2/icons/game/{game_id}",
+        }
+
+        def _score(img):
+            score = 0
+            if img.get("style") == "official":
+                score += 10
+            if img.get("mime") == "image/png":
+                score += 5
+            return score
+
+        for asset_type, endpoint in endpoints.items():
+            await limiter.async_acquire(timeout=RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS)
+            async with session.get(endpoint, headers=headers, timeout=10) as resp:
+                if resp.status != 200:
+                    continue
+                asset_data = await resp.json()
+            if not asset_data.get("data"):
+                continue
+            best_art = sorted(asset_data["data"], key=_score, reverse=True)[0]
+            assets[asset_type] = best_art["url"]
+    except Exception as e:
+        _LOGGER.debug("[Gaming Status] SteamGridDB remote-only art fetch failed for %s: %s", game_name, e)
+
+    return assets
+
+
 async def get_steamgriddb_game_cover(hass, game_name):
     """Backward compatibility wrapper."""
     if not game_name:
@@ -496,12 +572,127 @@ async def fetch_game_rating(hass, game_name, platform=None, platform_context=Non
 # orchestrates). Opt-in (ENABLE_PLATFORM_ENRICHMENT), off by default.
 # ---------------------------------------------------------------------------
 
+def resolve_owning_config_entry(hass, source_entity_id):
+    """Walks source_entity_id (an HA entity Gaming Status already watches) to
+    the config entry that owns it -- e.g. the steam_online/playstation_network/
+    xbox entry backing that entity. Shared by both the real-time sensor
+    (PersistentStatusSensor.async_added_to_hass) and the library-scan
+    subsystem, which both need this same entity-registry -> config-entry walk.
+    Returns (registry_entry, owning_config_entry, subentry_unique_id); any
+    element is None if not resolvable. Never raises."""
+    from homeassistant.helpers import entity_registry as er
+
+    try:
+        registry = er.async_get(hass)
+        entry = registry.async_get(source_entity_id)
+        owning_entry = None
+        subentry_unique_id = None
+        if entry and entry.config_entry_id:
+            owning_entry = hass.config_entries.async_get_entry(entry.config_entry_id)
+            if owning_entry and entry.config_subentry_id:
+                subentry = (owning_entry.subentries or {}).get(entry.config_subentry_id)
+                subentry_unique_id = getattr(subentry, "unique_id", None)
+        return entry, owning_entry, subentry_unique_id
+    except Exception:
+        _LOGGER.debug("[Gaming Status] Owning config entry resolution failed for %s", source_entity_id, exc_info=True)
+        return None, None, None
+
+
+def resolve_steam_credentials(hass, source_entity_id):
+    """Returns (api_key, steamid64), reusing steam_online's own config entry
+    (entry.data[CONF_API_KEY], a stable/public ConfigEntry field) if present,
+    falling back to the manual Advanced Settings override. Never raises."""
+    from homeassistant.const import CONF_API_KEY
+    from .const import HA_STEAM_ONLINE_DOMAIN
+
+    try:
+        _, owning_entry, subentry_unique_id = resolve_owning_config_entry(hass, source_entity_id)
+        api_key = None
+        steam_id64 = None
+        if owning_entry and owning_entry.domain == HA_STEAM_ONLINE_DOMAIN:
+            api_key = owning_entry.data.get(CONF_API_KEY)
+            steam_id64 = subentry_unique_id or owning_entry.unique_id
+        if not api_key:
+            api_key = STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE
+            steam_id64 = steam_id64 or subentry_unique_id or (owning_entry.unique_id if owning_entry else None)
+        return api_key, steam_id64
+    except Exception:
+        _LOGGER.debug("[Gaming Status] Steam credential resolution failed for %s", source_entity_id, exc_info=True)
+        return None, None
+
+
+def resolve_psn_credentials(hass, source_entity_id):
+    """Returns (npsso, account_id), reusing playstation_network's own config
+    entry (entry.data["npsso"]) if present, falling back to the manual
+    Advanced Settings override. Never raises."""
+    from .const import HA_PLAYSTATION_NETWORK_DOMAIN, HA_PSN_NPSSO_KEY
+
+    try:
+        _, owning_entry, subentry_unique_id = resolve_owning_config_entry(hass, source_entity_id)
+        npsso = None
+        account_id = None
+        if owning_entry and owning_entry.domain == HA_PLAYSTATION_NETWORK_DOMAIN:
+            npsso = owning_entry.data.get(HA_PSN_NPSSO_KEY)
+            if not npsso:
+                _LOGGER.warning(
+                    "Gaming Status: found the playstation_network config entry for %s "
+                    "but it has no NPSSO stored under the expected key -- native "
+                    "PlayStation enrichment will fall back to the manual override, if set.",
+                    source_entity_id,
+                )
+            account_id = subentry_unique_id or owning_entry.unique_id
+        if not npsso:
+            npsso = PSN_NPSSO_OVERRIDE
+            account_id = account_id or subentry_unique_id or (owning_entry.unique_id if owning_entry else None)
+        return npsso, account_id
+    except Exception:
+        _LOGGER.debug("[Gaming Status] PSN credential resolution failed for %s", source_entity_id, exc_info=True)
+        return None, None
+
+
+async def resolve_xbox_entry_and_session(hass, source_entity_id):
+    """Returns (config_entry, OAuth2Session, xuid) for the owning xbox config
+    entry backing source_entity_id, or (None, None, None) if not found/not
+    an xbox entity. Built entirely from public HA core OAuth2 helpers --
+    config_entry_oauth2_flow.async_get_config_entry_implementation() +
+    OAuth2Session() -- the exact same calls the xbox integration's own
+    __init__.py makes on itself. Never touches entry.runtime_data. The
+    returned session's .async_ensure_token_valid()/.token are what
+    xbox_client.py's AsyncConfigEntryAuth bridges into pythonxbox.
+
+    `xuid` is the tracked player's own Xbox user id -- the owning entry's
+    unique_id for the account owner, or the matching friend subentry's
+    unique_id for a tracked friend (HA's own xbox integration populates both
+    from the live client.xuid, per its migration code -- confirmed live).
+    Needed because the shared OAuth session authenticates *a* session, not
+    which account's presence/achievements are being asked for, same
+    reasoning as PSN's account_id. Never raises."""
+    from homeassistant.helpers import config_entry_oauth2_flow
+    from .const import HA_XBOX_DOMAIN
+
+    try:
+        _, owning_entry, subentry_unique_id = resolve_owning_config_entry(hass, source_entity_id)
+        if not owning_entry or owning_entry.domain != HA_XBOX_DOMAIN:
+            return None, None, None
+        implementation = await config_entry_oauth2_flow.async_get_config_entry_implementation(hass, owning_entry)
+        session = config_entry_oauth2_flow.OAuth2Session(hass, owning_entry, implementation)
+        xuid = subentry_unique_id or owning_entry.unique_id
+        return owning_entry, session, xuid
+    except Exception:
+        _LOGGER.debug("[Gaming Status] Xbox OAuth session resolution failed for %s", source_entity_id, exc_info=True)
+        return None, None, None
+
+
 def _get_rate_limiter(hass, platform: str):
     """One shared token-bucket limiter per platform, since credentials here
     are shared (reused from the official steam_online/playstation_network
     integration, or one manual override) across every tracked player, not
     per-player -- the budget has to be shared too."""
-    from .const import PSN_RATE_LIMIT_CAPACITY, PSN_RATE_LIMIT_PER_SECOND, STEAM_RATE_LIMIT_CAPACITY, STEAM_RATE_LIMIT_PER_SECOND
+    from .const import (
+        PSN_RATE_LIMIT_CAPACITY, PSN_RATE_LIMIT_PER_SECOND,
+        STEAM_RATE_LIMIT_CAPACITY, STEAM_RATE_LIMIT_PER_SECOND,
+        STEAMGRIDDB_RATE_LIMIT_CAPACITY, STEAMGRIDDB_RATE_LIMIT_PER_SECOND,
+    )
     from .rate_limiter import RateLimiter
 
     limiters = hass.data.setdefault("gaming_status_rate_limiters", {})
@@ -510,6 +701,8 @@ def _get_rate_limiter(hass, platform: str):
             limiters[platform] = RateLimiter(STEAM_RATE_LIMIT_CAPACITY, STEAM_RATE_LIMIT_PER_SECOND, name="steam")
         elif platform == "psn":
             limiters[platform] = RateLimiter(PSN_RATE_LIMIT_CAPACITY, PSN_RATE_LIMIT_PER_SECOND, name="psn")
+        elif platform == "steamgriddb":
+            limiters[platform] = RateLimiter(STEAMGRIDDB_RATE_LIMIT_CAPACITY, STEAMGRIDDB_RATE_LIMIT_PER_SECOND, name="steamgriddb")
         else:
             raise ValueError(f"No rate limiter configured for platform {platform!r}")
     return limiters[platform]
@@ -615,14 +808,23 @@ async def _fetch_native_rating(hass, platform, platform_context):
     return None
 
 
+RECENT_UNLOCKS_LIMIT = 10
+
+
 async def fetch_steam_achievements(hass, steamid64, api_key, appid):
-    """Earned/total achievement counts for one game on one Steam account.
-    Never raises -- returns None on any failure (missing key, network
-    error, or Steam's own per-account achievement-data restriction, see
-    steam_client.py). The schema call (total achievements) is cached
-    forever per appid, since it's static; the earned count is always
-    fetched fresh -- the caller (sensor.py) controls how often via its own
-    recheck-interval guard, so caching it here would just serve stale data.
+    """Earned/total achievement counts, plus a bounded newest-first
+    recent-unlocks list, for one game on one Steam account. Never raises --
+    returns None on any failure (missing key, network error, or Steam's own
+    per-account achievement-data restriction, see steam_client.py). The
+    schema call (total achievements, and now display names for the
+    recent-unlocks list) is cached forever per appid, since it's static; the
+    earned count/unlock list is always fetched fresh -- the caller
+    (sensor.py) controls how often via its own recheck-interval guard, so
+    caching it here would just serve stale data.
+
+    recent_unlocks is essentially free: GetPlayerAchievements already
+    returns each achievement's `unlocktime`, previously fetched and
+    discarded after summing -- no new API call versus before.
     """
     if not steamid64 or not api_key or not appid:
         return None
@@ -631,21 +833,34 @@ async def fetch_steam_achievements(hass, steamid64, api_key, appid):
 
         if appid in STEAM_SCHEMA_CACHE:
             STEAM_SCHEMA_CACHE.move_to_end(appid)
-            total = STEAM_SCHEMA_CACHE[appid]
+            total, display_names = STEAM_SCHEMA_CACHE[appid]
         else:
             schema = await client.async_get_schema_for_game(appid)
             total = schema.get("total_achievements", 0)
-            STEAM_SCHEMA_CACHE[appid] = total
+            display_names = schema.get("display_names") or {}
+            STEAM_SCHEMA_CACHE[appid] = (total, display_names)
             STEAM_SCHEMA_CACHE.move_to_end(appid)
             if len(STEAM_SCHEMA_CACHE) > MAX_ENRICHMENT_CACHE_SIZE:
                 STEAM_SCHEMA_CACHE.popitem(last=False)
 
         if not total:
-            return {"earned": 0, "total": 0}
+            return {"earned": 0, "total": 0, "recent_unlocks": []}
 
         achievements = await client.async_get_player_achievements(steamid64, appid)
-        earned = sum(1 for a in achievements if a.get("achieved"))
-        return {"earned": earned, "total": total}
+        earned_achievements = [a for a in achievements if a.get("achieved")]
+        earned_achievements.sort(key=lambda a: a.get("unlocktime") or 0, reverse=True)
+        recent_unlocks = [
+            {
+                "name": display_names.get(a.get("apiname"), a.get("apiname")),
+                "description": None,
+                "unlocked_at": (
+                    datetime.fromtimestamp(a["unlocktime"], tz=timezone.utc).isoformat()
+                    if a.get("unlocktime") else None
+                ),
+            }
+            for a in earned_achievements[:RECENT_UNLOCKS_LIMIT]
+        ]
+        return {"earned": len(earned_achievements), "total": total, "recent_unlocks": recent_unlocks}
     except Exception as e:
         _LOGGER.debug("[Gaming Status] Steam achievement fetch failed for appid %s: %s", appid, e)
         return None
@@ -671,9 +886,10 @@ async def resolve_psn_title_id(hass, npsso, account_id):
         return None
 
 
-async def fetch_psn_trophies(hass, npsso, account_id, game_name, title_id=None):
-    """Earned/total trophy counts (by tier) for one game on one PSN account.
-    Never raises -- returns None on any failure. Resolution order:
+async def fetch_psn_trophies(hass, npsso, account_id, game_name, title_id=None, include_recent_unlocks=False):
+    """Earned/total trophy counts (by tier) for one game on one PSN account,
+    optionally with a bounded newest-first recent-unlocks list. Never raises
+    -- returns None on any failure. Resolution order:
 
     1. If `title_id` is already known (resolved via a fresh get_presence()
        call in sensor.py), call the targeted, non-paginated
@@ -687,6 +903,12 @@ async def fetch_psn_trophies(hass, npsso, account_id, game_name, title_id=None):
        trophyTitles list by name -- a rare path, and only ever hit once per
        distinct game per HA runtime (the resolved title_id gets cached for
        next time).
+
+    `include_recent_unlocks` costs two EXTRA requests (see psn_client.py's
+    async_get_title_trophies_with_progress -- individual trophy detail
+    genuinely isn't available from the single summary call above) -- the
+    caller should only set it when it actually wants the detail refreshed
+    (e.g. the tier counts just changed), not on every recheck.
     """
     if not npsso or not account_id:
         return None
@@ -722,13 +944,95 @@ async def fetch_psn_trophies(hass, npsso, account_id, game_name, title_id=None):
 
         earned = entry.get("earnedTrophies") or {}
         defined = entry.get("definedTrophies") or {}
-        return {
+        result = {
             "earned": {k: int(earned.get(k, 0)) for k in ("bronze", "silver", "gold", "platinum")},
             "total": {k: int(defined.get(k, 0)) for k in ("bronze", "silver", "gold", "platinum")},
+            "recent_unlocks": [],
         }
+
+        np_communication_id = entry.get("npCommunicationId")
+        if include_recent_unlocks and np_communication_id:
+            trophies = await client.async_get_title_trophies_with_progress(account_id, np_communication_id)
+            earned_trophies = [t for t in trophies if t.get("earned") and t.get("earned_at")]
+            earned_trophies.sort(key=lambda t: t["earned_at"], reverse=True)
+            result["recent_unlocks"] = [
+                {"name": t.get("name"), "description": t.get("description"), "unlocked_at": t.get("earned_at")}
+                for t in earned_trophies[:RECENT_UNLOCKS_LIMIT]
+            ]
+
+        return result
     except Exception as e:
         _LOGGER.debug("[Gaming Status] PSN trophy fetch failed for %s: %s", game_name, e)
         return None
+
+
+async def fetch_xbox_achievements(hass, xbox_config_entry, oauth_session, xuid, recent_limit=None):
+    """Earned/total achievement counts + a bounded newest-first
+    recent-unlocks list for whatever `xuid` is currently playing, reusing
+    the official xbox integration's own OAuth session (see
+    utils.resolve_xbox_entry_and_session / xbox_client.py) instead of a
+    separate credential. Never raises; returns None on any failure
+    (presence not visible, no game currently playing, API error)."""
+    if not xbox_config_entry or not oauth_session or not xuid:
+        return None
+    try:
+        from . import xbox_client
+
+        client = xbox_client.get_xbox_client(hass, xbox_config_entry, oauth_session)
+        title_id = await xbox_client.async_get_current_title_id(client, xuid)
+        if not title_id:
+            return None
+        return await xbox_client.async_get_achievements(
+            client, xuid, title_id, recent_limit=recent_limit or RECENT_UNLOCKS_LIMIT
+        )
+    except Exception as e:
+        _LOGGER.debug("[Gaming Status] Xbox achievement fetch failed for xuid %s: %s", xuid, e)
+        return None
+
+
+async def fetch_steam_owned_games(hass, api_key, steamid64):
+    """Full-library-scan source for Steam -- every game the account owns.
+    Never raises; returns [] on any failure (missing key, the account's
+    separate "Game details" privacy toggle, network error)."""
+    if not api_key or not steamid64:
+        return []
+    try:
+        client = _get_steam_client(hass, api_key)
+        return await client.async_get_owned_games(steamid64)
+    except Exception as e:
+        _LOGGER.debug("[Gaming Status] Steam owned-games fetch failed for %s: %s", steamid64, e)
+        return []
+
+
+async def fetch_xbox_title_history(hass, xbox_config_entry, oauth_session, xuid):
+    """Full-library-scan source for Xbox -- one non-paginated call already
+    returns every title's achievement/gamerscore summary (see
+    xbox_client.async_get_title_history). Never raises; returns [] on any
+    failure."""
+    if not xbox_config_entry or not oauth_session or not xuid:
+        return []
+    try:
+        from . import xbox_client
+
+        client = xbox_client.get_xbox_client(hass, xbox_config_entry, oauth_session)
+        return await xbox_client.async_get_title_history(client, xuid)
+    except Exception as e:
+        _LOGGER.debug("[Gaming Status] Xbox title history fetch failed for %s: %s", xuid, e)
+        return []
+
+
+async def fetch_psn_full_library(hass, npsso, account_id):
+    """Full-library-scan source for PlayStation -- every title with a
+    trophy list, tier counts included. Never raises; returns [] on any
+    failure (private trophy list, network error)."""
+    if not npsso or not account_id:
+        return []
+    try:
+        client = _get_psn_client(hass, npsso)
+        return await client.async_get_trophy_titles(account_id)
+    except Exception as e:
+        _LOGGER.debug("[Gaming Status] PSN full trophy-titles fetch failed for %s: %s", account_id, e)
+        return []
 
 
 async def fetch_and_cache_image(hass, remote_url, file_name):

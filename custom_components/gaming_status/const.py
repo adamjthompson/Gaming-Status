@@ -163,6 +163,17 @@ OPT_ACHIEVEMENT_RECHECK_SECONDS = "achievement_recheck_seconds"
 DEFAULT_ACHIEVEMENT_RECHECK_SECONDS = 900
 MIN_ACHIEVEMENT_RECHECK_SECONDS = 300
 
+# Full-library scan (every game ever played, not just the current one) --
+# a much heavier, separately opt-in feature nested under platform
+# enrichment above, since it reuses the same resolved credentials but adds
+# its own scheduled scan + new sensors. Off by default, same reasoning.
+OPT_ENABLE_LIBRARY_SCAN = "enable_library_scan"
+DEFAULT_ENABLE_LIBRARY_SCAN = False
+OPT_LIBRARY_SCAN_INTERVAL_HOURS = "library_scan_interval_hours"
+DEFAULT_LIBRARY_SCAN_INTERVAL_HOURS = 12
+MIN_LIBRARY_SCAN_INTERVAL_HOURS = 1
+MAX_LIBRARY_SCAN_INTERVAL_HOURS = 24
+
 # HA core's official steam_online integration stores the raw Steam Web API
 # key at entry.data[homeassistant.const.CONF_API_KEY] -- safe to import
 # directly since CONF_API_KEY is a generic core constant. Its own domain,
@@ -178,6 +189,14 @@ HA_STEAM_ONLINE_DOMAIN = "steam_online"
 # this domain may not be installed at all.
 HA_PLAYSTATION_NETWORK_DOMAIN = "playstation_network"
 HA_PSN_NPSSO_KEY = "npsso"
+
+# HA core's official xbox integration is OAuth2-based (config_entry_oauth2_flow),
+# with the token stored at entry.data["token"] (standard shape). Reused via the
+# public config_entry_oauth2_flow.async_get_config_entry_implementation() +
+# OAuth2Session() helpers -- the same ones the xbox component calls on itself --
+# never entry.runtime_data. Kept as a literal for the same "may not be
+# installed" reason as the other HA_*_DOMAIN constants above.
+HA_XBOX_DOMAIN = "xbox"
 
 # Steam Web API -- official, static key, no OAuth.
 STEAM_API_BASE = "https://api.steampowered.com"
@@ -203,3 +222,10 @@ STEAM_RATE_LIMIT_CAPACITY = 20
 STEAM_RATE_LIMIT_PER_SECOND = 4
 PSN_RATE_LIMIT_CAPACITY = 15
 PSN_RATE_LIMIT_PER_SECOND = 250 / 900  # ~250/15min effective ceiling
+
+# SteamGridDB pacing for the full-library scan's remote-URL-only art lookup
+# (utils.fetch_game_grid_urls_remote) -- matches Trophy Hub's own already-
+# proven pacing for the same API, since a library scan can mean hundreds of
+# lookups in one pass.
+STEAMGRIDDB_RATE_LIMIT_CAPACITY = 5
+STEAMGRIDDB_RATE_LIMIT_PER_SECOND = 2

@@ -297,14 +297,15 @@ class PsnClient:
         return str(account_id), canonical_online_id
 
     async def async_get_trophy_titles(self, account_id: str) -> list[dict]:
-        """Rare fallback only -- the full trophyTitles list for an account,
-        used solely when async_get_presence() doesn't yield a usable
-        title_id even though a game was already detected by name via
-        Gaming Status's existing platform tracking. Paginates defensively
-        (max page size 800). Raises PsnTrophyListPrivateError on 403 --
-        PSN's visibility depends on the relationship between the NPSSO's
-        own account and the target account (friendship/privacy settings),
-        not a single flag."""
+        """The full trophyTitles list for an account -- the primary data
+        source for the full-library scan (library_scan.py), and also a rare
+        fallback for current-game enrichment when async_get_presence()
+        doesn't yield a usable title_id even though a game was already
+        detected by name via Gaming Status's existing platform tracking.
+        Paginates defensively (max page size 800). Raises
+        PsnTrophyListPrivateError on 403 -- PSN's visibility depends on the
+        relationship between the NPSSO's own account and the target account
+        (friendship/privacy settings), not a single flag."""
         titles: list[dict] = []
         offset = 0
         for _ in range(_MAX_TROPHY_TITLE_PAGES):
@@ -333,3 +334,52 @@ class PsnClient:
                 _MAX_TROPHY_TITLE_PAGES, account_id, len(titles),
             )
         return titles
+
+    async def async_get_title_trophies_with_progress(self, account_id: str, np_communication_id: str) -> list[dict]:
+        """Individual trophy detail (name/description/earned/earnedDateTime)
+        for one title -- feeds the recent-unlocks list, distinct from
+        async_get_trophy_summary_for_title's tier-count-only summary.
+        `np_communication_id` comes from that summary call's own response --
+        no extra ID-resolution request needed.
+
+        Confirmed live (psnawp_api's own trophy.py + test fixtures) that this
+        genuinely requires TWO requests, not one -- metadata (name/
+        description) and earned/progress are separate endpoints, zipped
+        client-side by trophyId. `trophyGroupId=all` is a valid pseudo-group
+        returning every trophy across all groups in one page each, so this
+        stays a small, bounded pair of calls per game, not a per-group scan.
+        Returns [] on any failure (private profile, never-played title,
+        etc.) -- never raises."""
+        try:
+            status, meta_body = await self._authenticated_request(
+                "GET",
+                f"{PSN_TROPHY_API_BASE}/npCommunicationIds/{np_communication_id}/trophyGroups/all/trophies",
+                params={"npServiceName": "trophy"},
+            )
+            if status != 200:
+                return []
+            status, progress_body = await self._authenticated_request(
+                "GET",
+                f"{PSN_TROPHY_API_BASE}/users/{account_id}/npCommunicationIds/{np_communication_id}/trophyGroups/all/trophies",
+                params={"npServiceName": "trophy"},
+            )
+            if status != 200:
+                return []
+
+            meta_by_id = {t.get("trophyId"): t for t in (meta_body.get("trophies") or [])}
+            progress_by_id = {t.get("trophyId"): t for t in (progress_body.get("trophies") or [])}
+
+            results = []
+            for trophy_id, meta in meta_by_id.items():
+                progress = progress_by_id.get(trophy_id) or {}
+                results.append({
+                    "trophy_id": trophy_id,
+                    "name": meta.get("trophyName"),
+                    "description": meta.get("trophyDetail"),
+                    "type": meta.get("trophyType"),
+                    "earned": bool(progress.get("earned")),
+                    "earned_at": progress.get("earnedDateTime"),
+                })
+            return results
+        except (NetworkError, RateLimitedError, ReauthRequiredError, AuthError):
+            return []

@@ -71,6 +71,12 @@ from .const import (
     OPT_ACHIEVEMENT_RECHECK_SECONDS,
     DEFAULT_ACHIEVEMENT_RECHECK_SECONDS,
     MIN_ACHIEVEMENT_RECHECK_SECONDS,
+    OPT_ENABLE_LIBRARY_SCAN,
+    DEFAULT_ENABLE_LIBRARY_SCAN,
+    OPT_LIBRARY_SCAN_INTERVAL_HOURS,
+    DEFAULT_LIBRARY_SCAN_INTERVAL_HOURS,
+    MIN_LIBRARY_SCAN_INTERVAL_HOURS,
+    MAX_LIBRARY_SCAN_INTERVAL_HOURS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -1110,6 +1116,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         errors = {}
         parental_enabled = opts.get(OPT_ENABLE_PARENTAL, False)
         enrichment_enabled = opts.get(OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT)
+        library_scan_enabled = enrichment_enabled and opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN)
 
         if user_input is not None:
             for key, field in [
@@ -1157,6 +1164,12 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 )
                 steam_achievements_key_override = user_input.get(CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, "").strip()
                 psn_npsso_override = user_input.get(CONF_PSN_NPSSO_OVERRIDE, "").strip()
+                opts[OPT_ENABLE_LIBRARY_SCAN] = user_input.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN)
+                if library_scan_enabled:
+                    opts[OPT_LIBRARY_SCAN_INTERVAL_HOURS] = max(
+                        MIN_LIBRARY_SCAN_INTERVAL_HOURS,
+                        min(MAX_LIBRARY_SCAN_INTERVAL_HOURS, user_input.get(OPT_LIBRARY_SCAN_INTERVAL_HOURS, DEFAULT_LIBRARY_SCAN_INTERVAL_HOURS)),
+                    )
             else:
                 steam_achievements_key_override = self._config_entry.data.get(CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, "")
                 psn_npsso_override = self._config_entry.data.get(CONF_PSN_NPSSO_OVERRIDE, "")
@@ -1233,7 +1246,17 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 ): selector.TextSelector(
                     selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
                 ),
+                vol.Optional(
+                    OPT_ENABLE_LIBRARY_SCAN,
+                    default=opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN),
+                ): bool,
             })
+
+        if library_scan_enabled:
+            schema_dict[vol.Optional(
+                OPT_LIBRARY_SCAN_INTERVAL_HOURS,
+                default=opts.get(OPT_LIBRARY_SCAN_INTERVAL_HOURS, DEFAULT_LIBRARY_SCAN_INTERVAL_HOURS),
+            )] = vol.All(int, vol.Range(min=MIN_LIBRARY_SCAN_INTERVAL_HOURS, max=MAX_LIBRARY_SCAN_INTERVAL_HOURS))
 
         if "discord" in enabled_platforms:
             schema_dict.update({

@@ -225,7 +225,9 @@
           "enable_platform_enrichment": "Enable Native Achievement/Trophy/Rating Enrichment",
           "steam_achievements_api_key_override": "Steam Web API Key Override (Optional)",
           "psn_npsso_override": "PSN NPSSO Override (Optional)",
-          "achievement_recheck_seconds": "Achievement/Trophy Recheck Interval (seconds)"
+          "achievement_recheck_seconds": "Achievement/Trophy Recheck Interval (seconds)",
+          "enable_library_scan": "Enable Full Game Library Scan",
+          "library_scan_interval_hours": "Library Scan Interval (hours)"
         },
         "data_description": {
           "rating_overrides": "Manually set a rating for games your rating provider has no data for, one per line. Codes: E, E10, T, M, AO.",
@@ -233,7 +235,9 @@
           "enable_platform_enrichment": "Adds achievement/trophy counts and native content ratings to the current game's Steam/Xbox/PlayStation sensor, reusing credentials already configured on the steam_online/playstation_network integrations where possible. Off by default.",
           "steam_achievements_api_key_override": "Only needed if steam_online isn't installed, or you want a different key than the one already configured there. Leave blank to auto-detect.",
           "psn_npsso_override": "Only needed if playstation_network isn't installed, or you want a different account's NPSSO than the one already configured there. Leave blank to auto-detect.",
-          "achievement_recheck_seconds": "How often to re-check for newly-earned achievements/trophies while a game keeps running. Default 900 (15 min), minimum 300 (5 min)."
+          "achievement_recheck_seconds": "How often to re-check for newly-earned achievements/trophies while a game keeps running. Default 900 (15 min), minimum 300 (5 min).",
+          "enable_library_scan": "Adds a Game Library sensor (plus one per tracked platform) with your full game collection -- total achievements/trophies, completion percentage, and per-game details -- scanned periodically in the background. Only created for platforms you already track. Off by default.",
+          "library_scan_interval_hours": "How often to rescan your full game library. Default 12 hours, range 1-24."
         }
       },
       "global_settings": {
