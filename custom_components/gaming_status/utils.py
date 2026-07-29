@@ -902,7 +902,10 @@ async def fetch_psn_trophies(hass, npsso, account_id, game_name, title_id=None, 
             earned_trophies = [t for t in trophies if t.get("earned") and t.get("earned_at")]
             earned_trophies.sort(key=lambda t: t["earned_at"], reverse=True)
             result["recent_unlocks"] = [
-                {"name": t.get("name"), "description": t.get("description"), "unlocked_at": t.get("earned_at")}
+                {
+                    "name": t.get("name"), "description": t.get("description"),
+                    "unlocked_at": t.get("earned_at"), "tier": t.get("type"),
+                }
                 for t in earned_trophies[:RECENT_UNLOCKS_LIMIT]
             ]
 

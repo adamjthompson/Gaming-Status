@@ -16,6 +16,12 @@ DEFAULT_MASTER_HANDOFF_GRACE_SECONDS = 300
 # Max number of completed sessions retained per sensor for the "recent_sessions" history log
 MAX_RECENT_SESSIONS = 20
 
+# Max number of achievement/trophy unlocks retained per sensor for the
+# "recent_achievements" history log -- higher than MAX_RECENT_SESSIONS since
+# a single game completion can unlock a dozen+ achievements at once, and
+# that burst shouldn't evict another platform's/game's older history.
+MAX_RECENT_ACHIEVEMENT_UNLOCKS = 30
+
 # ZOMBIE ATTRIBUTE CLEANUP
 ZOMBIE_ATTRIBUTES = ["grace_period_active", "xbox_last_seen_game", "debug_sync"]
 

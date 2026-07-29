@@ -24,7 +24,7 @@ from .const import (
     DOMAIN, ZOMBIE_ATTRIBUTES, PLATFORM_CONFIG, PLATFORM_PRIORITY,
     DEFAULT_RESET_HISTORY, DEFAULT_GRACE_PERIOD_SECONDS,
     DEFAULT_AWAY_GRACE_PERIOD_SECONDS, DEFAULT_GAME_TRANSITION_GRACE_SECONDS,
-    DEFAULT_MIN_SESSION_DURATION, MAX_RECENT_SESSIONS, OPT_TITLE_CLEANUPS,
+    DEFAULT_MIN_SESSION_DURATION, MAX_RECENT_SESSIONS, MAX_RECENT_ACHIEVEMENT_UNLOCKS, OPT_TITLE_CLEANUPS,
     CONF_STEAMGRIDDB_API_KEY, OPT_RATING_OVERRIDES, OPT_PLAYERS, OPT_GRACE_PERIOD,
     OPT_AWAY_GRACE_PERIOD, OPT_TRANSITION_GRACE, OPT_MIN_SESSION,
     OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS,
@@ -86,7 +86,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         "rolling_weekly_breakdown", "rolling_longest_session_details",
         "calendar_weekly_breakdown", "calendar_longest_session_details",
         "last_played_game", "daily_play_time", "weekly_play_time", "weekly_play_time_last_week",
-        "play_history", "game_content_rating", "recent_sessions",
+        "play_history", "game_content_rating", "recent_sessions", "recent_achievements",
         "all_time_total_hours", "all_time_session_count", "all_time_top_games",
         "current_game_achievements_earned", "current_game_achievements_total",
         "achievements_source",
@@ -235,6 +235,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._weekly_play_time_last_week = 0
         self._play_history = {}
         self._recent_sessions = []
+        # Cross-game, cross-session achievement/trophy unlock history --
+        # unlike _cached_recent_unlocks (the current game's own snapshot,
+        # wiped on every game switch), this accumulates and persists the
+        # same way _recent_sessions does. See _ingest_recent_unlocks.
+        self._recent_achievements = []
         self._cached_history_seconds = 0
         self._local_avatar_path = None
         self._cover_fetch_attempted = False 
@@ -302,6 +307,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         return {
             "history": self._play_history,
             "recent_sessions": getattr(self, "_recent_sessions", []),
+            "recent_achievements": getattr(self, "_recent_achievements", []),
             "backups": {
                 "backup_last_session_time": self._backup_last_session_time,
                 "backup_last_online_timestamp": self._backup_last_online_timestamp,
@@ -914,6 +920,62 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._cached_recent_unlocks = []
             self._store.async_delay_save(self._get_store_data, 5.0)
 
+    def _ingest_recent_unlocks(self, recent_unlocks):
+        """Folds a platform's just-fetched recent_unlocks snapshot (see
+        utils.fetch_steam_achievements/fetch_xbox_achievements/
+        fetch_psn_trophies -- always {"name", "description", "unlocked_at"}
+        dicts, newest-first, capped at RECENT_UNLOCKS_LIMIT) into
+        self._recent_achievements, a cross-game history that -- unlike
+        _cached_recent_unlocks -- persists across game switches, the same
+        way _recent_sessions does.
+
+        De-duped by (game, achievement name), not by unlocked_at -- an
+        achievement can't be re-earned, so name is already a stable
+        identity within one game, whereas Steam's own unlocktime can be
+        falsy/missing for some entries (Xbox/PSN always populate it),
+        which would make a timestamp-inclusive key wrongly treat the same
+        achievement as "new" again on a later recheck. Since Steam/Xbox/PSN
+        all report real historical unlock times (not "now"), no special
+        first-run backfill is needed: the very first fetch after
+        Achievement/Trophy Tracking is turned on simply seeds true
+        chronological history for free.
+
+        Known accepted limitation (same tenor as _handle_game_transition's
+        session-resurrection tradeoff above): RECENT_UNLOCKS_LIMIT caps
+        each fetch at 10, so unlocking more than that between two rechecks
+        silently drops the oldest ones in that burst.
+        """
+        if not recent_unlocks or not self._current_game:
+            return
+        existing_keys = {
+            (_normalize_game_name(e.get("game")), e.get("name"))
+            for e in self._recent_achievements
+        }
+        game_key = _normalize_game_name(self._current_game)
+        platform_label = PLATFORM_CONFIG.get(self._gaming_type, {}).get("name_suffix", self._gaming_type.title())
+        inserted = False
+        for unlock in recent_unlocks:
+            key = (game_key, unlock.get("name"))
+            if not unlock.get("name") or key in existing_keys:
+                continue
+            existing_keys.add(key)
+            self._recent_achievements.insert(0, {
+                "game": self._current_game,
+                "platform": platform_label,
+                "name": unlock.get("name"),
+                "description": unlock.get("description"),
+                "unlocked_at": unlock.get("unlocked_at"),
+                "tier": unlock.get("tier"),  # PSN trophy tier (bronze/silver/gold/platinum); None elsewhere
+                "hero_art_url": self._cached_game_hero,
+                "game_dominant_color": self._cached_game_color,
+            })
+            inserted = True
+        if inserted:
+            self._recent_achievements.sort(key=lambda a: a.get("unlocked_at") or "", reverse=True)
+            if len(self._recent_achievements) > MAX_RECENT_ACHIEVEMENT_UNLOCKS:
+                del self._recent_achievements[MAX_RECENT_ACHIEVEMENT_UNLOCKS:]
+            self._store.async_delay_save(self._get_store_data, 5.0)
+
     def _get_session_info(self):
         if not self._play_start_time: return 0, None
         start_dt = _safe_parse_datetime(self._play_start_time)
@@ -1080,6 +1142,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         history_attr[today_str] = dict(getattr(self, "_weekly_game_breakdown", {}))
         self._attr_extra_state_attributes["play_history"] = dict(sorted(history_attr.items()))
         self._attr_extra_state_attributes["recent_sessions"] = list(getattr(self, "_recent_sessions", []))
+        self._attr_extra_state_attributes["recent_achievements"] = list(getattr(self, "_recent_achievements", []))
 
         # All-time (lifetime) summary. Only a small, bounded summary is ever
         # exposed here -- the full per-game breakdown lives only in the JSON
@@ -1502,6 +1565,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         if stored_data:
             self._play_history = stored_data.get("history", {})
             self._recent_sessions = stored_data.get("recent_sessions", [])
+            self._recent_achievements = stored_data.get("recent_achievements", [])
             backups = stored_data.get("backups", {})
             self._backup_last_session_time = backups.get("backup_last_session_time", 0)
             self._backup_last_online_timestamp = backups.get("backup_last_online_timestamp")
@@ -1559,6 +1623,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         else:
             self._play_history = {}
             self._recent_sessions = []
+            self._recent_achievements = []
             self._color_history_cache = {}
             self._backup_last_session_time = 0
             self._backup_last_online_timestamp = None
@@ -1816,13 +1881,16 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
     @callback
     async def _recheck_achievements(self):
-        """Periodic mid-session recheck for newly-earned Steam achievements /
-        PSN trophies (Xbox needs none -- its sibling entity's attributes are
-        already re-read every _unified_update). Dispatched via
-        hass.async_create_task from the synchronous _update_play_time tick,
-        same non-blocking shape as the existing _trigger_source_update
-        pattern there -- never delays/blocks the core play-time tick that
-        scheduled it."""
+        """Periodic mid-session recheck for newly-earned achievements/
+        trophies on all three platforms (Xbox's own gamerscore is refreshed
+        more cheaply every _unified_update via a sibling entity's own
+        attribute, but its detailed recent-unlocks list -- like Steam's and
+        PSN's -- is otherwise only ever fetched once per game transition,
+        so it needs this same periodic recheck to feed recent_achievements
+        mid-session). Dispatched via hass.async_create_task from the
+        synchronous _update_play_time tick, same non-blocking shape as the
+        existing _trigger_source_update pattern there -- never delays/
+        blocks the core play-time tick that scheduled it."""
         try:
             game_name_display = self._current_game
             if not game_name_display:
@@ -1835,11 +1903,25 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     self._cached_achievements_earned = result.get("earned")
                     self._cached_achievements_total = result.get("total")
                     self._cached_achievements_source = "steam"
+                    self._cached_recent_unlocks = result.get("recent_unlocks") or []
+                    self._ingest_recent_unlocks(self._cached_recent_unlocks)
+                    self.async_write_ha_state()
+            elif self._gaming_type == "xbox" and self._xbox_config_entry and self._xbox_oauth_session and self._xbox_xuid:
+                result = await utils.fetch_xbox_achievements(
+                    self.hass, self._xbox_config_entry, self._xbox_oauth_session, self._xbox_xuid
+                )
+                if result:
+                    self._cached_achievements_earned = result.get("earned")
+                    self._cached_achievements_total = result.get("total")
+                    self._cached_achievements_source = "xbox"
+                    self._cached_recent_unlocks = result.get("recent_unlocks") or []
+                    self._ingest_recent_unlocks(self._cached_recent_unlocks)
                     self.async_write_ha_state()
             elif self._gaming_type == "playstation" and self._psn_npsso and self._psn_account_id:
                 title_id = await utils.resolve_psn_title_id(self.hass, self._psn_npsso, self._psn_account_id)
                 result = await utils.fetch_psn_trophies(
-                    self.hass, self._psn_npsso, self._psn_account_id, game_name_display, title_id=title_id
+                    self.hass, self._psn_npsso, self._psn_account_id, game_name_display,
+                    title_id=title_id, include_recent_unlocks=True,
                 )
                 if result:
                     self._cached_trophies_earned = result.get("earned")
@@ -1847,6 +1929,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     self._cached_achievements_source = "psn"
                     self._cached_achievements_earned = sum((result.get("earned") or {}).values())
                     self._cached_achievements_total = sum((result.get("total") or {}).values())
+                    self._cached_recent_unlocks = result.get("recent_unlocks") or []
+                    self._ingest_recent_unlocks(self._cached_recent_unlocks)
                     self.async_write_ha_state()
         except Exception as e:
             _LOGGER.error("Achievement/trophy recheck failed for %s: %s", self.entity_id, e)
@@ -2101,6 +2185,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                                 self._cached_achievements_total = result.get("total")
                                 self._cached_achievements_source = "steam"
                                 self._cached_recent_unlocks = result.get("recent_unlocks") or []
+                                self._ingest_recent_unlocks(self._cached_recent_unlocks)
                         elif self._gaming_type == "xbox" and self._xbox_config_entry and self._xbox_oauth_session and self._xbox_xuid:
                             result = await utils.fetch_xbox_achievements(
                                 self.hass, self._xbox_config_entry, self._xbox_oauth_session, self._xbox_xuid
@@ -2110,6 +2195,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                                 self._cached_achievements_total = result.get("total")
                                 self._cached_achievements_source = "xbox"
                                 self._cached_recent_unlocks = result.get("recent_unlocks") or []
+                                self._ingest_recent_unlocks(self._cached_recent_unlocks)
                         elif self._gaming_type == "playstation" and self._psn_npsso and self._psn_account_id:
                             result = await utils.fetch_psn_trophies(
                                 self.hass, self._psn_npsso, self._psn_account_id, game_name_display,
@@ -2122,6 +2208,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                                 self._cached_achievements_earned = sum((result.get("earned") or {}).values())
                                 self._cached_achievements_total = sum((result.get("total") or {}).values())
                                 self._cached_recent_unlocks = result.get("recent_unlocks") or []
+                                self._ingest_recent_unlocks(self._cached_recent_unlocks)
                     except Exception as e:
                         _LOGGER.error("Achievement/trophy fetch failed for %s: %s", game_name_display, e)
 
@@ -2291,6 +2378,7 @@ class MasterGamingSensor(RestoreSensor):
         "rolling_longest_session", "calendar_longest_session",
         "raw_rolling_breakdown", "raw_calendar_breakdown",
         "play_history", "game_content_rating", "rating_exceeded", "recent_sessions",
+        "recent_achievements",
         "all_time_total_hours", "all_time_session_count", "all_time_top_games",
     })
 
@@ -2353,6 +2441,7 @@ class MasterGamingSensor(RestoreSensor):
         master_calendar_breakdown = {}
         master_history = {}
         master_recent_sessions = []
+        master_recent_achievements = []
         master_all_time_hours = 0.0
         master_all_time_seconds_by_game = {}
         master_all_time_sessions = 0
@@ -2399,6 +2488,9 @@ class MasterGamingSensor(RestoreSensor):
 
             # Aggregate recent sessions
             master_recent_sessions.extend(platform_state.attributes.get("recent_sessions", []))
+
+            # Aggregate recent achievement/trophy unlocks
+            master_recent_achievements.extend(platform_state.attributes.get("recent_achievements", []))
 
             # Aggregate all-time (lifetime) stats. Total hours/session count are
             # summed directly from each platform's exact numbers; only the
@@ -2679,10 +2771,14 @@ class MasterGamingSensor(RestoreSensor):
         new_attrs["recent_sessions"] = sorted(
             master_recent_sessions, key=lambda r: r.get("start_time") or "", reverse=True
         )[:MAX_RECENT_SESSIONS]
+        new_attrs["recent_achievements"] = sorted(
+            master_recent_achievements, key=lambda a: a.get("unlocked_at") or "", reverse=True
+        )[:MAX_RECENT_ACHIEVEMENT_UNLOCKS]
         new_attrs["all_time_total_hours"] = round(master_all_time_hours, 1)
         new_attrs["all_time_session_count"] = master_all_time_sessions
         new_attrs["all_time_top_games"] = top_n_games(master_all_time_seconds_by_game, 10)
         new_attrs["color_extraction_enabled"] = utils.ENABLE_VIBRANT_COLOR
+        new_attrs["achievement_tracking_enabled"] = utils.ENABLE_ACHIEVEMENT_TRACKING
 
         if (self._attr_native_value == new_state_value and
             self._attr_icon == new_icon and
@@ -2753,7 +2849,7 @@ class PCGamingSensor(RestoreSensor):
         "game_icon_art", "entity_picture", "last_online_valid_timestamp",
         "current_game", "game_dominant_color", "game_content_rating",
         "rolling_weekly_breakdown", "calendar_weekly_breakdown",
-        "play_history", "recent_sessions",
+        "play_history", "recent_sessions", "recent_achievements",
     })
 
     def __init__(self, hass, name, pc_entities, same_game_prefix_words=DEFAULT_SAME_GAME_PREFIX_WORDS, handoff_grace_seconds=DEFAULT_MASTER_HANDOFF_GRACE_SECONDS, device_info=None):
@@ -2935,6 +3031,7 @@ class PCGamingSensor(RestoreSensor):
         merged_calendar = {}
         merged_history = {}
         merged_sessions = []
+        merged_achievements = []
 
         for entity_id in self._pc_entities:
             state = self.hass.states.get(entity_id)
@@ -2959,6 +3056,7 @@ class PCGamingSensor(RestoreSensor):
                 for game, secs in day_breakdown.items():
                     merged_history[date_str][game] = merged_history[date_str].get(game, 0) + secs
             merged_sessions.extend(attrs.get("recent_sessions", []))
+            merged_achievements.extend(attrs.get("recent_achievements", []))
 
         self._attr_extra_state_attributes["daily_play_time"] = total_daily
         self._attr_extra_state_attributes["weekly_play_time"] = total_weekly
@@ -2969,7 +3067,11 @@ class PCGamingSensor(RestoreSensor):
         self._attr_extra_state_attributes["recent_sessions"] = sorted(
             merged_sessions, key=lambda r: r.get("start_time") or "", reverse=True
         )[:MAX_RECENT_SESSIONS]
+        self._attr_extra_state_attributes["recent_achievements"] = sorted(
+            merged_achievements, key=lambda a: a.get("unlocked_at") or "", reverse=True
+        )[:MAX_RECENT_ACHIEVEMENT_UNLOCKS]
         self._attr_extra_state_attributes["color_extraction_enabled"] = utils.ENABLE_VIBRANT_COLOR
+        self._attr_extra_state_attributes["achievement_tracking_enabled"] = utils.ENABLE_ACHIEVEMENT_TRACKING
 
         self.async_write_ha_state()
 
