@@ -17,7 +17,6 @@ from .utils import _normalize_game_name
 from .const import (
     DOMAIN,
     CONF_STEAMGRIDDB_API_KEY,
-    CONF_RAWG_API_KEY,
     RATING_THRESHOLD_OPTIONS,
     OPT_RATING_OVERRIDES,
     RATING_OVERRIDE_CODES,
@@ -54,6 +53,7 @@ from .const import (
     MENU_MANAGE_PLAYERS,
     MENU_NOTIFICATIONS,
     MENU_PARENTAL,
+    MENU_OVERRIDES,
     MENU_ADVANCED,
     PLAYER_PLATFORMS,
     OPT_USE_CACHE,
@@ -197,9 +197,6 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_STEAMGRIDDB_API_KEY, default=""): selector.TextSelector(
                     selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
                 ),
-                vol.Optional(CONF_RAWG_API_KEY, default=""): selector.TextSelector(
-                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
-                ),
                 vol.Optional(OPT_USE_CACHE, default=smart_cache_default): bool,
             }),
             description_placeholders={"api_url": "https://www.steamgriddb.com/profile/api"},
@@ -302,7 +299,6 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         user_input = getattr(self, "_temp_user_input", {})
         
         api_key = user_input.get(CONF_STEAMGRIDDB_API_KEY, "").strip()
-        rawg_key = user_input.get(CONF_RAWG_API_KEY, "").strip()
         dc_token = user_input.get(CONF_DISCORD_TOKEN, "").strip()
         dc_server = user_input.get(CONF_DISCORD_SERVER, "").strip()
 
@@ -317,7 +313,6 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             title="Gaming Status",
             data={
                 CONF_STEAMGRIDDB_API_KEY: api_key,
-                CONF_RAWG_API_KEY: rawg_key,
                 CONF_DISCORD_TOKEN: dc_token,
                 CONF_DISCORD_SERVER: dc_server,
             },
@@ -364,6 +359,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             
         menu_options.extend([
             MENU_CUSTOM_ARTWORK,
+            MENU_OVERRIDES,
             MENU_ADVANCED,
             MENU_GLOBAL_SETTINGS,
         ])
@@ -1110,13 +1106,11 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     # Advanced
     # -----------------------------------------------------------------------
     
-    async def async_step_advanced(self, user_input=None):
+    async def async_step_overrides_exclusions(self, user_input=None):
         from .const import OPT_ENABLE_PARENTAL
         opts = self._options
         errors = {}
         parental_enabled = opts.get(OPT_ENABLE_PARENTAL, False)
-        enrichment_enabled = opts.get(OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT)
-        library_scan_enabled = enrichment_enabled and opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN)
 
         if user_input is not None:
             for key, field in [
@@ -1150,6 +1144,68 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 parsed_list = [x.strip() for x in raw.splitlines() if x.strip()]
                 opts[key] = _dump_json(parsed_list)
 
+            if not errors:
+                self._options = opts
+                return await self._update_and_return()
+
+        def _get_list_default(key, fallback):
+            raw = opts.get(key)
+            if raw:
+                parsed = _load_json(raw, fallback)
+                return "\n".join(parsed)
+            return "\n".join(fallback)
+
+        def _get_dict_default(key, fallback):
+            raw = opts.get(key)
+            if raw:
+                parsed = _load_json(raw, fallback)
+                # Universally reconstruct using '=' for the UI with clean spacing
+                return "\n".join([f"{k} = {v}" for k, v in parsed.items()])
+            return "\n".join([f"{k} = {v}" for k, v in fallback.items()])
+
+        multiline_text = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
+
+        schema_dict = {
+            vol.Optional(
+                "title_overrides",
+                description={"suggested_value": _get_dict_default(OPT_TITLE_OVERRIDES, {})},
+            ): multiline_text,
+            vol.Optional(
+                "title_cleanups",
+                description={"suggested_value": _get_list_default(OPT_TITLE_CLEANUPS, [])},
+            ): multiline_text,
+            vol.Optional(
+                "global_exclusions",
+                description={"suggested_value": _get_list_default(OPT_GLOBAL_EXCLUSIONS, [
+                    "Home", "Online", "Xbox App", "YouTube", "Netflix",
+                    "Hulu", "Amazon Prime Video", "Spotify",
+                    "Microsoft Store", "Store", "Xbox 360 Dashboard",
+                    "Setting up...", "Wallpaper Engine",
+                ])},
+            ): multiline_text,
+        }
+
+        if parental_enabled:
+            reverse_codes = {v: k for k, v in RATING_OVERRIDE_CODES.items()}
+            raw_ratings = _load_json(opts.get(OPT_RATING_OVERRIDES, ""), {})
+            rating_overrides_default = "\n".join(
+                f"{k} = {reverse_codes.get(v, v)}" for k, v in raw_ratings.items()
+            )
+            schema_dict[vol.Optional("rating_overrides", description={"suggested_value": rating_overrides_default})] = multiline_text
+
+        return self.async_show_form(
+            step_id=MENU_OVERRIDES,
+            data_schema=vol.Schema(schema_dict),
+            errors=errors,
+        )
+
+    async def async_step_advanced(self, user_input=None):
+        opts = self._options
+        errors = {}
+        enrichment_enabled = opts.get(OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT)
+        library_scan_enabled = enrichment_enabled and opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN)
+
+        if user_input is not None:
             opts[OPT_SAME_GAME_PREFIX_WORDS] = user_input.get(OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS)
             opts[OPT_ENABLE_PLATFORM_ENRICHMENT] = user_input.get(OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT)
             if enrichment_enabled:
@@ -1175,12 +1231,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 psn_npsso_override = self._config_entry.data.get(CONF_PSN_NPSSO_OVERRIDE, "")
 
             api_key = user_input.get(CONF_STEAMGRIDDB_API_KEY, "").strip()
-            rawg_key = user_input.get(CONF_RAWG_API_KEY, "").strip()
             dc_token = user_input.get(CONF_DISCORD_TOKEN, "").strip()
             dc_server = user_input.get(CONF_DISCORD_SERVER, "").strip()
             new_data = dict(self._config_entry.data)
             new_data[CONF_STEAMGRIDDB_API_KEY] = api_key
-            new_data[CONF_RAWG_API_KEY] = rawg_key
             new_data[CONF_DISCORD_TOKEN] = dc_token
             new_data[CONF_DISCORD_SERVER] = dc_server
             new_data[CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE] = steam_achievements_key_override
@@ -1191,21 +1245,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 self._options = opts
                 return await self._update_and_return()
 
-        def _get_list_default(key, fallback):
-            raw = opts.get(key)
-            if raw:
-                parsed = _load_json(raw, fallback)
-                return "\n".join(parsed)
-            return "\n".join(fallback)
-
-        def _get_dict_default(key, fallback):
-            raw = opts.get(key)
-            if raw:
-                parsed = _load_json(raw, fallback)
-                # Universally reconstruct using '=' for the UI with clean spacing
-                return "\n".join([f"{k} = {v}" for k, v in parsed.items()])
-            return "\n".join([f"{k} = {v}" for k, v in fallback.items()])
-
         from .const import OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS
         enabled_platforms = opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
 
@@ -1213,12 +1252,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_STEAMGRIDDB_API_KEY,
                 description={"suggested_value": self._config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, "")},
-            ): selector.TextSelector(
-                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
-            ),
-            vol.Optional(
-                CONF_RAWG_API_KEY,
-                description={"suggested_value": self._config_entry.data.get(CONF_RAWG_API_KEY, "")},
             ): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
             ),
@@ -1269,36 +1302,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     description={"suggested_value": self._config_entry.data.get(CONF_DISCORD_SERVER, "")},
                 ): str,
             })
-
-        multiline_text = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
-
-        schema_dict.update({
-            vol.Optional(
-                "title_overrides",
-                description={"suggested_value": _get_dict_default(OPT_TITLE_OVERRIDES, {})},
-            ): multiline_text,
-            vol.Optional(
-                "title_cleanups",
-                description={"suggested_value": _get_list_default(OPT_TITLE_CLEANUPS, [])},
-            ): multiline_text,
-            vol.Optional(
-                "global_exclusions",
-                description={"suggested_value": _get_list_default(OPT_GLOBAL_EXCLUSIONS, [
-                    "Home", "Online", "Xbox App", "YouTube", "Netflix",
-                    "Hulu", "Amazon Prime Video", "Spotify",
-                    "Microsoft Store", "Store", "Xbox 360 Dashboard",
-                    "Setting up...", "Wallpaper Engine",
-                ])},
-            ): multiline_text,
-        })
-
-        if parental_enabled:
-            reverse_codes = {v: k for k, v in RATING_OVERRIDE_CODES.items()}
-            raw_ratings = _load_json(opts.get(OPT_RATING_OVERRIDES, ""), {})
-            rating_overrides_default = "\n".join(
-                f"{k} = {reverse_codes.get(v, v)}" for k, v in raw_ratings.items()
-            )
-            schema_dict[vol.Optional("rating_overrides", description={"suggested_value": rating_overrides_default})] = multiline_text
 
         schema_dict[vol.Optional(
             OPT_SAME_GAME_PREFIX_WORDS,

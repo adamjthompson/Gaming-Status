@@ -9,7 +9,6 @@
           "enable_notifications": "Enable Notifications & Reporting",
           "enable_parental": "Enable Parental Controls",
           "steamgriddb_api_key": "SteamGridDB API Key (Optional)",
-          "rawg_api_key": "RAWG.io API Key (Optional, for content ratings)",
           "use_local_cache": "Enable Local Image Caching"
         },
         "data_description": {
@@ -55,6 +54,7 @@
           "notifications": "Notifications & Reporting",
           "parental_controls": "Parental Controls",
           "custom_artwork": "Custom Artwork & Colors",
+          "overrides_exclusions": "Overrides & Exclusions",
           "advanced": "Advanced Settings",
           "global_settings": "Global Settings"
         }
@@ -209,18 +209,26 @@
           "rt_action_targets": "Notification method(s) when rating exceeded"
         }
       },
+      "overrides_exclusions": {
+        "title": "Overrides & Exclusions",
+        "description": "Manually adjust game titles, ratings, and what gets tracked.",
+        "data": {
+          "title_overrides": "Title Overrides, one per line (e.g., Destiny 2: Lightfall = Destiny 2)",
+          "title_cleanups": "Title Cleanups, one per line (Regex/Text to strip from titles)",
+          "global_exclusions": "Global Exclusions, one per line (Ignored apps/games)",
+          "rating_overrides": "Content Rating Overrides, one per line (e.g., Skull and Bones = M)"
+        },
+        "data_description": {
+          "rating_overrides": "Manually set a rating for games your rating provider has no data for, one per line. Codes: E, E10, T, M, AO."
+        }
+      },
       "advanced": {
         "title": "Advanced Settings",
         "description": "Configure advanced integration behavior and API keys.",
         "data": {
           "steamgriddb_api_key": "SteamGridDB API Key (for fetching artwork)",
-          "rawg_api_key": "RAWG.io API Key (for content ratings)",
           "discord_bot_token": "Discord Bot Token (for game tracking)",
           "discord_server_id": "Discord Server ID (for game tracking)",
-          "title_overrides": "Title Overrides, one per line (e.g., Destiny 2: Lightfall = Destiny 2)",
-          "title_cleanups": "Title Cleanups, one per line (Regex/Text to strip from titles)",
-          "global_exclusions": "Global Exclusions, one per line (Ignored apps/games)",
-          "rating_overrides": "Content Rating Overrides, one per line (e.g., Skull and Bones = M)",
           "same_game_prefix_words": "Same-Game Prefix Match (leading words, 0 = off)",
           "enable_platform_enrichment": "Enable Native Achievement/Trophy/Rating Enrichment",
           "steam_achievements_api_key_override": "Steam Web API Key Override (Optional)",
@@ -230,7 +238,6 @@
           "library_scan_interval_hours": "Library Scan Interval (hours)"
         },
         "data_description": {
-          "rating_overrides": "Manually set a rating for games your rating provider has no data for, one per line. Codes: E, E10, T, M, AO.",
           "same_game_prefix_words": "Game names starting with this many matching words (e.g. \"Call of Duty ...\") are treated as the same game instead of a switch. Default: 2. Set to 0 to disable.",
           "enable_platform_enrichment": "Adds achievement/trophy counts and native content ratings to the current game's Steam/Xbox/PlayStation sensor, reusing credentials already configured on the steam_online/playstation_network integrations where possible. Off by default.",
           "steam_achievements_api_key_override": "Only needed if steam_online isn't installed, or you want a different key than the one already configured there. Leave blank to auto-detect.",

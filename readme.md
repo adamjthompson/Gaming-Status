@@ -48,14 +48,10 @@ To display beautiful, high-resolution game covers on your dashboard, this integr
 5. Click **Generate API Key**.
 6. Copy the generated key and paste it into the **SteamGridDB API Key** field during Initial Setup or under the Advanced menu. 
 
-### Obtaining a RAWG.io API Key (for Content Ratings)
-If you plan to use the **Content Rating Limit** parental control, this integration looks up each game's ESRB rating via a free API key from [RAWG.io](https://rawg.io/).
+### Content Ratings
+If you plan to use the **Content Rating Limit** parental control, enable **Native Achievement/Trophy/Rating Enrichment** under Advanced Settings. This looks up each game's ESRB rating directly from Steam, Xbox, or PlayStation, reusing whatever credentials you already have configured on the official `steam_online`/`xbox`/`playstation_network` integrations — no separate API key or account needed.
 
-1. Go to [RAWG.io API Docs](https://rawg.io/apidocs).
-2. Click **GET API KEY** and sign up or log in.
-3. Copy the generated key and paste it into the **RAWG.io API Key** field during Initial Setup or under the Advanced menu.
-
-*Note: RAWG's rating coverage isn't complete for every title. If a game comes back unrated, you can manually assign it a rating using the Content Rating Overrides field under Advanced (see below).*
+*Note: native rating coverage isn't complete for every title. If a game comes back unrated, you can manually assign it a rating using the Content Rating Overrides field under Overrides & Exclusions (see below).*
 
 ## Installation
 
@@ -81,11 +77,10 @@ Gaming Status is configured entirely through the Home Assistant UI. **There is n
 1. In Home Assistant, navigate to **Settings** > **Devices & Services**.
 2. Click **+ Add Integration** and search for **Gaming Status**.
 3. You will be prompted to enter a **SteamGridDB API Key** (Optional). This is highly recommended to automatically fetch beautiful hero art for your games. You can get a free key [here](https://www.steamgriddb.com/profile/api) or add it later under Advanced.
-4. You'll also see a **RAWG.io API Key** (Optional) field, used to automatically look up content/age ratings for the Parental Controls Content Rating Limit rule. You can get a free key [here](https://rawg.io/apidocs) or add it later under Advanced.
-5. Click Submit. 
+4. Click Submit. 
 
 ### Options & Features
-To configure your players, notifications, and rules, click the **Configure** button (gear icon) on the Gaming Status integration card. This opens the main configuration hub, which is divided into six menus based on your enabled features:
+To configure your players, notifications, and rules, click the **Configure** button (gear icon) on the Gaming Status integration card. This opens the main configuration hub, which is divided into seven menus based on your enabled features:
 
 #### 1. Manage Players
 Add, edit, or delete the gamers in your household.
@@ -107,7 +102,7 @@ Manage where your [gaming alerts and weekly reports](docs/notifications.md) are 
 Set automated rules based on accumulated playtime, time of day, or game content rating.
 * **Screen Time:** Set distinct weekday and weekend daily minute limits.
 * **Curfew:** Set distinct weekday and weekend cutoff times (e.g., 22:00).
-* **Content Rating Limit:** Set a maximum allowed age rating (e.g., "Ages 13+"). Ratings are looked up automatically via a free [RAWG.io API key](#obtaining-a-rawgio-api-key-for-content-ratings) (configured under Advanced) and cached indefinitely once found for a game. If the player's active game rating exceeds the configured age, a notification is sent the moment that game starts — switching to a *different* over-the-limit game always sends a fresh notification, but the same game won't spam you again while it keeps running.
+* **Content Rating Limit:** Set a maximum allowed age rating (e.g., "Ages 13+"). Ratings are looked up automatically from Steam/Xbox/PlayStation's own native rating data (requires [Native Platform Enrichment](#content-ratings), configured under Advanced) and cached indefinitely once found for a game. If the player's active game rating exceeds the configured age, a notification is sent the moment that game starts — switching to a *different* over-the-limit game always sends a fresh notification, but the same game won't spam you again while it keeps running.
 * **Reminder Frequency:** *(Screen Time and Curfew only)* Set how often to repeat the notification(s).
 * **Notifications:** When a limit is reached, you can automatically send a notification using any of your configured methods.
 
@@ -116,15 +111,19 @@ Manually assign artwork or colors to specific games using simple `Game = Value` 
 * **Custom Asset Maps (Grid, Hero, Logo, Icon):** Assign artwork for custom games or unrecognized titles. Fully supports web URLs and Home Assistant `/local/` paths. *(Example: `Marvel Rivals = /local/covers/marvel_rivals.png`)*
 * **Custom Colors:** Override the automatic dominant color extractor by assigning specific hex codes to games. *(Example: `Cyberpunk 2077 = #fcee0a`)*
 
-#### 5. Advanced
-Update your API keys and fine-tune text processing rules.
-* **API Keys & Tokens:** Update your SteamGridDB API key, RAWG.io API key (for content ratings), or your Discord Bot Token and Server ID.
+#### 5. Overrides & Exclusions
+Manually adjust game titles, ratings, and what gets tracked.
 * **Game Title Overrides:** Clean up messy or lengthy names. Format as `raw name = display name`. *(Example: `Minecraft Launcher = Minecraft`)*
 * **Title Cleanups:** A list of strings to automatically strip from game names. *(Example: `Tom Clancy's, Sid Meier's`)*
 * **Global Exclusions:** Games or apps that should be universally ignored by the tracker. *(Example: `Home, YouTube, Netflix, Xbox App`)* Overrides are applied first, then Cleanups, in that order. An Override is a whole-name swap, and any Cleanup pattern still gets a chance to run against its result afterward. Exclusions are checked against *both* the pre-Cleanup and the fully-cleaned name, so it doesn't matter which form your exclusion entry happens to match: excluding `Minecraft` catches it even if a Cleanup is what produces that name from something longer, and excluding `Minecraft Launcher` still works even if a separate Cleanup (e.g. one that strips `Launcher` generally) would otherwise erase the very word that entry is matching on.
 * **Content Rating Overrides:** *(Only shown when Parental Controls is enabled)* Manually assign a rating to games your rating provider has no data for. Format as `Game = Code`, using the codes `E`, `E10`, `T`, `M`, or `AO`. *(Example: `Skull and Bones = M`)*
 
-#### 6. Global Settings
+#### 6. Advanced
+Update your API keys and native platform enrichment settings.
+* **API Keys & Tokens:** Update your SteamGridDB API key, or your Discord Bot Token and Server ID.
+* **Native Achievement/Trophy/Rating Enrichment:** See [Content Ratings](#content-ratings) above. Also unlocks the optional Steam/PSN credential overrides, achievement/trophy recheck interval, and full Game Library scan settings.
+
+#### 7. Global Settings
 These variables control how the integration handles platforms, caching, and network drops across all players.
 * **Enabled Platforms:** Select which gaming platforms to track (Steam, Xbox, PlayStation, Discord, Playnite, and Custom).
 * **Enable PS3 Tracking:** Adds the PS3 Media Player field (see Manage Players above) to PlayStation-enabled player profiles.
@@ -228,7 +227,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | game_logo_art | URL of logo art, either local or SteamGridDB |
 | game_icon_art | URL of icon art, either local or SteamGridDB |
 | game_dominant_color | The automatically extracted vibrant hex color from the game's artwork, or a manually assigned color |
-| game_content_rating | Rating metadata for the currently active game: `{esrb, pegi, age_floor, descriptors, unrated, source}` (`source` is `"rawg"`, `"override"`, or `null` if never looked up) |
+| game_content_rating | Rating metadata for the currently active game: `{esrb, pegi, age_floor, descriptors, unrated, source}` (`source` is `"steam_native"`, `"xbox_native"`, `"psn_native"`, `"override"`, or `null` if unrated/never looked up) |
 | current_game | Inherited from the most active underlying platform tracker |
 | play_start_time | Inherited from the most active underlying platform tracker |
 | last_played_game | Title of the most recent game detected across all tracked platforms |
@@ -254,7 +253,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | game_logo_art | URL of logo art, either local or SteamGridDB |
 | game_icon_art | URL of icon art, either local or SteamGridDB |
 | game_dominant_color | The automatically extracted vibrant hex color from the game's artwork, or a manually assigned color |
-| game_content_rating | Rating metadata for the currently active/cached game: `{esrb, pegi, age_floor, descriptors, unrated, source}` (`source` is `"rawg"`, `"override"`, or `null` if never looked up) |
+| game_content_rating | Rating metadata for the currently active/cached game: `{esrb, pegi, age_floor, descriptors, unrated, source}` (`source` is `"steam_native"`, `"xbox_native"`, `"psn_native"`, `"override"`, or `null` if unrated/never looked up) |
 
 **Rich Tracking & Analytics**
 | Attribute | Description |

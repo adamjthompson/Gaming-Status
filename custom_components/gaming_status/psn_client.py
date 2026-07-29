@@ -245,22 +245,49 @@ class PsnClient:
         return titles[0] if titles else None
 
     async def async_get_title_concepts(self, title_id: str) -> dict | None:
-        """Native rating source -- confirmed live via a real recorded PSN
-        API response (psnawp_api's own test fixtures) to include a
-        `contentRating` object ({"authority": "ESRB", "description": ...})
-        and a top-level `minimumAge`. Same authenticated session as
-        everything else here. Returns None on any failure -- a rating
-        lookup failing should never be louder than "no native rating"."""
+        """Native rating source -- confirmed live via both a real recorded
+        PSN API response (psnawp_api's own test fixtures) and a live test in
+        this integration's own development to include a `contentRating`
+        object ({"authority": "ESRB", "description": ...}) and a top-level
+        `minimumAge`. Same authenticated session as everything else here.
+        Returns None on any failure -- a rating lookup failing should never
+        be louder than "no native rating".
+
+        `country`/`language`/`age` must be either ALL present or ALL absent
+        (confirmed live via a real HTTP 400 otherwise) -- but omitting all
+        three isn't a real fix either: confirmed live that it returns an
+        unlocalized, multi-region shape (`localizedMinimumAge.metadata`,
+        no flat `contentRating` at all) instead of the single-region flat
+        fields this method needs. `country="US"`/`language="en-US,en;q=0.9"`
+        match psnawp_api's own real recorded request exactly; `age=99` is
+        not the viewer's actual age -- it's just large enough to satisfy the
+        age-gate so PSN returns the full (not age-restricted-branching)
+        rating detail. Hardcoding US/English is consistent with the rest of
+        this integration's board-agnostic-but-US-centric rating approach
+        (Steam/Xbox's native ratings are similarly unlocalized)."""
         try:
             status, body = await self._authenticated_request(
-                "GET", f"{PSN_CATALOG_API_BASE}/{title_id}/concepts", params={"age": 99}
+                "GET", f"{PSN_CATALOG_API_BASE}/{title_id}/concepts",
+                params={"age": 99, "country": "US", "language": "en-US,en;q=0.9"},
             )
         except (NetworkError, RateLimitedError, ReauthRequiredError, AuthError):
             return None
         if status != 200 or not isinstance(body, list) or not body:
             return None
         entry = body[0]
-        return {"contentRating": entry.get("contentRating") or {}, "minimumAge": entry.get("minimumAge")}
+
+        # Confirmed live: the response has a `minimumAge` at BOTH the
+        # top (concept) level and nested under `defaultProduct` -- and
+        # they can genuinely disagree (a real "Everyone 10+" title showed
+        # top-level minimumAge=0 but defaultProduct.minimumAge=10, the
+        # correct one). The top-level field appears to not reliably track
+        # the actual ESRB floor; defaultProduct's does, so prefer it.
+        default_product = entry.get("defaultProduct") or {}
+        content_rating = default_product.get("contentRating") or entry.get("contentRating") or {}
+        minimum_age = default_product.get("minimumAge")
+        if minimum_age is None:
+            minimum_age = entry.get("minimumAge")
+        return {"contentRating": content_rating, "minimumAge": minimum_age}
 
     async def async_resolve_online_id(self, online_id_or_account_id: str) -> tuple[str, str]:
         """Returns (account_id, canonical_online_id) -- only used for the

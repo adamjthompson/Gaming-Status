@@ -27,7 +27,6 @@ RATING_OVERRIDES = {}
 TITLE_CLEANUPS = []
 COMPILED_TITLE_CLEANUPS = []
 STEAMGRIDDB_API_KEY = None
-RAWG_API_KEY = None
 
 # Native platform achievement/trophy/rating enrichment (current game only --
 # see steam_client.py/psn_client.py). Opt-in, off by default.
@@ -65,23 +64,12 @@ _MISSING_KEY_WARNED = False
 
 # Content-rating cache: a confirmed rating is immutable and cached forever
 # (just the LRU size cap below). An "unrated" result is NOT trusted forever,
-# since it may reflect a transient lookup failure or data RAWG hasn't added
-# yet, so it gets re-checked after RATING_RECHECK_SECONDS instead of sticking
-# until the next HA restart.
+# since it may reflect a transient lookup failure or native data that hasn't
+# been added yet, so it gets re-checked after RATING_RECHECK_SECONDS instead
+# of sticking until the next HA restart.
 RATING_CACHE = OrderedDict()
 MAX_RATING_CACHE_SIZE = 500
 RATING_RECHECK_SECONDS = 86400  # 24 hours
-_RATINGS_MISSING_KEY_WARNED = False
-
-# Maps RAWG's esrb_rating.slug values to a board-agnostic numeric age floor.
-ESRB_AGE_FLOOR = {
-    "everyone": 0,
-    "everyone-10-plus": 10,
-    "teen": 13,
-    "mature": 17,
-    "adults-only": 18,
-    "rating-pending": None,
-}
 
 # Display label for a manually-overridden age floor (RATING_OVERRIDES).
 AGE_FLOOR_LABELS = {0: "Everyone", 10: "Everyone 10+", 13: "Teen", 17: "Mature", 18: "Adults Only"}
@@ -430,14 +418,17 @@ async def get_steamgriddb_game_cover(hass, game_name):
 async def fetch_game_rating(hass, game_name, platform=None, platform_context=None):
     """
     Fetch content/age-rating metadata for a game.
-    A manual entry in RATING_OVERRIDES always takes priority and skips the
-    cache/API entirely. Otherwise, if platform enrichment is enabled and the
-    caller passed enough context, tries a platform-native rating first (see
-    _fetch_native_rating) -- only falling through to RAWG.io if that's
-    unavailable/fails. A confirmed rating (from either source) is cached
-    forever (ratings don't change). An "unrated" result (no match, no ESRB
-    data, or a failed lookup) is only cached for RATING_RECHECK_SECONDS, then
-    retried, since it may reflect a transient failure or data not yet added.
+    A manual entry in RATING_OVERRIDES always takes priority and skips
+    everything else. Otherwise, if platform enrichment is enabled and the
+    caller passed enough context, tries a platform-native rating (see
+    _fetch_native_rating). There is no third-party fallback -- RAWG.io was
+    removed once native ratings covered Steam/Xbox/PSN; anything native
+    can't resolve (including Custom/Playnite/Discord platforms, which have
+    no native rating source at all) is reported as "unrated" and left to a
+    manual RATING_OVERRIDES entry. A confirmed rating is cached forever
+    (ratings don't change); an "unrated" result is only cached for
+    RATING_RECHECK_SECONDS, then retried, since native data can appear later
+    (e.g. a store page gets ESRB info added after this was first checked).
 
     `platform`/`platform_context` are optional and only used for the native
     lookup: platform="xbox" -> {"min_age": <already-known value, no HTTP
@@ -445,12 +436,9 @@ async def fetch_game_rating(hass, game_name, platform=None, platform_context=Non
     {"npsso": str, "title_id": str}.
 
     Returns a dict like {"esrb": "M", "pegi": None, "age_floor": 17,
-    "descriptors": [...], "unrated": False, "source": "rawg"}, or None if no
-    rating source (native or RAWG) is available.
+    "descriptors": [...], "unrated": False, "source": "steam_native"}, or
+    None if game_name is empty.
     """
-    import asyncio
-    global _RATINGS_MISSING_KEY_WARNED
-
     if not game_name:
         return None
 
@@ -484,86 +472,16 @@ async def fetch_game_rating(hass, game_name, platform=None, platform_context=Non
                 RATING_CACHE.popitem(last=False)
             return native
 
-    if "gaming_status_rating_locks" not in hass.data:
-        hass.data["gaming_status_rating_locks"] = {}
-
-    if cache_key in hass.data["gaming_status_rating_locks"]:
-        await hass.data["gaming_status_rating_locks"][cache_key].wait()
-        if cache_key in RATING_CACHE:
-            RATING_CACHE.move_to_end(cache_key)
-            return RATING_CACHE[cache_key]
-        return None
-
-    lock = asyncio.Event()
-    hass.data["gaming_status_rating_locks"][cache_key] = lock
-
-    try:
-        if not RAWG_API_KEY:
-            if not _RATINGS_MISSING_KEY_WARNED:
-                _LOGGER.warning("[Gaming Status] RAWG API key is not configured.")
-                _RATINGS_MISSING_KEY_WARNED = True
-            return None
-
-        def _cache_and_return(data):
-            data = dict(data)
-            data["checked_at"] = time.time()
-            RATING_CACHE[cache_key] = data
-            RATING_CACHE.move_to_end(cache_key)
-            if len(RATING_CACHE) > MAX_RATING_CACHE_SIZE:
-                RATING_CACHE.popitem(last=False)
-            return data
-
-        unrated = {
-            "esrb": None, "pegi": None, "age_floor": None,
-            "descriptors": [], "unrated": True, "source": "rawg",
-        }
-
-        session = async_get_clientsession(hass)
-        try:
-            search_url = "https://api.rawg.io/api/games"
-            params = {"key": RAWG_API_KEY, "search": game_name, "page_size": 1}
-            async with session.get(search_url, params=params, timeout=10) as resp:
-                if resp.status != 200:
-                    body = await resp.text()
-                    _LOGGER.warning(
-                        "[Gaming Status] RAWG rating lookup for '%s' failed: HTTP %s - %s",
-                        game_name, resp.status, body[:200],
-                    )
-                    return _cache_and_return(unrated)
-                data = await resp.json()
-        except Exception as e:
-            _LOGGER.error("Failed to fetch rating for %s: %s", game_name, e)
-            return _cache_and_return(unrated)
-
-        results = data.get("results") or []
-        if not results:
-            _LOGGER.debug("[Gaming Status] RAWG returned no search results for '%s'", game_name)
-            return _cache_and_return(unrated)
-
-        matched_name = results[0].get("name")
-        esrb = results[0].get("esrb_rating") or {}
-        slug = esrb.get("slug")
-        age_floor = ESRB_AGE_FLOOR.get(slug)
-
-        if age_floor is None:
-            _LOGGER.debug(
-                "[Gaming Status] RAWG matched '%s' to '%s' but has no ESRB rating on file (slug=%s)",
-                game_name, matched_name, slug,
-            )
-
-        rating = {
-            "esrb": esrb.get("name"),
-            "pegi": None,
-            "age_floor": age_floor,
-            "descriptors": [],
-            "unrated": age_floor is None,
-            "source": "rawg",
-        }
-        return _cache_and_return(rating)
-
-    finally:
-        lock.set()
-        hass.data["gaming_status_rating_locks"].pop(cache_key, None)
+    unrated = {
+        "esrb": None, "pegi": None, "age_floor": None,
+        "descriptors": [], "unrated": True, "source": None,
+        "checked_at": time.time(),
+    }
+    RATING_CACHE[cache_key] = unrated
+    RATING_CACHE.move_to_end(cache_key)
+    if len(RATING_CACHE) > MAX_RATING_CACHE_SIZE:
+        RATING_CACHE.popitem(last=False)
+    return unrated
 
 
 # ---------------------------------------------------------------------------
@@ -741,8 +659,8 @@ _STEAM_ESRB_AGE_FLOOR = {"e": 0, "e10": 10, "e10+": 10, "t": 13, "m": 17, "ao": 
 async def _fetch_native_rating(hass, platform, platform_context):
     """Tries a platform-native rating source. Returns a rating dict in the
     same shape fetch_game_rating returns (and caches), or None if
-    unavailable/the lookup fails -- callers fall through to RAWG in that
-    case. Never raises."""
+    unavailable/the lookup fails -- callers report "unrated" in that case
+    (no third-party fallback). Never raises."""
     try:
         if platform == "xbox":
             min_age = platform_context.get("min_age")
@@ -751,7 +669,7 @@ async def _fetch_native_rating(hass, platform, platform_context):
             # Xbox's min_age is a numeric age floor Microsoft synthesizes
             # from whatever regional rating board applies to that title --
             # not guaranteed to sit on the exact same 0/10/13/17/18 buckets
-            # Steam/RAWG use, but age_floor is already a "board-agnostic
+            # Steam's native rating uses, but age_floor is already a "board-agnostic
             # numeric" field meant to be compared with >=, not exact-matched
             # against those 5 labels, so a raw numeric value from a
             # different board is still meaningful here.

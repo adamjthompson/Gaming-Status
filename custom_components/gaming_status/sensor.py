@@ -25,7 +25,7 @@ from .const import (
     DEFAULT_RESET_HISTORY, DEFAULT_GRACE_PERIOD_SECONDS,
     DEFAULT_AWAY_GRACE_PERIOD_SECONDS, DEFAULT_GAME_TRANSITION_GRACE_SECONDS,
     DEFAULT_MIN_SESSION_DURATION, MAX_RECENT_SESSIONS, OPT_TITLE_CLEANUPS,
-    CONF_STEAMGRIDDB_API_KEY, CONF_RAWG_API_KEY, OPT_RATING_OVERRIDES, OPT_PLAYERS, OPT_GRACE_PERIOD,
+    CONF_STEAMGRIDDB_API_KEY, OPT_RATING_OVERRIDES, OPT_PLAYERS, OPT_GRACE_PERIOD,
     OPT_AWAY_GRACE_PERIOD, OPT_TRANSITION_GRACE, OPT_MIN_SESSION,
     OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS,
     OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS,
@@ -2000,7 +2000,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
                 if new_transition:
                     # Publish now, before the artwork/rating pipeline below (live
-                    # SteamGridDB + RAWG API calls, sequential) -- a sibling sensor's
+                    # SteamGridDB + native rating API calls, sequential) -- a sibling sensor's
                     # ghost/"Active Elsewhere" check reads this sensor's PUBLISHED
                     # current_game attribute, not this internal variable, so waiting
                     # until the full pipeline finished left a multi-second window
@@ -2980,7 +2980,6 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     utils.TITLE_CLEANUPS = raw_cleanups
     utils.compile_title_cleanups()
     utils.STEAMGRIDDB_API_KEY = config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, "")
-    utils.RAWG_API_KEY = config_entry.data.get(CONF_RAWG_API_KEY, "")
     utils.USE_LOCAL_CACHE = opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
     utils.ENABLE_PLATFORM_ENRICHMENT = opts.get(OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT)
     utils.STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE = config_entry.data.get(CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, "") or None
@@ -3313,6 +3312,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             summary_id = f"sensor.gaming_status_{safe_owner}_library_summary"
             if registry.async_get(summary_id):
                 registry.async_remove(summary_id)
+            refresh_button_id = f"button.gaming_status_{safe_owner}_library_refresh"
+            if registry.async_get(refresh_button_id):
+                registry.async_remove(refresh_button_id)
 
     ents.append(GlobalOnlineCountSensor(hass, players))
     async_add_entities(ents)

@@ -64,6 +64,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(hours=scan_interval_hours),
         )
         self._owner_name = owner_name
+        self.owner_name = owner_name  # public -- read by button.py's entity naming
         self._platform_sources = platform_sources
         self._store = Store(hass, _STORAGE_VERSION, f"gaming_status_library_{safe_owner}")
         # {normalized_title: {"grid":.., "hero":.., "logo":.., "icon":..}} --

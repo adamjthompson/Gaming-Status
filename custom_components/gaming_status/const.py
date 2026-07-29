@@ -2,7 +2,6 @@
 
 DOMAIN = "gaming_status"
 CONF_STEAMGRIDDB_API_KEY = "steamgriddb_api_key"
-CONF_RAWG_API_KEY = "rawg_api_key"
 CONF_DISCORD_TOKEN = "discord_bot_token"
 CONF_DISCORD_SERVER = "discord_server_id"
 
@@ -65,6 +64,7 @@ MENU_MANAGE_PLAYERS = "manage_players"
 MENU_NOTIFICATIONS = "notifications"
 MENU_PARENTAL = "parental_controls"
 MENU_CUSTOM_ARTWORK = "custom_artwork"
+MENU_OVERRIDES = "overrides_exclusions"
 MENU_ADVANCED = "advanced"
 
 # ---------------------------------------------------------------------------

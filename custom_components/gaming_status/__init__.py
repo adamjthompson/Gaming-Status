@@ -31,7 +31,7 @@ from .const import (
 from .notifier import GamingNotifier
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = ["sensor", "binary_sensor"]
+PLATFORMS = ["sensor", "binary_sensor", "button"]
 
 async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     """Silently migrate old JSON data to the new config options database."""
