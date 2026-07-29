@@ -124,11 +124,9 @@ async def async_get_title_history(client, xuid, max_items=1000):
     per-title achievement call needed for the library view (unlike Steam/
     PSN). Returns a list of raw pythonxbox Title objects (each with
     .achievement.{current_achievements,total_achievements,current_gamerscore,
-    total_gamerscore}, .name, .title_id, .display_image), or [] on failure.
-    Never raises."""
-    try:
-        response = await client.titlehub.get_title_history(xuid, max_items=max_items)
-        return response.titles or []
-    except Exception as e:
-        _LOGGER.debug("[Gaming Status] Xbox title history fetch failed for xuid %s: %s", xuid, e)
-        return []
+    total_gamerscore}, .name, .title_id, .display_image). Deliberately lets
+    failures propagate (unlike this module's other fetch helpers) so
+    utils.fetch_xbox_title_history can tell a genuine API failure apart from
+    an account with a legitimately empty library."""
+    response = await client.titlehub.get_title_history(xuid, max_items=max_items)
+    return response.titles or []

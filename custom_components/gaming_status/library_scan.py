@@ -152,7 +152,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         if not api_key or not steamid64:
             return {"games": [], "error": "not_configured"}
 
-        owned_games = await utils.fetch_steam_owned_games(self.hass, api_key, steamid64)
+        owned_games, fetch_error = await utils.fetch_steam_owned_games(self.hass, api_key, steamid64)
         games = []
         for game in owned_games:
             appid = game.get("appid")
@@ -173,14 +173,14 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 "game_cover_art": art.get("grid"), "game_hero_art": art.get("hero"),
                 "game_logo_art": art.get("logo"), "game_icon_art": art.get("icon"),
             })
-        return {"games": games, "error": None}
+        return {"games": games, "error": fetch_error}
 
     async def _scan_xbox(self, source_entity_id):
         entry, session, xuid = await utils.resolve_xbox_entry_and_session(self.hass, source_entity_id)
         if not entry or not session or not xuid:
             return {"games": [], "error": "not_configured"}
 
-        titles = await utils.fetch_xbox_title_history(self.hass, entry, session, xuid)
+        titles, fetch_error = await utils.fetch_xbox_title_history(self.hass, entry, session, xuid)
         games = []
         for title in titles:
             name = getattr(title, "name", None)
@@ -217,14 +217,14 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 "game_cover_art": art.get("grid"), "game_hero_art": art.get("hero"),
                 "game_logo_art": art.get("logo"), "game_icon_art": art.get("icon"),
             })
-        return {"games": games, "error": None}
+        return {"games": games, "error": fetch_error}
 
     async def _scan_psn(self, source_entity_id):
         npsso, account_id = utils.resolve_psn_credentials(self.hass, source_entity_id)
         if not npsso or not account_id:
             return {"games": [], "error": "not_configured"}
 
-        titles = await utils.fetch_psn_full_library(self.hass, npsso, account_id)
+        titles, fetch_error = await utils.fetch_psn_full_library(self.hass, npsso, account_id)
         games = []
         for title in titles:
             name = title.get("trophyTitleName")
@@ -245,7 +245,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 "game_cover_art": art.get("grid"), "game_hero_art": art.get("hero"),
                 "game_logo_art": art.get("logo"), "game_icon_art": art.get("icon"),
             })
-        return {"games": games, "error": None}
+        return {"games": games, "error": fetch_error}
 
 
 def _aggregate(raw_by_platform):

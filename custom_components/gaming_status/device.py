@@ -40,7 +40,7 @@ def player_device_info(player_name: str, safe_owner: str, platforms: list[str]) 
         identifiers={(DOMAIN, safe_owner)},
         name=player_name,
         manufacturer="Gaming Status",
-        model=f"{model} Player Profile" if model else "Player Profile",
+        model=model or "Player Profile",
     )
 
 

@@ -18,6 +18,8 @@ from homeassistant.util import dt as dt_util
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.network import get_url, NoURLAvailableError
 
+from .platform_exceptions import ApiError
+
 _LOGGER = logging.getLogger(__name__)
 
 # Initialize empty globals (Populated securely by setup)
@@ -935,47 +937,56 @@ async def fetch_xbox_title_achievement_counts(hass, xbox_config_entry, oauth_ses
 
 async def fetch_steam_owned_games(hass, api_key, steamid64):
     """Full-library-scan source for Steam -- every game the account owns.
-    Never raises; returns [] on any failure (missing key, the account's
-    separate "Game details" privacy toggle, network error)."""
+    Never raises; returns (games, error) -- error is None on success, or a
+    human-readable description of what went wrong (rate limited, bad key,
+    the account's "Game details" privacy toggle, network error) so a
+    genuine API failure can be told apart from an account that legitimately
+    owns zero games."""
     if not api_key or not steamid64:
-        return []
+        return [], None
     try:
         client = _get_steam_client(hass, api_key)
-        return await client.async_get_owned_games(steamid64)
+        return await client.async_get_owned_games(steamid64), None
+    except ApiError as e:
+        _LOGGER.debug("[Gaming Status] Steam owned-games fetch failed for %s: %s", steamid64, e)
+        return [], str(e)
     except Exception as e:
         _LOGGER.debug("[Gaming Status] Steam owned-games fetch failed for %s: %s", steamid64, e)
-        return []
+        return [], f"{type(e).__name__}: {e}"
 
 
 async def fetch_xbox_title_history(hass, xbox_config_entry, oauth_session, xuid):
     """Full-library-scan source for Xbox -- one non-paginated call already
     returns every title's achievement/gamerscore summary (see
-    xbox_client.async_get_title_history). Never raises; returns [] on any
-    failure."""
+    xbox_client.async_get_title_history). Never raises; returns (titles,
+    error) -- see fetch_steam_owned_games for why error matters."""
     if not xbox_config_entry or not oauth_session or not xuid:
-        return []
+        return [], None
     try:
         from . import xbox_client
 
         client = xbox_client.get_xbox_client(hass, xbox_config_entry, oauth_session)
-        return await xbox_client.async_get_title_history(client, xuid)
+        return await xbox_client.async_get_title_history(client, xuid), None
     except Exception as e:
         _LOGGER.debug("[Gaming Status] Xbox title history fetch failed for %s: %s", xuid, e)
-        return []
+        return [], f"{type(e).__name__}: {e}"
 
 
 async def fetch_psn_full_library(hass, npsso, account_id):
     """Full-library-scan source for PlayStation -- every title with a
-    trophy list, tier counts included. Never raises; returns [] on any
-    failure (private trophy list, network error)."""
+    trophy list, tier counts included. Never raises; returns (titles,
+    error) -- see fetch_steam_owned_games for why error matters."""
     if not npsso or not account_id:
-        return []
+        return [], None
     try:
         client = _get_psn_client(hass, npsso)
-        return await client.async_get_trophy_titles(account_id)
+        return await client.async_get_trophy_titles(account_id), None
+    except ApiError as e:
+        _LOGGER.debug("[Gaming Status] PSN full trophy-titles fetch failed for %s: %s", account_id, e)
+        return [], str(e)
     except Exception as e:
         _LOGGER.debug("[Gaming Status] PSN full trophy-titles fetch failed for %s: %s", account_id, e)
-        return []
+        return [], f"{type(e).__name__}: {e}"
 
 
 async def fetch_and_cache_image(hass, remote_url, file_name):
