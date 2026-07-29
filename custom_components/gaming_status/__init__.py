@@ -4,11 +4,11 @@ from __future__ import annotations
 import os
 import json
 import logging
-import re
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
+from .device import safe_owner_slug
 from .const import (
     DOMAIN,
     OPT_RESET_HISTORY,
@@ -168,7 +168,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     def _resolve_targets(player, platform):
-        safe_owner = re.sub(r'[^a-z0-9_]', '_', player.lower().replace(" ", "_"))
+        safe_owner = safe_owner_slug(player)
         platforms = [platform] if platform else PLAYER_PLATFORMS
         sensors = hass.data[DOMAIN].get("platform_sensors", {})
         return [sensors[f"sensor.gaming_status_{safe_owner}_{p}"]
@@ -183,7 +183,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # call doesn't return to the frontend until master's data (what the
         # "All Platforms" card view actually reads) is already consistent,
         # rather than relying on the reactive listener's timing.
-        safe_owner = re.sub(r'[^a-z0-9_]', '_', player.lower().replace(" ", "_"))
+        safe_owner = safe_owner_slug(player)
         master = hass.data[DOMAIN].get("master_sensors", {}).get(f"sensor.gaming_status_{safe_owner}_master")
         if master is not None:
             await master._update_master_state()

@@ -10,9 +10,11 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.network import get_url, NoURLAvailableError
 
 from .utils import _normalize_game_name
+from .device import safe_owner_slug
 
 from .const import (
     DOMAIN,
@@ -1582,19 +1584,44 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     async def _cleanup_player_entities(self, player_name: str, platforms: list | None = None):
         """Forcefully remove entities from the registry when a player or platform is removed."""
         registry = er.async_get(self.hass)
-        safe_owner = re.sub(r'[^a-z0-9_]', '_', player_name.lower().replace(" ", "_"))
-        
-        # If no specific platforms provided, remove ALL sensors for this player
-        platforms_to_clean = platforms if platforms else ["steam", "xbox", "playstation", "discord", "custom", "master", "pc"]
-        
-        for p in platforms_to_clean:
-            entity_id = f"sensor.gaming_status_{safe_owner}_{p}"
-            
+        safe_owner = safe_owner_slug(player_name)
+
+        if platforms is None:
+            # Whole player removed -- every entity kind this integration can
+            # create for a player, not just the "sensor.gaming_status_*"
+            # platform sensors (library-scan sensors and the refresh button
+            # use their own naming and were previously left orphaned here).
+            entity_ids = [
+                f"sensor.gaming_status_{safe_owner}_{p}"
+                for p in ("steam", "xbox", "playstation", "discord", "custom", "playnite", "master", "pc")
+            ]
+            entity_ids += [f"sensor.gaming_status_{safe_owner}_library_{p}" for p in ("steam", "xbox", "playstation")]
+            entity_ids.append(f"sensor.gaming_status_{safe_owner}_library_summary")
+            entity_ids.append(f"button.gaming_status_{safe_owner}_library_refresh")
+        else:
+            entity_ids = [f"sensor.gaming_status_{safe_owner}_{p}" for p in platforms]
+            entity_ids += [
+                f"sensor.gaming_status_{safe_owner}_library_{p}"
+                for p in platforms if p in ("steam", "xbox", "playstation")
+            ]
+
+        for entity_id in entity_ids:
             if registry.async_get(entity_id):
                 try:
                     registry.async_remove(entity_id)
                 except Exception as e:
                     _LOGGER.warning(f"Could not remove {entity_id}: {e}")
+
+        if platforms is None:
+            # Also drop the player's HA Device -- cascades removal of any
+            # entity still linked to it (belt-and-suspenders alongside the
+            # explicit per-entity removal above, e.g. for the narrow window
+            # right after upgrading before a reload has attached every
+            # entity to its device for the first time).
+            device_registry = dr.async_get(self.hass)
+            device = device_registry.async_get_device(identifiers={(DOMAIN, safe_owner)})
+            if device is not None:
+                device_registry.async_remove_device(device.id)
     
     async def _update_and_return(self):
         """Save the updated options to Home Assistant and return to the main menu."""

@@ -20,8 +20,6 @@ dict is guaranteed to be complete there.
 """
 from __future__ import annotations
 
-import re
-
 from homeassistant.components.button import ButtonEntity
 
 from .const import (
@@ -34,6 +32,7 @@ from .const import (
     OPT_ENABLE_LIBRARY_SCAN,
     DEFAULT_ENABLE_LIBRARY_SCAN,
 )
+from .device import safe_owner_slug, player_device_info
 from .sensor import _load_opt_json
 
 
@@ -57,8 +56,10 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         )
         if not has_library_platform:
             continue
-        safe_owner = re.sub(r'[^a-z0-9_]', '_', player_name.lower().replace(" ", "_"))
-        entities.append(LibraryScanRefreshButton(hass, safe_owner, player_name))
+        safe_owner = safe_owner_slug(player_name)
+        platforms = [p for p in enabled_platforms if player_data.get(p)]
+        device_info = player_device_info(player_name, safe_owner, platforms)
+        entities.append(LibraryScanRefreshButton(hass, safe_owner, player_name, device_info))
 
     async_add_entities(entities)
 
@@ -67,12 +68,13 @@ class LibraryScanRefreshButton(ButtonEntity):
     _attr_should_poll = False
     _attr_icon = "mdi:refresh"
 
-    def __init__(self, hass, safe_owner, owner_name):
+    def __init__(self, hass, safe_owner, owner_name, device_info=None):
         self.hass = hass
         self._safe_owner = safe_owner
         self._attr_unique_id = f"gaming_status_{safe_owner}_library_refresh"
         self.entity_id = f"button.gaming_status_{safe_owner}_library_refresh"
         self._attr_name = f"{owner_name} Game Library Refresh"
+        self._attr_device_info = device_info
 
     async def async_press(self) -> None:
         # Looked up lazily (not held as a reference from setup time) --

@@ -18,12 +18,13 @@ class TrophyLibrarySummarySensor(CoordinatorEntity, SensorEntity):
     _attr_should_poll = False
     _attr_icon = "mdi:trophy"
 
-    def __init__(self, coordinator, owner_name, safe_owner):
+    def __init__(self, coordinator, owner_name, safe_owner, device_info=None):
         super().__init__(coordinator)
         self._owner_name = owner_name
         self._attr_unique_id = f"gaming_status_{safe_owner}_library_summary"
         self.entity_id = f"sensor.gaming_status_{safe_owner}_library_summary"
         self._attr_name = f"{owner_name} Game Library"
+        self._attr_device_info = device_info
 
     @property
     def native_value(self):
@@ -50,7 +51,7 @@ class TrophyLibrarySummarySensor(CoordinatorEntity, SensorEntity):
 class TrophyLibraryPlatformSensor(CoordinatorEntity, SensorEntity):
     _attr_should_poll = False
 
-    def __init__(self, coordinator, owner_name, safe_owner, platform):
+    def __init__(self, coordinator, owner_name, safe_owner, platform, device_info=None):
         super().__init__(coordinator)
         self._owner_name = owner_name
         self._platform = platform
@@ -59,6 +60,7 @@ class TrophyLibraryPlatformSensor(CoordinatorEntity, SensorEntity):
         self._attr_unique_id = f"gaming_status_{safe_owner}_library_{platform}"
         self.entity_id = f"sensor.gaming_status_{safe_owner}_library_{platform}"
         self._attr_name = f"{owner_name} {config['name_suffix']} Library"
+        self._attr_device_info = device_info
 
     @property
     def _platform_data(self):

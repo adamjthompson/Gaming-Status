@@ -46,6 +46,7 @@ from .const import (
 
 from .library_scan import LibraryScanCoordinator
 from .library_sensor import TrophyLibrarySummarySensor, TrophyLibraryPlatformSensor
+from .device import safe_owner_slug, player_device_info, hub_device_info
 
 from . import utils
 from .utils import (
@@ -97,7 +98,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         "recent_unlocked_achievements", "recent_unlocked_trophies",
     })
 
-    def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None, active_settings=None, global_exclusions=None, available_avatars=None, ps3_entity_id=None):
+    def __init__(self, hass, source_entity_id, gaming_type, owner_name, ghosted_by=None, exclude_games=None, active_settings=None, global_exclusions=None, available_avatars=None, ps3_entity_id=None, device_info=None):
         
         # --- SILENT AUTO-CORRECTION FOR CONSOLES ---
         # Migrate legacy _online_status / _onlinestatus sources to _now_playing.
@@ -258,7 +259,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
         config = PLATFORM_CONFIG[gaming_type]
         self._attr_icon = config["icon"]
-        safe_owner = re.sub(r'[^a-z0-9_]', '_', self._owner_name.lower().replace(" ", "_"))
+        safe_owner = safe_owner_slug(self._owner_name)
         
         self._store = Store(hass, 1, f"gaming_status.{safe_owner}_{gaming_type}_history")
         
@@ -266,6 +267,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self.entity_id = self._desired_entity_id
         self._attr_unique_id = f"gaming_status_{safe_owner}_{source_entity_id}_tracker_v6"
         self._attr_name = f"{self._owner_name} {config['name_suffix']}"
+        self._attr_device_info = device_info
 
     @property
     def native_value(self): return self._attr_native_value
@@ -2291,16 +2293,17 @@ class MasterGamingSensor(RestoreSensor):
         "all_time_total_hours", "all_time_session_count", "all_time_top_games",
     })
 
-    def __init__(self, hass, name, profiles, parental_rules=None, same_game_prefix_words=DEFAULT_SAME_GAME_PREFIX_WORDS, handoff_grace_seconds=DEFAULT_MASTER_HANDOFF_GRACE_SECONDS):
+    def __init__(self, hass, name, profiles, parental_rules=None, same_game_prefix_words=DEFAULT_SAME_GAME_PREFIX_WORDS, handoff_grace_seconds=DEFAULT_MASTER_HANDOFF_GRACE_SECONDS, device_info=None):
         self.hass = hass
         self._profiles = profiles
         self._parental_rules = parental_rules or {}
         self._same_game_prefix_words = same_game_prefix_words
         self._handoff_grace_seconds = handoff_grace_seconds
-        safe_owner = re.sub(r'[^a-z0-9_]', '_', name.lower().replace(" ", "_"))
+        safe_owner = safe_owner_slug(name)
         self._attr_name = f"{name} Gaming Status"
         self._attr_unique_id = f"gaming_status_{safe_owner}_master_v6"
         self.entity_id = f"sensor.gaming_status_{safe_owner}_master"
+        self._attr_device_info = device_info
         self._attr_native_value = "Offline"
         self._attr_icon = "mdi:controller"
         self._attr_entity_picture = None
@@ -2704,10 +2707,11 @@ class GlobalOnlineCountSensor(SensorEntity):
         self._attr_unique_id = "gaming_status_players_online_count_v2"
         self.entity_id = "sensor.gaming_status_players_online"
         self._attr_icon = "mdi:account-group"
+        self._attr_device_info = hub_device_info()
         self._attr_native_value = 0
         self._master_sensors = []
         for player_name in players:
-            safe_owner = re.sub(r'[^a-z0-9_]', '_', player_name.lower().replace(" ", "_"))
+            safe_owner = safe_owner_slug(player_name)
             self._master_sensors.append(f"sensor.gaming_status_{safe_owner}_master")
 
     async def async_added_to_hass(self):
@@ -2751,15 +2755,16 @@ class PCGamingSensor(RestoreSensor):
         "play_history", "recent_sessions",
     })
 
-    def __init__(self, hass, name, pc_entities, same_game_prefix_words=DEFAULT_SAME_GAME_PREFIX_WORDS, handoff_grace_seconds=DEFAULT_MASTER_HANDOFF_GRACE_SECONDS):
+    def __init__(self, hass, name, pc_entities, same_game_prefix_words=DEFAULT_SAME_GAME_PREFIX_WORDS, handoff_grace_seconds=DEFAULT_MASTER_HANDOFF_GRACE_SECONDS, device_info=None):
         self.hass = hass
         self._pc_entities = pc_entities
         self._same_game_prefix_words = same_game_prefix_words
         self._handoff_grace_seconds = handoff_grace_seconds
-        safe_owner = re.sub(r'[^a-z0-9_]', '_', name.lower().replace(" ", "_"))
+        safe_owner = safe_owner_slug(name)
         self._attr_name = f"{name} PC"
         self._attr_unique_id = f"gaming_status_{safe_owner}_pc_v2"
         self.entity_id = f"sensor.gaming_status_{safe_owner}_pc"
+        self._attr_device_info = device_info
         self._attr_native_value = "Offline"
         self._attr_extra_state_attributes = {}
         self._attr_entity_picture = None
@@ -3046,7 +3051,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     
     # --- UNIQUE ID MIGRATION (Self-Healing Duplicates Fix) ---
     for player_name, player_data in players.items():
-        safe_owner = re.sub(r'[^a-z0-9_]', '_', player_name.lower().replace(" ", "_"))
+        safe_owner = safe_owner_slug(player_name)
         for platform in PLAYER_PLATFORMS:
             source_entity_id = player_data.get(platform)
             if source_entity_id:
@@ -3071,7 +3076,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     # so player names with &, -, etc. produced invalid unique IDs. Migrate them now.
     for player_name in players.keys():
         old_safe = player_name.lower().replace(" ", "_")
-        new_safe = re.sub(r'[^a-z0-9_]', '_', player_name.lower().replace(" ", "_"))
+        new_safe = safe_owner_slug(player_name)
         if old_safe == new_safe:
             continue
         old_uid = f"gaming_status_{old_safe}_pc_v2"
@@ -3102,7 +3107,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     # Step 2: Hard RAM & Registry Purge by Exact Legacy Name
     legacy_entity_ids = ["sensor.players_online", "binary_sensor.anyone_gaming"]
     for player_name in players.keys():
-        safe_owner = re.sub(r'[^a-z0-9_]', '_', player_name.lower().replace(" ", "_"))
+        safe_owner = safe_owner_slug(player_name)
         legacy_entity_ids.extend([
             f"sensor.{safe_owner}_gaming_status",
             f"sensor.{safe_owner}_daily_gaming_hours_chart",
@@ -3182,7 +3187,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     desired_uid_map = {}
     for player_name, player_data in players.items():
-        safe_owner = re.sub(r'[^a-z0-9_]', '_', player_name.lower().replace(" ", "_"))
+        safe_owner = safe_owner_slug(player_name)
         for platform in enabled_platforms:
             raw_source = player_data.get(platform)
             if raw_source:
@@ -3229,7 +3234,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             p_name, p_data.get("suppresses_xbox_sensors"),
             {plat: p_data.get(plat) for plat in PLAYER_PLATFORMS},
         )
-        p_safe_owner = re.sub(r'[^a-z0-9_]', '_', p_name.lower().replace(" ", "_"))
+        p_safe_owner = safe_owner_slug(p_name)
         for xbox_entity_id in p_data.get("suppresses_xbox_sensors", []):
             sources = xbox_ghost_sources.setdefault(xbox_entity_id, [])
             for plat in PLAYER_PLATFORMS:
@@ -3246,7 +3251,10 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     for player_name, player_data in players.items():
         exclude_games = player_data.get("exclude_games", [])
         rules = parental_rules.get(player_name, {})
-        safe_owner = re.sub(r'[^a-z0-9_]', '_', player_name.lower().replace(" ", "_"))
+        safe_owner = safe_owner_slug(player_name)
+        device_info = player_device_info(
+            player_name, safe_owner, [p for p in enabled_platforms if player_data.get(p)]
+        )
 
         # --- ORPHANED SENSOR GARBAGE COLLECTION ---
         if remove_disabled:
@@ -3266,7 +3274,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 if platform == "xbox":
                     _LOGGER.info("Gaming Status: [ghost-debug] %s ghosted_by=%r", entity_id, ghosted_by)
                 ps3_entity_id = player_data.get("ps3") if platform == "playstation" else None
-                sensor_entity = PersistentStatusSensor(hass, entity_id, platform, player_name, ghosted_by, exclude_games, active_settings, global_exclusions, available_avatars, ps3_entity_id=ps3_entity_id)
+                sensor_entity = PersistentStatusSensor(hass, entity_id, platform, player_name, ghosted_by, exclude_games, active_settings, global_exclusions, available_avatars, ps3_entity_id=ps3_entity_id, device_info=device_info)
                 ents.append(sensor_entity)
                 hass.data.setdefault(DOMAIN, {}).setdefault("platform_sensors", {})[sensor_entity.entity_id] = sensor_entity
 
@@ -3282,14 +3290,14 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             # Sort the entities to ensure strict Double-Dip Priority: Playnite -> Custom -> Steam -> Discord
             priority_order = {"playnite": 0, "custom": 1, "steam": 2, "discord": 3}
             pc_platforms_present.sort(key=lambda x: priority_order.get(x.split("_")[-1], 99))
-            ents.append(PCGamingSensor(hass, player_name, pc_platforms_present, active_settings["SAME_GAME_PREFIX_WORDS"], active_settings["MASTER_HANDOFF_GRACE_SECONDS"]))
+            ents.append(PCGamingSensor(hass, player_name, pc_platforms_present, active_settings["SAME_GAME_PREFIX_WORDS"], active_settings["MASTER_HANDOFF_GRACE_SECONDS"], device_info=device_info))
         else:
             # Garbage Collection: Destroy orphaned PC sensor if all PC platforms are removed
             target_id = f"sensor.gaming_status_{safe_owner}_pc_status"
             if registry.async_get(target_id):
                 registry.async_remove(target_id)
 
-        master_sensor = MasterGamingSensor(hass, player_name, player_data, rules, active_settings["SAME_GAME_PREFIX_WORDS"], active_settings["MASTER_HANDOFF_GRACE_SECONDS"])
+        master_sensor = MasterGamingSensor(hass, player_name, player_data, rules, active_settings["SAME_GAME_PREFIX_WORDS"], active_settings["MASTER_HANDOFF_GRACE_SECONDS"], device_info=device_info)
         ents.append(master_sensor)
         hass.data.setdefault(DOMAIN, {}).setdefault("master_sensors", {})[master_sensor.entity_id] = master_sensor
 
@@ -3307,9 +3315,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             await coordinator.async_load_stored()
             hass.data.setdefault(DOMAIN, {}).setdefault("library_coordinators", {})[safe_owner] = coordinator
 
-            ents.append(TrophyLibrarySummarySensor(coordinator, player_name, safe_owner))
+            ents.append(TrophyLibrarySummarySensor(coordinator, player_name, safe_owner, device_info))
             for platform in library_platform_sources:
-                ents.append(TrophyLibraryPlatformSensor(coordinator, player_name, safe_owner, platform))
+                ents.append(TrophyLibraryPlatformSensor(coordinator, player_name, safe_owner, platform, device_info))
 
             # Non-blocking -- a full scan can take a while (esp. a large
             # never-before-seen Steam library), and must never delay HA

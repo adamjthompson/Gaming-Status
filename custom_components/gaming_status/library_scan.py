@@ -24,7 +24,6 @@ earned-count call repeats on later scans.
 from __future__ import annotations
 
 import logging
-import re
 from datetime import timedelta
 
 from homeassistant.helpers.event import async_call_later
@@ -34,6 +33,7 @@ from homeassistant.util import dt as dt_util
 
 from . import utils
 from .utils import _normalize_game_name, _safe_parse_datetime
+from .device import safe_owner_slug
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
     scan."""
 
     def __init__(self, hass, owner_name, platform_sources, scan_interval_hours):
-        safe_owner = re.sub(r'[^a-z0-9_]', '_', owner_name.lower().replace(" ", "_"))
+        safe_owner = safe_owner_slug(owner_name)
         super().__init__(
             hass, _LOGGER,
             name=f"gaming_status_library_{safe_owner}",

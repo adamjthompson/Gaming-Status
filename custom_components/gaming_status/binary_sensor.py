@@ -7,22 +7,23 @@ from homeassistant.core import callback
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import OPT_PLAYERS
+from .device import safe_owner_slug, hub_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up the binary sensor platform."""
-    
+
     raw_players = config_entry.options.get(OPT_PLAYERS, "{}")
     try:
         players = json.loads(raw_players) if raw_players else {}
     except (ValueError, TypeError):
         players = {}
-        
+
     master_sensor_ids = []
-    
+
     for name in players.keys():
-        safe_owner = name.lower().replace(" ", "_")
+        safe_owner = safe_owner_slug(name)
         master_sensor_ids.append(f"sensor.gaming_status_{safe_owner}_master")
         
     if master_sensor_ids:
@@ -43,6 +44,7 @@ class GlobalGamingSensor(BinarySensorEntity):
         
         self._attr_is_on = False
         self._attr_icon = "mdi:controller-off"
+        self._attr_device_info = hub_device_info()
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
