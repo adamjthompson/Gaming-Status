@@ -3311,7 +3311,10 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             and library_platform_sources
         ):
             scan_interval_hours = opts.get(OPT_LIBRARY_SCAN_INTERVAL_HOURS, DEFAULT_LIBRARY_SCAN_INTERVAL_HOURS)
-            coordinator = LibraryScanCoordinator(hass, player_name, library_platform_sources, scan_interval_hours)
+            coordinator = LibraryScanCoordinator(
+                hass, player_name, library_platform_sources, scan_interval_hours,
+                excluded_games=list(global_exclusions) + list(exclude_games),
+            )
             await coordinator.async_load_stored()
             hass.data.setdefault(DOMAIN, {}).setdefault("library_coordinators", {})[safe_owner] = coordinator
 

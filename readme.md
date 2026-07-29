@@ -19,10 +19,14 @@ Some of the key features are listed below.
 * **Drop-Out Protection:** Built-in grace periods prevent a gamer from appearing "Offline" if their game crashes, they switch titles, or their internet briefly blips, keeping play sessions perfectly intact and avoiding unnecessary notifications.
 * **Playtime Analytics:** Automatically calculates session time, daily hours, and a rolling 7-day total for easy dashboard charting.
 * **Clean Dashboards:** Automatically sanitizes messy game titles (e.g., changes "Minecraft Launcher" to "Minecraft") and pulls high-quality cover art from SteamGridDB.
-* **Advanced Exclusion Filtering:** Prevent media apps (Netflix, YouTube, Spotify) or background processes from triggering gaming statuses using a global exclusions list.
+* **Advanced Exclusion Filtering:** Prevent media apps (Netflix, YouTube, Spotify) or background processes from triggering gaming statuses using a global or per-player exclusions list — the same list also keeps those titles out of the optional full game library scan below.
 * **Customizable Cover Art:** Automatically fetches gorgeous images from SteamGridDB and passes them to your dashboard via URL and caches them locally for fast updates.
 * **"Last Seen" Memory:** When gamers go offline, the sensor retains their last played game and calculates exactly how long ago they were active (e.g., *Last seen 3h ago: Genshin Impact (1h 37m)*).
 * **Custom Avatars:** Automatically pulls live gamer pictures from platform APIs, with the option to override missing or incorrect images with your own local images.
+* **Native Content Ratings:** Look up each game's ESRB/age rating directly from Steam, Xbox, or PlayStation — no extra API key or account, and it reuses whatever credentials your existing integrations already have.
+* **Native Achievement/Trophy Tracking:** Pull real achievement/trophy counts, recent unlocks, and gamerscore for whatever game is currently being played, straight from Steam, Xbox, or PlayStation.
+* **Full Game Library Scan:** Periodically scans a player's *entire* game library (not just what's currently running), tracking total achievements/trophies, completion percentage, and — for Steam — playtime per game, with a manual refresh button for instant updates.
+* **Per-Player Devices:** Every player's sensors and buttons are grouped under one Home Assistant device (Settings → Devices & Services) for a clean, unified view instead of a flat list of unrelated entities.
 
 ## Prerequisites
 This integration acts as a "wrapper" that intelligently processes data from your existing integrations. Before installing, ensure you have any necessary base integrations installed and working in Home Assistant. Not all are required, but it is recommended that you have at least ONE official integration installed. Discord and Playnite can also be used for game tracking with or without the other integrations, but they are more complicated to set up:
@@ -89,7 +93,7 @@ Add, edit, or delete the gamers in your household.
 * **Player Details:** After adding a player, you can configure:
   * **Session Notifications:** Select notification methods for when this specific player starts or stops gaming. *Note: These must be configured under Notifications.*
   * **Suppress other players' Xbox sensors:** Configured on the player whose *own* sensor(s) are accurate. Pick which other players' Xbox sensors should be suppressed whenever this player is confirmed playing. Fixes a shared-PC Xbox app misattributing this player's Steam session to someone else's Xbox account. *Only for cross-player mixups; the same player's own overlapping sensors are already handled automatically.*
-  * **Exclude Games:** Comma-separated list of games to ignore for this specific player.
+  * **Exclude Games:** Comma-separated list of games to ignore for this specific player — applies to both current-game tracking and their full game library scan (see [Overrides & Exclusions](#5-overrides--exclusions) below for exactly how matching works).
 
 #### 2. Notifications (Requires Global Toggle)
 Manage where your [gaming alerts and weekly reports](docs/notifications.md) are sent.
@@ -115,7 +119,8 @@ Manually assign artwork or colors to specific games using simple `Game = Value` 
 Manually adjust game titles, ratings, and what gets tracked.
 * **Game Title Overrides:** Clean up messy or lengthy names. Format as `raw name = display name`. *(Example: `Minecraft Launcher = Minecraft`)*
 * **Title Cleanups:** A list of strings to automatically strip from game names. *(Example: `Tom Clancy's, Sid Meier's`)*
-* **Global Exclusions:** Games or apps that should be universally ignored by the tracker. *(Example: `Home, YouTube, Netflix, Xbox App`)* Overrides are applied first, then Cleanups, in that order. An Override is a whole-name swap, and any Cleanup pattern still gets a chance to run against its result afterward. Exclusions are checked against *both* the pre-Cleanup and the fully-cleaned name, so it doesn't matter which form your exclusion entry happens to match: excluding `Minecraft` catches it even if a Cleanup is what produces that name from something longer, and excluding `Minecraft Launcher` still works even if a separate Cleanup (e.g. one that strips `Launcher` generally) would otherwise erase the very word that entry is matching on.
+* **Global Exclusions:** Games or apps that should be universally ignored by the tracker, for every player. *(Example: `Home, YouTube, Netflix, Xbox App`)* Overrides are applied first, then Cleanups, in that order. An Override is a whole-name swap, and any Cleanup pattern still gets a chance to run against its result afterward. Exclusions are checked against *both* the pre-Cleanup and the fully-cleaned name, so it doesn't matter which form your exclusion entry happens to match: excluding `Minecraft` catches it even if a Cleanup is what produces that name from something longer, and excluding `Minecraft Launcher` still works even if a separate Cleanup (e.g. one that strips `Launcher` generally) would otherwise erase the very word that entry is matching on. Matching ignores case and punctuation (commas, colons, dashes, trademark symbols), so `Marvel Rivals™` and `marvel rivals` both match an exclusion entry of `Marvel Rivals`.
+  * These same Global Exclusions, combined with each player's own **Exclude Games** list (see Manage Players above), are also applied to that player's **Full Game Library Scan** if it's enabled — an excluded title won't show up in their Game Library sensors, and won't count toward the totals, achievement fetches, or artwork lookups either. Library scan data is cached, though, so a newly-added exclusion won't disappear until the next scheduled scan — press that player's **Game Library Refresh** button to apply it immediately instead of waiting.
 * **Content Rating Overrides:** *(Only shown when Parental Controls is enabled)* Manually assign a rating to games your rating provider has no data for. Format as `Game = Code`, using the codes `E`, `E10`, `T`, `M`, or `AO`. *(Example: `Skull and Bones = M`)*
 
 #### 6. Achievements & Ratings
@@ -124,7 +129,7 @@ Native achievement/trophy/rating enrichment and full game library scanning, all 
 * **Enable Achievement/Trophy Tracking:** Adds achievement/trophy counts and recent-unlock details to the current game's Steam/Xbox/PlayStation sensor. Off by default; the recheck interval, credential overrides, and library scan fields below only take effect once this is on.
 * **Achievement/Trophy Recheck Interval:** How often to re-check for newly-earned achievements/trophies while a game keeps running. Default 900 seconds (15 min), minimum 300 (5 min).
 * **Steam Web API Key Override / PSN NPSSO Override:** *(Optional)* Only needed if `steam_online`/`playstation_network` isn't installed, or you want to use a different credential than the one already configured there. Leave blank to auto-detect. The PSN override is used by both native ratings and achievement tracking.
-* **Enable Full Game Library Scan:** Adds a Game Library sensor (plus one per tracked platform) with your full game collection — total achievements/trophies, completion percentage, and per-game details — scanned periodically in the background. Only created for platforms you already track. Off by default.
+* **Enable Full Game Library Scan:** Adds a Game Library sensor (plus one per tracked platform) with your full game collection — total achievements/trophies, completion percentage, and per-game details — scanned periodically in the background. Only created for platforms you already track. Games matching Global Exclusions or that player's own Exclude Games list (see [Overrides & Exclusions](#5-overrides--exclusions)) are skipped entirely. Off by default.
 * **Library Scan Interval:** How often to rescan your full game library. Default 12 hours, range 1–24.
 
 #### 7. Advanced
@@ -144,7 +149,7 @@ These variables control how the integration handles platforms, caching, and netw
 * **Reset History:** A toggle to clear all accumulated daily/weekly session history upon the next Home Assistant restart. *Use with caution!*
 * **Remove Disabled Sensors:** Automatically deletes orphaned sensors from the registry if their platform is un-checked from the Enabled Platforms list.
 
-#### 7. PC Tracking & Discord Setup
+### PC Tracking & Discord Setup
 To provide the most accurate PC tracking possible, this integration can monitor Steam, Discord, Playnite, and Custom clients simultaneously and output the result as one "PC" sensor. 
 
 **Setting up Discord Tracking:**
@@ -175,6 +180,14 @@ Platforms are prioritized in this order: **Playnite > Custom > Steam > Discord**
 * *Example:* If a player launches a Steam game, Discord will likely detect it first and claim the dashboard. Seconds later, when Steam wakes up and detects the same game, Discord will instantly pause its timer and yield control to Steam. 
 * *Result:* You get the lightning-fast notifications of Discord, but the pristine, deduplicated analytics of Steam!
 
+### Devices
+
+Every player gets their own Home Assistant **Device** (Settings → Devices & Services → Gaming Status → Devices), named after the player and grouping *all* of their entities together — platform sensors, the Master and PC sub-master sensors, Game Library sensors, and their Game Library Refresh button all live under one device page, instead of a flat list of unrelated entities. The device's "model" field lists whichever platforms that player has configured (e.g. "Steam + Xbox").
+
+The two entities that aren't tied to any single player — **Players Online** and **Anyone Gaming** — are grouped under a separate, shared **Gaming Status** hub device instead.
+
+Deleting a player from Manage Players removes their entire device (and everything on it) in one go.
+
 ### Entities
 
 Upon restart, the integration will instantly read your settings and generate the master tracking sensors for your dashboard. All entities generated by the integration are strictly standardized under the `gaming_status_` namespace.
@@ -189,6 +202,11 @@ Upon restart, the integration will instantly read your settings and generate the
 | sensor.gaming_status_XXXXX_custom | Sensor | Custom sensor for each added profile |
 | sensor.gaming_status_XXXXX_pc | Sensor | Sub-master sensor that automatically aggregates Steam, Discord, Playnite, and Custom PC clients into a single unified PC state |
 | sensor.gaming_status_XXXXX_master | Sensor | Master sensor for each added profile that combines all added platforms into one "Online/Offline" status |
+| sensor.gaming_status_XXXXX_library_summary | Sensor | *(Requires [Full Game Library Scan](#6-achievements--ratings))* Game Library summary sensor per profile, combining every tracked platform |
+| sensor.gaming_status_XXXXX_library_steam | Sensor | *(Requires Full Game Library Scan)* Steam-specific Game Library sensor |
+| sensor.gaming_status_XXXXX_library_xbox | Sensor | *(Requires Full Game Library Scan)* Xbox-specific Game Library sensor |
+| sensor.gaming_status_XXXXX_library_playstation | Sensor | *(Requires Full Game Library Scan)* PlayStation-specific Game Library sensor |
+| button.gaming_status_XXXXX_library_refresh | Button | *(Requires Full Game Library Scan)* Manually triggers an immediate full library rescan for this player, bypassing the normal scan interval |
 | sensor.gaming_status_players_online | Sensor | Global sensor that tracks the total number of players currently online |
 | binary_sensor.gaming_status_anyone_gaming | Binary Sensor | Useful for showing or hiding cards |
 
@@ -280,6 +298,48 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session today; resets at midnight |
 | rolling_longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session over the rolling 7-day window |
 | calendar_longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session in the current calendar week |
+
+### Attributes for Library Sensors
+*(Requires [Full Game Library Scan](#6-achievements--ratings) to be enabled)*
+
+The sensor's **state** on both the summary and per-platform Library sensors is a raw *count of achievements/trophies earned* — not a percentage and not a game count. On the summary sensor that's the total earned across every tracked platform combined; on a platform sensor (e.g. `..._library_steam`) it's earned on that platform only. The rest of the picture — totals, percentages, game counts — lives in the attributes below.
+
+**Summary Sensor (`..._library_summary`)**
+| Attribute | Description |
+| --- | --- |
+| total_achievements_possible | Sum of every achievement/trophy that exists across all tracked games, on all platforms |
+| total_gamerscore | Total Xbox gamerscore earned, summed across all Xbox games |
+| total_platinum_trophies | Total PlayStation platinum trophies earned, summed across all PlayStation games |
+| average_completion_percent | Average per-game completion percentage across every tracked game on every platform |
+| game_count | Total number of games tracked across all platforms |
+| tracked_platforms | List of platforms included in this scan (e.g. `["steam", "xbox"]`) |
+| last_sync_success | `true` if the most recent scan completed with no errors on any platform |
+| platform_errors | `"None"` if the last scan was clean, otherwise a dict of `{platform: error message}` for any platform whose scan failed (e.g. rate-limited, network error, credentials not configured) |
+| last_synced | Timestamp of the most recent completed scan |
+| games | Full list of every tracked game across all platforms — see below for each entry's shape |
+
+**Platform Sensors (`..._library_steam`, `..._library_xbox`, `..._library_playstation`)**
+| Attribute | Description |
+| --- | --- |
+| achievements_total | Sum of every achievement/trophy that exists across this platform's tracked games |
+| game_count | Number of games tracked on this platform |
+| games | List of games on this platform — see below for each entry's shape |
+| playtime_hours | *(Steam only)* Total hours played across every owned Steam game, summed from Steam's own playtime data |
+| gamerscore_earned / gamerscore_total | *(Xbox only)* Total gamerscore earned / possible, summed across all Xbox games |
+| trophies_bronze / trophies_silver / trophies_gold / trophies_platinum (+ `_total` variants) | *(PlayStation only)* Trophy counts earned / possible, per tier, summed across all PlayStation games |
+
+**Each entry in a `games` list**
+| Field | Description |
+| --- | --- |
+| title | Game name |
+| platform | `steam`, `xbox`, or `playstation` |
+| id | Platform-specific game identifier (Steam appid, Xbox title_id, or PSN npCommunicationId) |
+| achievements_earned / achievements_total | Earned / possible achievements or trophies for this game |
+| percent | Completion percentage for this game, `0.0` if the game has no achievements/trophies at all |
+| playtime_hours | *(Steam only)* Hours played, from Steam's own playtime data |
+| gamerscore_earned / gamerscore_total | *(Xbox only)* Gamerscore earned / possible for this game |
+| trophies_earned / trophies_total | *(PlayStation only)* Dicts of `{bronze, silver, gold, platinum}` counts earned / possible |
+| game_cover_art / game_hero_art / game_logo_art / game_icon_art | Artwork URLs from SteamGridDB, if configured |
 
 ### Attributes for Players Online Sensor
 | Attribute | Description |

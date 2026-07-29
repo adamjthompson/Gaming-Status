@@ -59,7 +59,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
     already known, rather than re-deriving them via another entity-registry
     scan."""
 
-    def __init__(self, hass, owner_name, platform_sources, scan_interval_hours):
+    def __init__(self, hass, owner_name, platform_sources, scan_interval_hours, excluded_games=None):
         safe_owner = safe_owner_slug(owner_name)
         super().__init__(
             hass, _LOGGER,
@@ -69,6 +69,11 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         self._owner_name = owner_name
         self.owner_name = owner_name  # public -- read by button.py's entity naming
         self._platform_sources = platform_sources
+        # Same global + per-player exclusion lists PersistentStatusSensor
+        # already applies to "currently playing" tracking -- normalized the
+        # same way (_normalize_game_name) so a title excluded there is
+        # excluded here too, regardless of punctuation/casing differences.
+        self._excluded_normalized = {_normalize_game_name(g) for g in (excluded_games or [])}
         self._store = Store(hass, _STORAGE_VERSION, f"gaming_status_library_{safe_owner}")
         # {normalized_title: {"grid":.., "hero":.., "logo":.., "icon":..}} --
         # resolved SteamGridDB URLs rarely change, so persisting this means
@@ -157,7 +162,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         for game in owned_games:
             appid = game.get("appid")
             name = game.get("name")
-            if not appid or not name:
+            if not appid or not name or _normalize_game_name(name) in self._excluded_normalized:
                 continue
             result = await utils.fetch_steam_achievements(self.hass, steamid64, api_key, appid)
             earned = (result or {}).get("earned", 0)
@@ -184,7 +189,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         games = []
         for title in titles:
             name = getattr(title, "name", None)
-            if not name:
+            if not name or _normalize_game_name(name) in self._excluded_normalized:
                 continue
             achievement = getattr(title, "achievement", None)
             earned = getattr(achievement, "current_achievements", 0) or 0
@@ -228,7 +233,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         games = []
         for title in titles:
             name = title.get("trophyTitleName")
-            if not name:
+            if not name or _normalize_game_name(name) in self._excluded_normalized:
                 continue
             earned = title.get("earnedTrophies") or {}
             defined = title.get("definedTrophies") or {}
