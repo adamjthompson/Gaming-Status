@@ -1851,6 +1851,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         except Exception as e:
             _LOGGER.error("Achievement/trophy recheck failed for %s: %s", self.entity_id, e)
 
+    @callback
     def _update_play_time(self, now=None):
         try:
             # --- PREVENT CRASHES: Ensure restored JSON cache objects are dicts, not NoneTypes ---

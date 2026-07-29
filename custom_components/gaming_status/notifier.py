@@ -22,6 +22,7 @@ from .const import (
     OPT_NOTIFY_ARTWORK,
     OPT_DISCORD_COLORS,
 )
+from .device import safe_owner_slug
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ class GamingNotifier:
         # Built once at startup since entities require a full system reload to change
         initial_players = _load_json(self._entry.options.get(OPT_PLAYERS), {})
         self._entity_player_map = {
-            f"sensor.gaming_status_{p.lower().replace(' ', '_')}_master": p
+            f"sensor.gaming_status_{safe_owner_slug(p)}_master": p
             for p in initial_players
         }
 
@@ -326,7 +327,7 @@ class GamingNotifier:
         if self._cached_notify_artwork == "none":
             return None
 
-        safe = player_name.lower().replace(" ", "_")
+        safe = safe_owner_slug(player_name)
         old_url = old_state.attributes.get(self._cached_notify_artwork) if old_state else None
 
         # Check Master, Sub-Master, and all active platforms (including Discord) for artwork
@@ -557,7 +558,7 @@ class GamingNotifier:
         is_weekend = now_dt.weekday() >= 5
 
         for player_name, rules in self._cached_parental.items():
-            safe_player = player_name.lower().replace(" ", "_")
+            safe_player = safe_owner_slug(player_name)
             master_entity = f"sensor.gaming_status_{safe_player}_master"
             master_state = self.hass.states.get(master_entity)
             if not master_state: continue
@@ -774,7 +775,7 @@ class GamingNotifier:
         assigned = self._cached_weekly.get("destinations", [])
         lines = [f"**Weekly Gaming Report** — {dt_util.now().strftime('%B %d, %Y')}"]
         for player_name in self._cached_players:
-            safe = player_name.lower().replace(" ", "_")
+            safe = safe_owner_slug(player_name)
             state = self.hass.states.get(f"sensor.gaming_status_{safe}_master")
             if state:
                 attrs = state.attributes

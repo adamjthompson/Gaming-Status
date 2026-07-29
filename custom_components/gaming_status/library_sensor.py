@@ -18,6 +18,13 @@ class TrophyLibrarySummarySensor(CoordinatorEntity, SensorEntity):
     _attr_should_poll = False
     _attr_icon = "mdi:trophy"
 
+    # A full games list (every tracked game, with achievement counts + up to
+    # 4 artwork URLs each) can easily exceed the recorder's 16KB per-state
+    # attributes limit for a large library -- exclude it the same way every
+    # other bulky/volatile attribute in this integration already is (see
+    # PersistentStatusSensor/MasterGamingSensor's own _unrecorded_attributes).
+    _unrecorded_attributes = frozenset({"games"})
+
     def __init__(self, coordinator, owner_name, safe_owner, device_info=None):
         super().__init__(coordinator)
         self._owner_name = owner_name
@@ -50,6 +57,7 @@ class TrophyLibrarySummarySensor(CoordinatorEntity, SensorEntity):
 
 class TrophyLibraryPlatformSensor(CoordinatorEntity, SensorEntity):
     _attr_should_poll = False
+    _unrecorded_attributes = frozenset({"games"})
 
     def __init__(self, coordinator, owner_name, safe_owner, platform, device_info=None):
         super().__init__(coordinator)
