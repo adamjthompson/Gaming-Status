@@ -77,7 +77,9 @@ class TrophyLibraryPlatformSensor(CoordinatorEntity, SensorEntity):
             "game_count": pdata.get("game_count"),
             "games": pdata.get("games"),
         }
-        if self._platform == "xbox":
+        if self._platform == "steam":
+            attrs["playtime_hours"] = pdata.get("playtime_hours")
+        elif self._platform == "xbox":
             attrs["gamerscore_earned"] = pdata.get("gamerscore_earned")
             attrs["gamerscore_total"] = pdata.get("gamerscore_total")
         elif self._platform == "playstation":

@@ -163,6 +163,9 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 "title": name, "platform": "steam", "id": str(appid),
                 "achievements_earned": earned, "achievements_total": total,
                 "percent": _percent(earned, total),
+                # playtime_forever is already part of the GetOwnedGames
+                # response fetch_steam_owned_games returns -- no extra call.
+                "playtime_hours": round((game.get("playtime_forever") or 0) / 60, 1),
                 "game_cover_art": art.get("grid"), "game_hero_art": art.get("hero"),
                 "game_logo_art": art.get("logo"), "game_icon_art": art.get("icon"),
             })
@@ -245,7 +248,9 @@ def _aggregate(raw_by_platform):
             "game_count": len(games),
             "games": games,
         }
-        if platform == "xbox":
+        if platform == "steam":
+            summary["playtime_hours"] = round(sum(g.get("playtime_hours", 0) for g in games), 1)
+        elif platform == "xbox":
             summary["gamerscore_earned"] = sum(g.get("gamerscore_earned", 0) for g in games)
             summary["gamerscore_total"] = sum(g.get("gamerscore_total", 0) for g in games)
         elif platform == "playstation":
