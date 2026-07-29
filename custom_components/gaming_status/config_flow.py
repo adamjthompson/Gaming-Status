@@ -971,7 +971,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             rt_max_age_floor_final = int(user_input.get("rt_max_age_floor", rt.get("max_age_floor", 13))) if ratings_enabled else rt.get("max_age_floor", 13)
             rt_action_final = (
                 user_input.get("rt_action_targets", rt.get("action", []))
-                if (notifications_enabled and ratings_enabled and rt.get("enabled", False))
+                if (notifications_enabled and ratings_enabled)
                 else rt.get("action", [])
             )
 
@@ -1077,15 +1077,17 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 ),
             })
 
-        # Contextual on rt_enabled (in addition to the existing
-        # notifications_enabled/ratings_enabled gates) -- showing "which
-        # method to notify" is moot while the rule itself is off or ratings
-        # are off entirely. Safe to hide here (unlike Achievements &
-        # Ratings' fields) since the read-fallback above already preserves
-        # the existing stored value when this is hidden, so unchecking
-        # rt_enabled (or ratings_enabled) for an unrelated reason never
-        # wipes a previously-configured notification target.
-        if ratings_enabled and endpoint_options and notifications_enabled and rt.get("enabled", False):
+        # Shown alongside rt_enabled/rt_max_age_floor as soon as ratings are
+        # on -- NOT additionally gated on rt_enabled's own saved state, so
+        # checking "Enable content rating limit" and picking a notification
+        # method can happen in the same save instead of needing a save,
+        # then a return trip to this screen, before the picker appears.
+        # Matches st_action_targets/cf_action_targets above, which are
+        # likewise only gated on notifications_enabled, not their own rule's
+        # enabled flag. Safe to hide entirely while ratings are off, since
+        # the read-fallback above already preserves the existing stored
+        # value when this is hidden.
+        if ratings_enabled and endpoint_options and notifications_enabled:
             schema_dict[vol.Optional("rt_action_targets", default=rt_action)] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=endpoint_options,
