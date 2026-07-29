@@ -49,7 +49,7 @@ To display beautiful, high-resolution game covers on your dashboard, this integr
 6. Copy the generated key and paste it into the **SteamGridDB API Key** field during Initial Setup or under the Advanced menu. 
 
 ### Content Ratings
-If you plan to use the **Content Rating Limit** parental control, enable **Native Achievement/Trophy/Rating Enrichment** under the **Achievements & Ratings** menu. This looks up each game's ESRB rating directly from Steam, Xbox, or PlayStation, reusing whatever credentials you already have configured on the official `steam_online`/`xbox`/`playstation_network` integrations — no separate API key or account needed.
+If you plan to use the **Content Rating Limit** parental control, enable **Enable Native Content Ratings** — either under the **Achievements & Ratings** menu, or directly on a player's Parental Controls screen (it's the same setting, shown in both places for convenience). This looks up each game's ESRB rating directly from Steam, Xbox, or PlayStation, reusing whatever credentials you already have configured on the official `steam_online`/`xbox`/`playstation_network` integrations — no separate API key or account needed. This is independent from achievement/trophy tracking, so you don't need to enable that (or its heavier credential/polling requirements) just to get ratings working.
 
 *Note: native rating coverage isn't complete for every title. If a game comes back unrated, you can manually assign it a rating using the Content Rating Overrides field under Overrides & Exclusions (see below).*
 
@@ -102,7 +102,7 @@ Manage where your [gaming alerts and weekly reports](docs/notifications.md) are 
 Set automated rules based on accumulated playtime, time of day, or game content rating.
 * **Screen Time:** Set distinct weekday and weekend daily minute limits.
 * **Curfew:** Set distinct weekday and weekend cutoff times (e.g., 22:00).
-* **Content Rating Limit:** Set a maximum allowed age rating (e.g., "Ages 13+"). Ratings are looked up automatically from Steam/Xbox/PlayStation's own native rating data (requires [Native Platform Enrichment](#content-ratings), configured under Achievements & Ratings) and cached indefinitely once found for a game. If the player's active game rating exceeds the configured age, a notification is sent the moment that game starts — switching to a *different* over-the-limit game always sends a fresh notification, but the same game won't spam you again while it keeps running.
+* **Content Rating Limit:** Set a maximum allowed age rating (e.g., "Ages 13+"). Ratings are looked up automatically from Steam/Xbox/PlayStation's own native rating data (requires [Enable Native Content Ratings](#content-ratings), which is shown directly on this screen for convenience — no need to visit Achievements & Ratings just for this) and cached indefinitely once found for a game. If the player's active game rating exceeds the configured age, a notification is sent the moment that game starts — switching to a *different* over-the-limit game always sends a fresh notification, but the same game won't spam you again while it keeps running. The notification-method picker for this rule only appears once **Enable content rating limit** is checked and saved.
 * **Reminder Frequency:** *(Screen Time and Curfew only)* Set how often to repeat the notification(s).
 * **Notifications:** When a limit is reached, you can automatically send a notification using any of your configured methods.
 
@@ -120,9 +120,10 @@ Manually adjust game titles, ratings, and what gets tracked.
 
 #### 6. Achievements & Ratings
 Native achievement/trophy/rating enrichment and full game library scanning, all in one place -- every field here is always visible together, regardless of which toggles are on, so you never have to save and reopen the menu just to find a setting.
-* **Enable Native Achievement/Trophy/Rating Enrichment:** See [Content Ratings](#content-ratings) above. Off by default; the rest of the fields on this menu only take effect once this is on.
+* **Enable Native Content Ratings:** See [Content Ratings](#content-ratings) above. Off by default. Independent from achievement tracking below — Steam and Xbox ratings need no credential at all, and PlayStation just reuses the same session achievement tracking uses. This same setting is also shown directly on each player's Parental Controls screen.
+* **Enable Achievement/Trophy Tracking:** Adds achievement/trophy counts and recent-unlock details to the current game's Steam/Xbox/PlayStation sensor. Off by default; the recheck interval, credential overrides, and library scan fields below only take effect once this is on.
 * **Achievement/Trophy Recheck Interval:** How often to re-check for newly-earned achievements/trophies while a game keeps running. Default 900 seconds (15 min), minimum 300 (5 min).
-* **Steam Web API Key Override / PSN NPSSO Override:** *(Optional)* Only needed if `steam_online`/`playstation_network` isn't installed, or you want to use a different credential than the one already configured there. Leave blank to auto-detect.
+* **Steam Web API Key Override / PSN NPSSO Override:** *(Optional)* Only needed if `steam_online`/`playstation_network` isn't installed, or you want to use a different credential than the one already configured there. Leave blank to auto-detect. The PSN override is used by both native ratings and achievement tracking.
 * **Enable Full Game Library Scan:** Adds a Game Library sensor (plus one per tracked platform) with your full game collection — total achievements/trophies, completion percentage, and per-game details — scanned periodically in the background. Only created for platforms you already track. Off by default.
 * **Library Scan Interval:** How often to rescan your full game library. Default 12 hours, range 1–24.
 

@@ -1,7 +1,6 @@
 """Button platform for Gaming Status -- one manual "scan library now" button
-per player with the full-library-scan feature active, mirroring the sibling
-"Trophy Hub" integration's own refresh button (friendlier for non-technical
-use than HA's built-in homeassistant.update_entity service).
+per player with the full-library-scan feature active (friendlier for
+non-technical use than HA's built-in homeassistant.update_entity service).
 
 Only created for players who already have a LibraryScanCoordinator (see
 sensor.py's async_setup_entry, which populates

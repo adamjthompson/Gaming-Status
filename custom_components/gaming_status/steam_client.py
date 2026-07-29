@@ -1,16 +1,12 @@
-"""Steam Web API client for native achievement + rating enrichment of the
-currently-tracked game only -- ported/trimmed from the sibling "Trophy Hub"
-integration's steam_client.py. No full-library endpoint (GetOwnedGames) is
-kept here; Gaming Status already knows which single game is being played via
-its existing platform tracking, it just needs that one title's achievement
-counts and store rating.
+"""Steam Web API client for native achievement + rating enrichment, covering
+both the currently-tracked game (achievement counts, store rating) and the
+full owned-games library scan (GetOwnedGames, used by library_scan.py).
 
 Known, inherent limitation (documented, not hidden): Steam's achievement
 endpoint frequently rejects requests for any SteamID64 that isn't the API
 key's own account, regardless of privacy settings -- a long-documented Steam
-Web API restriction Trophy Hub already lives with. Resolving the API key per
-the owning steam_online config entry (see utils.py) is the best available
-mitigation, not a full fix.
+Web API restriction. Resolving the API key per the owning steam_online
+config entry (see utils.py) is the best available mitigation, not a full fix.
 """
 from __future__ import annotations
 
@@ -60,9 +56,7 @@ class SteamClient:
         dicts for every game the account owns. Raises
         GameDetailsPrivateError if the response has no `games` key at all --
         Steam's separate "Game details" privacy toggle, independent of
-        overall profile visibility. Re-introduced from Trophy Hub's own
-        steam_client.py (dropped during the current-game-only phase of this
-        integration, now needed again for the library scan)."""
+        overall profile visibility."""
         data = await self._get(
             "IPlayerService/GetOwnedGames/v1/",
             {"steamid": steamid64, "include_appinfo": 1, "include_played_free_games": 1},
@@ -77,8 +71,7 @@ class SteamClient:
         total_achievements is 0 (not an error) for a game with no
         achievements at all. Only total_achievements is used by Gaming
         Status today (achievement names/icons are out of scope -- earned/
-        total counts only), but the shape is kept identical to Trophy Hub's
-        own client for easy future reuse."""
+        total counts only)."""
         data = await self._get("ISteamUserStats/GetSchemaForGame/v2/", {"appid": appid})
         game = (data or {}).get("game") or {}
         achievements = ((game.get("availableGameStats") or {}).get("achievements")) or []

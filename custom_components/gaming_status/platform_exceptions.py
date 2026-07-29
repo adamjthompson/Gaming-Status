@@ -1,7 +1,6 @@
 """Shared exception hierarchy for the native platform enrichment clients
 (steam_client.py, psn_client.py, xbox_client.py) and the full-library-scan
-subsystem (library_scan.py). Ported/trimmed from the sibling "Trophy Hub"
-integration's exceptions.py.
+subsystem (library_scan.py).
 """
 from __future__ import annotations
 

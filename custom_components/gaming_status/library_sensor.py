@@ -4,8 +4,7 @@ LibraryScanCoordinator; these classes are thin CoordinatorEntity wrappers
 with no game-list scanning logic of their own. Only created (see
 sensor.py's async_setup_entry) when OPT_ENABLE_LIBRARY_SCAN is on and the
 player already has a matching platform PersistentStatusSensor -- no
-per-game entities, matching Trophy Hub's own explicit anti-entity-explosion
-decision.
+per-game entities, to avoid entity explosion for large libraries.
 """
 from __future__ import annotations
 

@@ -1,6 +1,5 @@
 """Generic token-bucket rate limiter, shared across the native platform
-enrichment clients. Ported verbatim from the sibling "Trophy Hub"
-integration's rate_limiter.py.
+enrichment clients.
 
 One instance per platform lives in hass.data[DOMAIN]["rate_limiters"][platform]
 (see utils.py), so every tracked player's enrichment fetch draws from the

@@ -65,8 +65,10 @@ from .const import (
     DEFAULT_CACHE_MAX_FILES,
     OPT_CACHE_MAX_DAYS,
     DEFAULT_CACHE_MAX_DAYS,
-    OPT_ENABLE_PLATFORM_ENRICHMENT,
-    DEFAULT_ENABLE_PLATFORM_ENRICHMENT,
+    OPT_ENABLE_NATIVE_RATINGS,
+    DEFAULT_ENABLE_NATIVE_RATINGS,
+    OPT_ENABLE_ACHIEVEMENT_TRACKING,
+    DEFAULT_ENABLE_ACHIEVEMENT_TRACKING,
     CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE,
     CONF_PSN_NPSSO_OVERRIDE,
     OPT_ACHIEVEMENT_RECHECK_SECONDS,
@@ -941,7 +943,18 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             # Preserve existing actions if the UI hides them, otherwise grab new user input
             st_action_final = user_input.get("st_action_targets", st.get("action", [])) if notifications_enabled else st.get("action", [])
             cf_action_final = user_input.get("cf_action_targets", cf.get("action", [])) if notifications_enabled else cf.get("action", [])
-            rt_action_final = user_input.get("rt_action_targets", rt.get("action", [])) if notifications_enabled else rt.get("action", [])
+            rt_action_final = (
+                user_input.get("rt_action_targets", rt.get("action", []))
+                if (notifications_enabled and rt.get("enabled", False))
+                else rt.get("action", [])
+            )
+
+            # Mirrors the same global option as async_step_achievements_ratings
+            # (not a separate copy) -- exposed here too since this is the
+            # primary consumer of game_content_rating (Content Rating Limit),
+            # so a parental-controls-only user doesn't have to leave this
+            # screen to turn ratings on.
+            self._options[OPT_ENABLE_NATIVE_RATINGS] = user_input.get(OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS)
 
             rules["screen_time"] = {
                 "enabled": user_input.get("st_enabled", False),
@@ -1025,6 +1038,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             )
 
         schema_dict.update({
+            vol.Optional(
+                OPT_ENABLE_NATIVE_RATINGS,
+                default=self._options.get(OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS),
+            ): bool,
             vol.Optional("rt_enabled", default=rt.get("enabled", False)): bool,
             vol.Optional("rt_max_age_floor", default=str(rt.get("max_age_floor", 13))): selector.SelectSelector(
                 selector.SelectSelectorConfig(
@@ -1037,7 +1054,14 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             ),
         })
 
-        if endpoint_options and notifications_enabled:
+        # Contextual on rt_enabled (in addition to the existing
+        # notifications_enabled gate) -- showing "which method to notify"
+        # is moot while the rule itself is off. Safe to hide here (unlike
+        # Achievements & Ratings' fields) since the read-fallback above
+        # already preserves the existing stored value when this is hidden,
+        # so unchecking rt_enabled for an unrelated reason never wipes a
+        # previously-configured notification target.
+        if endpoint_options and notifications_enabled and rt.get("enabled", False):
             schema_dict[vol.Optional("rt_action_targets", default=rt_action)] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=endpoint_options,
@@ -1218,12 +1242,24 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         persist the library-scan flag. With every field always visible and
         always present in user_input, every field is read unconditionally
         here -- no stale-state gating possible.
+
+        Native ratings (OPT_ENABLE_NATIVE_RATINGS) and achievement/trophy
+        tracking (OPT_ENABLE_ACHIEVEMENT_TRACKING) are two independent
+        toggles, not one combined toggle -- ratings are free for Steam/Xbox
+        and only achievement tracking needs the heavier per-platform
+        credential resolution + recheck polling. A Parental-Controls-only
+        user can enable just ratings without opting into achievement
+        polling. OPT_ENABLE_NATIVE_RATINGS is also mirrored (same option,
+        not a separate copy) on the per-player Parental Controls screen
+        (async_step_parental_player), since that's the primary consumer of
+        `game_content_rating` via the Content Rating Limit rule.
         """
         opts = self._options
         errors = {}
 
         if user_input is not None:
-            opts[OPT_ENABLE_PLATFORM_ENRICHMENT] = user_input.get(OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT)
+            opts[OPT_ENABLE_NATIVE_RATINGS] = user_input.get(OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS)
+            opts[OPT_ENABLE_ACHIEVEMENT_TRACKING] = user_input.get(OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING)
             opts[OPT_ACHIEVEMENT_RECHECK_SECONDS] = max(
                 MIN_ACHIEVEMENT_RECHECK_SECONDS,
                 user_input.get(OPT_ACHIEVEMENT_RECHECK_SECONDS, DEFAULT_ACHIEVEMENT_RECHECK_SECONDS),
@@ -1247,8 +1283,12 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
         schema_dict = {
             vol.Optional(
-                OPT_ENABLE_PLATFORM_ENRICHMENT,
-                default=opts.get(OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT),
+                OPT_ENABLE_NATIVE_RATINGS,
+                default=opts.get(OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS),
+            ): bool,
+            vol.Optional(
+                OPT_ENABLE_ACHIEVEMENT_TRACKING,
+                default=opts.get(OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING),
             ): bool,
             vol.Optional(
                 OPT_ACHIEVEMENT_RECHECK_SECONDS,

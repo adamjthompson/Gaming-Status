@@ -35,7 +35,8 @@ from .const import (
     PLAYER_PLATFORMS, OPT_USE_CACHE, DEFAULT_USE_CACHE, 
     OPT_EXTRACT_COLOR, DEFAULT_EXTRACT_COLOR, OPT_CACHE_MAX_FILES,
     DEFAULT_CACHE_MAX_FILES, OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS,
-    OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT,
+    OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS,
+    OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING,
     CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, CONF_PSN_NPSSO_OVERRIDE,
     OPT_ACHIEVEMENT_RECHECK_SECONDS, DEFAULT_ACHIEVEMENT_RECHECK_SECONDS,
     MIN_ACHIEVEMENT_RECHECK_SECONDS,
@@ -189,7 +190,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._rating_fetch_attempted = False
 
         # Native achievement/trophy enrichment (steam/xbox/playstation only;
-        # opt-in via OPT_ENABLE_PLATFORM_ENRICHMENT -- see utils.py).
+        # opt-in via OPT_ENABLE_ACHIEVEMENT_TRACKING -- see utils.py).
         self._cached_achievements_earned = None
         self._cached_achievements_total = None
         self._cached_achievements_source = None
@@ -585,8 +586,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         # fetch in _unified_update), since this sensor's
                         # "achievements" attribute is only ever an aggregate
                         # "31 / 50" string with no per-achievement detail.
-                        if utils.ENABLE_PLATFORM_ENRICHMENT:
+                        # Gated separately: min_age feeds ratings, gamerscore
+                        # feeds achievement tracking -- independent toggles.
+                        if utils.ENABLE_NATIVE_RATINGS:
                             data["xbox_min_age_attr"] = sibling_state.attributes.get("min_age")
+                        if utils.ENABLE_ACHIEVEMENT_TRACKING:
                             data["xbox_gamerscore_attr"] = sibling_state.attributes.get("gamerscore")
 
                 if attrs.get("game_queue_games") and not found_sibling: 
@@ -996,7 +1000,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._attr_extra_state_attributes["game_content_rating"] = self._cached_game_rating
 
         # Native achievement/trophy enrichment (steam/xbox/playstation only,
-        # opt-in -- see utils.ENABLE_PLATFORM_ENRICHMENT / _unified_update).
+        # opt-in -- see utils.ENABLE_ACHIEVEMENT_TRACKING / _unified_update).
         self._attr_extra_state_attributes["current_game_achievements_earned"] = self._cached_achievements_earned
         self._attr_extra_state_attributes["current_game_achievements_total"] = self._cached_achievements_total
         self._attr_extra_state_attributes["achievements_source"] = self._cached_achievements_source
@@ -1478,13 +1482,19 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # (shared with the library-scan subsystem, which needs the identical
         # entity-registry -> config-entry walk). Falls back to the manual
         # Advanced Settings override for steam/psn if no owning entry is found.
-        if utils.ENABLE_PLATFORM_ENRICHMENT:
-            if self._gaming_type == "steam":
-                self._steam_api_key, self._steam_id64 = utils.resolve_steam_credentials(self.hass, self._source_entity_id)
-            elif self._gaming_type == "playstation":
-                self._psn_npsso, self._psn_account_id = utils.resolve_psn_credentials(self.hass, self._source_entity_id)
-            elif self._gaming_type == "xbox":
-                self._xbox_config_entry, self._xbox_oauth_session, self._xbox_xuid = await utils.resolve_xbox_entry_and_session(self.hass, self._source_entity_id)
+        #
+        # Gated per-platform on whichever toggle(s) actually need the
+        # credential: Steam/Xbox ratings need no credential at all (public
+        # store API / a sibling entity's own attribute), so only achievement
+        # tracking triggers resolution for those two. PSN ratings DO need
+        # the resolved npsso/account_id (to call get_presence()/title
+        # concepts), so PSN resolves if either toggle is on.
+        if self._gaming_type == "steam" and utils.ENABLE_ACHIEVEMENT_TRACKING:
+            self._steam_api_key, self._steam_id64 = utils.resolve_steam_credentials(self.hass, self._source_entity_id)
+        elif self._gaming_type == "playstation" and (utils.ENABLE_NATIVE_RATINGS or utils.ENABLE_ACHIEVEMENT_TRACKING):
+            self._psn_npsso, self._psn_account_id = utils.resolve_psn_credentials(self.hass, self._source_entity_id)
+        elif self._gaming_type == "xbox" and utils.ENABLE_ACHIEVEMENT_TRACKING:
+            self._xbox_config_entry, self._xbox_oauth_session, self._xbox_xuid = await utils.resolve_xbox_entry_and_session(self.hass, self._source_entity_id)
 
         stored_data = await self._store.async_load()
         if stored_data:
@@ -1889,7 +1899,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     self._bump_playtime(self._current_game, delta_seconds)
                     self._session_ticks_persistent[self._current_game] = self._session_ticks_persistent.get(self._current_game, 0) + int(delta_seconds)
 
-                    if utils.ENABLE_PLATFORM_ENRICHMENT and self._gaming_type in ("steam", "playstation"):
+                    if utils.ENABLE_ACHIEVEMENT_TRACKING and self._gaming_type in ("steam", "playstation"):
                         due = (
                             self._last_achievements_check_dt is None
                             or (now_dt - self._last_achievements_check_dt).total_seconds() >= utils.ACHIEVEMENT_RECHECK_SECONDS
@@ -2027,12 +2037,18 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 # Resolved once here (if applicable) and reused for both the
                 # native-rating lookup below and the trophy fetch further
                 # down, so a PSN player only gets one get_presence() call per
-                # transition, not two.
+                # transition, not two. Triggers independently for whichever
+                # of ratings/achievement-tracking is actually on, so a
+                # ratings-only or achievement-only PSN setup each still
+                # resolve it on their own.
                 _psn_title_id = None
                 if (
-                    utils.ENABLE_PLATFORM_ENRICHMENT and self._gaming_type == "playstation"
+                    self._gaming_type == "playstation"
                     and self._psn_npsso and self._psn_account_id
-                    and (not self._rating_fetch_attempted or not self._achievements_fetch_attempted)
+                    and (
+                        (utils.ENABLE_NATIVE_RATINGS and not self._rating_fetch_attempted)
+                        or (utils.ENABLE_ACHIEVEMENT_TRACKING and not self._achievements_fetch_attempted)
+                    )
                 ):
                     _psn_title_id = await utils.resolve_psn_title_id(self.hass, self._psn_npsso, self._psn_account_id)
 
@@ -2040,7 +2056,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     self._rating_fetch_attempted = True
                     try:
                         native_platform, native_context = None, None
-                        if utils.ENABLE_PLATFORM_ENRICHMENT:
+                        if utils.ENABLE_NATIVE_RATINGS:
                             if self._gaming_type == "xbox":
                                 native_platform, native_context = "xbox", {"min_age": platform_data.get("xbox_min_age_attr")}
                             elif self._gaming_type == "steam" and platform_data.get("steam_appid"):
@@ -2058,14 +2074,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 # refreshed every update rather than gated by
                 # _achievements_fetch_attempted, since the official Xbox
                 # integration's sibling sensor already keeps it current.
-                if utils.ENABLE_PLATFORM_ENRICHMENT and self._gaming_type == "xbox":
+                if utils.ENABLE_ACHIEVEMENT_TRACKING and self._gaming_type == "xbox":
                     gs_earned, gs_total = _parse_fraction_attr(platform_data.get("xbox_gamerscore_attr"))
                     self._cached_gamerscore_earned = gs_earned
                     self._cached_gamerscore_total = gs_total
 
                 # --- Native achievement/trophy enrichment (steam/xbox/playstation, opt-in) ---
                 if (
-                    normalized_new and utils.ENABLE_PLATFORM_ENRICHMENT
+                    normalized_new and utils.ENABLE_ACHIEVEMENT_TRACKING
                     and not self._achievements_fetch_attempted
                     and self._gaming_type in ("steam", "xbox", "playstation")
                 ):
@@ -2981,7 +2997,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     utils.compile_title_cleanups()
     utils.STEAMGRIDDB_API_KEY = config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, "")
     utils.USE_LOCAL_CACHE = opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
-    utils.ENABLE_PLATFORM_ENRICHMENT = opts.get(OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT)
+    utils.ENABLE_NATIVE_RATINGS = opts.get(OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS)
+    utils.ENABLE_ACHIEVEMENT_TRACKING = opts.get(OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING)
     utils.STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE = config_entry.data.get(CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, "") or None
     utils.PSN_NPSSO_OVERRIDE = config_entry.data.get(CONF_PSN_NPSSO_OVERRIDE, "") or None
     utils.ACHIEVEMENT_RECHECK_SECONDS = max(
@@ -3276,12 +3293,12 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         ents.append(master_sensor)
         hass.data.setdefault(DOMAIN, {}).setdefault("master_sensors", {})[master_sensor.entity_id] = master_sensor
 
-        # --- FULL LIBRARY SCAN (opt-in, nested under platform enrichment) ---
+        # --- FULL LIBRARY SCAN (opt-in, nested under achievement tracking) ---
         # Only created when the player already has at least one steam/xbox/
         # playstation PersistentStatusSensor -- no separate platform-picker
         # UI needed, since Gaming Status already knows what's tracked.
         if (
-            opts.get(OPT_ENABLE_PLATFORM_ENRICHMENT, DEFAULT_ENABLE_PLATFORM_ENRICHMENT)
+            opts.get(OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING)
             and opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN)
             and library_platform_sources
         ):

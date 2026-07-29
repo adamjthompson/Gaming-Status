@@ -29,8 +29,11 @@ COMPILED_TITLE_CLEANUPS = []
 STEAMGRIDDB_API_KEY = None
 
 # Native platform achievement/trophy/rating enrichment (current game only --
-# see steam_client.py/psn_client.py). Opt-in, off by default.
-ENABLE_PLATFORM_ENRICHMENT = False
+# see steam_client.py/psn_client.py). Two independent opt-in flags, off by
+# default -- see const.py's OPT_ENABLE_NATIVE_RATINGS/OPT_ENABLE_ACHIEVEMENT_TRACKING
+# for why these are split rather than one combined toggle.
+ENABLE_NATIVE_RATINGS = False
+ENABLE_ACHIEVEMENT_TRACKING = False
 STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE = None
 PSN_NPSSO_OVERRIDE = None
 ACHIEVEMENT_RECHECK_SECONDS = 900
@@ -348,10 +351,9 @@ async def fetch_game_grid_urls_remote(hass, game_name):
     which doesn't apply here and would risk destabilizing that already-
     exercised current-game path for a feature that needs none of it.
 
-    Paced by its own shared rate limiter (matching Trophy Hub's own already-
-    proven SteamGridDB pacing: 5 capacity, 2/sec) -- a library scan can mean
-    hundreds of lookups in one pass, unlike the current-game path's implicit
-    one-request-per-session-cover pacing. Never raises; returns
+    Paced by its own shared rate limiter (5 capacity, 2/sec) -- a library
+    scan can mean hundreds of lookups in one pass, unlike the current-game
+    path's implicit one-request-per-session-cover pacing. Never raises; returns
     {"grid": None, "hero": None, "logo": None, "icon": None} on any
     failure or missing API key."""
     assets = {"grid": None, "hero": None, "logo": None, "icon": None}
@@ -462,7 +464,7 @@ async def fetch_game_rating(hass, game_name, platform=None, platform_context=Non
             RATING_CACHE.move_to_end(cache_key)
             return cached
 
-    if ENABLE_PLATFORM_ENRICHMENT and platform and platform_context:
+    if ENABLE_NATIVE_RATINGS and platform and platform_context:
         native = await _fetch_native_rating(hass, platform, platform_context)
         if native is not None:
             native["checked_at"] = time.time()
@@ -487,7 +489,7 @@ async def fetch_game_rating(hass, game_name, platform=None, platform_context=Non
 # ---------------------------------------------------------------------------
 # Native platform achievement/trophy/rating enrichment (current game only --
 # see steam_client.py/psn_client.py for the actual HTTP clients this section
-# orchestrates). Opt-in (ENABLE_PLATFORM_ENRICHMENT), off by default.
+# orchestrates). Opt-in (ENABLE_NATIVE_RATINGS / ENABLE_ACHIEVEMENT_TRACKING), off by default.
 # ---------------------------------------------------------------------------
 
 def resolve_owning_config_entry(hass, source_entity_id):

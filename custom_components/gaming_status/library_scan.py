@@ -1,26 +1,25 @@
 """Full game-library scan subsystem -- opt-in, nested under
-OPT_ENABLE_PLATFORM_ENRICHMENT (see const.py), for players who want Gaming
-Status to eventually cover what the separate "Trophy Hub" integration's
-full-library view provides. Unlike the rest of Gaming Status (which
-predates DataUpdateCoordinator and uses ad hoc event-driven updates), this
-is a genuine "poll on a long interval, many entities read one shared
-result" shape, so it uses HA's idiomatic tool for exactly that.
+OPT_ENABLE_ACHIEVEMENT_TRACKING (see const.py): every game a player has
+ever played, not just the one currently running. Unlike the rest of Gaming
+Status (which predates DataUpdateCoordinator and uses ad hoc event-driven
+updates), this is a genuine "poll on a long interval, many entities read
+one shared result" shape, so it uses HA's idiomatic tool for exactly that.
 
 One LibraryScanCoordinator per player, covering every platform (steam/xbox/
 playstation) that player already has a PersistentStatusSensor for -- reuses
 the exact same credential-resolution helpers (utils.resolve_*) as the
 current-game-only enrichment, so no separate credential setup is needed.
 
-Deliberately NOT a port of Trophy Hub's own multi-cycle backfill/budgeting
-machinery: Xbox's title-history call already returns every title's
-achievement/gamerscore summary in ONE request (no per-title lookup needed),
-and PSN's full trophy-titles list is similarly a handful of paginated
-requests, not one per game. Only Steam genuinely needs one achievement call
-per owned game (Steam's Web API has no bulk equivalent) -- for a very large
-library this can take a while on the first scan, which is acceptable for a
-background job on a multi-hour interval; the per-appid schema (achievement
-totals) is cached forever afterward (see utils.STEAM_SCHEMA_CACHE), so only
-the earned-count call repeats on later scans.
+No multi-cycle backfill/budgeting machinery needed here: Xbox's
+title-history call already returns every title's achievement/gamerscore
+summary in ONE request (no per-title lookup needed), and PSN's full
+trophy-titles list is similarly a handful of paginated requests, not one
+per game. Only Steam genuinely needs one achievement call per owned game
+(Steam's Web API has no bulk equivalent) -- for a very large library this
+can take a while on the first scan, which is acceptable for a background
+job on a multi-hour interval; the per-appid schema (achievement totals) is
+cached forever afterward (see utils.STEAM_SCHEMA_CACHE), so only the
+earned-count call repeats on later scans.
 """
 from __future__ import annotations
 

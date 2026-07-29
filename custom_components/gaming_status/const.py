@@ -146,12 +146,25 @@ RATING_OVERRIDE_CODES = {"E": 0, "E10": 10, "T": 13, "M": 17, "AO": 18}
 
 # ---------------------------------------------------------------------------
 # Native platform achievement/trophy/rating enrichment (current game only,
-# never a full library -- see steam_client.py/psn_client.py). Opt-in, off by
-# default: existing installs must not start any new API traffic (especially
-# a brand-new PSN OAuth session) just from updating Gaming Status.
+# never a full library -- see steam_client.py/psn_client.py). Two
+# independent opt-in toggles, both off by default: existing installs must
+# not start any new API traffic (especially a brand-new PSN OAuth session)
+# just from updating Gaming Status.
+#
+# Split into two because the cost/purpose differs: native ratings are free
+# for Steam (public store API, no credential) and Xbox (reads an
+# already-tracked sibling entity's attribute, no credential) and only
+# genuinely costs anything for PSN (opens the same kind of authenticated
+# session achievement tracking needs) -- while achievement/trophy tracking
+# always needs a resolved credential and periodic recheck polling for every
+# platform. A user who only wants Parental Controls' Content Rating Limit
+# shouldn't have to opt into achievement polling (and vice versa).
 # ---------------------------------------------------------------------------
-OPT_ENABLE_PLATFORM_ENRICHMENT = "enable_platform_enrichment"
-DEFAULT_ENABLE_PLATFORM_ENRICHMENT = False
+OPT_ENABLE_NATIVE_RATINGS = "enable_native_ratings"
+DEFAULT_ENABLE_NATIVE_RATINGS = False
+
+OPT_ENABLE_ACHIEVEMENT_TRACKING = "enable_achievement_tracking"
+DEFAULT_ENABLE_ACHIEVEMENT_TRACKING = False
 
 # Manual override credentials -- only used when the matching official
 # integration (steam_online/playstation_network) isn't installed/configured,
@@ -165,8 +178,8 @@ DEFAULT_ACHIEVEMENT_RECHECK_SECONDS = 900
 MIN_ACHIEVEMENT_RECHECK_SECONDS = 300
 
 # Full-library scan (every game ever played, not just the current one) --
-# a much heavier, separately opt-in feature nested under platform
-# enrichment above, since it reuses the same resolved credentials but adds
+# a much heavier, separately opt-in feature nested under achievement
+# tracking above, since it reuses the same resolved credentials but adds
 # its own scheduled scan + new sensors. Off by default, same reasoning.
 OPT_ENABLE_LIBRARY_SCAN = "enable_library_scan"
 DEFAULT_ENABLE_LIBRARY_SCAN = False
@@ -225,8 +238,7 @@ PSN_RATE_LIMIT_CAPACITY = 15
 PSN_RATE_LIMIT_PER_SECOND = 250 / 900  # ~250/15min effective ceiling
 
 # SteamGridDB pacing for the full-library scan's remote-URL-only art lookup
-# (utils.fetch_game_grid_urls_remote) -- matches Trophy Hub's own already-
-# proven pacing for the same API, since a library scan can mean hundreds of
-# lookups in one pass.
+# (utils.fetch_game_grid_urls_remote), since a library scan can mean
+# hundreds of lookups in one pass.
 STEAMGRIDDB_RATE_LIMIT_CAPACITY = 5
 STEAMGRIDDB_RATE_LIMIT_PER_SECOND = 2

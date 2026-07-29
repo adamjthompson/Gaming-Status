@@ -1,22 +1,18 @@
 """PlayStation Network client for native achievement/trophy + rating
-enrichment of the currently-tracked game only -- ported/adapted from the
-sibling "Trophy Hub" integration's psn_client.py. Its self-healing NPSSO->
-OAuth token lifecycle is ported verbatim (the single most valuable piece of
-code to reuse rather than rebuild); the public surface is trimmed to what
-Gaming Status actually needs (no full-library trophyTitles listing as the
-primary path) and extended with presence/title-concepts lookups Trophy Hub
-never needed.
+enrichment, covering both the currently-tracked game and the full-library
+scan (library_scan.py). Includes a self-healing NPSSO->OAuth token
+lifecycle, presence/title-concepts lookups, and the full trophyTitles
+listing used as the library scan's primary source.
 
 Auth is fundamentally different from Steam's static API key: the user
 provides an NPSSO cookie (derived from a one-time browser login to their PSN
 account, or reused from the official playstation_network integration's own
 config entry -- see utils.py), which this client exchanges for a short-lived
-access token (~60 min) and a refresh token confirmed (by Trophy Hub, during
-its own development) to last only ~10 days -- not the ~2 months some
-community docs claim. Calling the refresh grant does NOT rotate to a new
-refresh token or extend its lifetime -- it returns the exact same
-refresh_token value, with refresh_token_expires_in just counting down from
-the original exchange.
+access token (~60 min) and a refresh token confirmed (via live testing) to
+last only ~10 days -- not the ~2 months some community docs claim. Calling
+the refresh grant does NOT rotate to a new refresh token or extend its
+lifetime -- it returns the exact same refresh_token value, with
+refresh_token_expires_in just counting down from the original exchange.
 
 `_async_ensure_session()` treats a failed refresh as recoverable, not fatal
 -- it automatically re-derives a whole new session from the still-held NPSSO
