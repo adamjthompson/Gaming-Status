@@ -1193,6 +1193,24 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 entry["game"] = new_name
                 renamed = True
 
+        # Achievement/trophy unlock history. Unlike recent_sessions above,
+        # this list's de-dup invariant (one entry per (game, achievement
+        # name) pair -- see _ingest_recent_unlocks) can be broken by a
+        # rename that merges two spellings together, so re-enforce it here
+        # too rather than leaving two rows for what's now the same game.
+        seen_achievement_keys = set()
+        deduped_achievements = []
+        for entry in self._recent_achievements:
+            if self._game_name_matches(entry.get("game"), clean_target):
+                entry["game"] = new_name
+                renamed = True
+            key = (_normalize_game_name(entry.get("game")), entry.get("name"))
+            if key in seen_achievement_keys:
+                continue
+            seen_achievement_keys.add(key)
+            deduped_achievements.append(entry)
+        self._recent_achievements = deduped_achievements
+
         def _merge_rename(d):
             nonlocal renamed
             match_key = next((k for k in d if self._game_name_matches(k, clean_target)), None)
