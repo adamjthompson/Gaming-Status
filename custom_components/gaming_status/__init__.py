@@ -4,9 +4,12 @@ from __future__ import annotations
 import os
 import json
 import logging
+import asyncio
+from datetime import timedelta
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
 
 from .device import safe_owner_slug
 from .const import (
@@ -27,8 +30,12 @@ from .const import (
     OPT_ENABLED_PLATFORMS,
     DEFAULT_ENABLED_PLATFORMS,
     PLAYER_PLATFORMS,
+    LIBRARY_BACKFILL_INITIAL_DELAY_SECONDS,
+    LIBRARY_BACKFILL_TICK_INTERVAL_SECONDS,
+    LIBRARY_BACKFILL_STAGGER_SECONDS,
 )
 from .notifier import GamingNotifier
+from .library_scan import has_pending_library_backfill
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor", "binary_sensor", "button"]
@@ -166,6 +173,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Achievement backfill: an independent repeating timer, deliberately
+    # decoupled from each player's own (user-configurable, 1-24h) library
+    # scan interval -- see library_scan.py's module docstring. Placed here
+    # (not inside LibraryScanCoordinator itself) because this is the one
+    # place that already knows about every player's coordinator at once
+    # (needed for the cross-player stagger below) and already runs after
+    # async_forward_entry_setups, by which point hass.data[DOMAIN]
+    # ["library_coordinators"] is guaranteed fully populated.
+    async def _library_backfill_tick(_now=None):
+        coordinators = list(hass.data.get(DOMAIN, {}).get("library_coordinators", {}).values())
+        for i, coordinator in enumerate(coordinators):
+            if i:
+                await asyncio.sleep(LIBRARY_BACKFILL_STAGGER_SECONDS)
+            if has_pending_library_backfill(coordinator):
+                await coordinator.async_run_backfill_pass()
+
+    entry.async_on_unload(
+        async_call_later(hass, LIBRARY_BACKFILL_INITIAL_DELAY_SECONDS, _library_backfill_tick)
+    )
+    entry.async_on_unload(
+        async_track_time_interval(
+            hass, _library_backfill_tick, timedelta(seconds=LIBRARY_BACKFILL_TICK_INTERVAL_SECONDS)
+        )
+    )
 
     def _resolve_targets(player, platform):
         safe_owner = safe_owner_slug(player)

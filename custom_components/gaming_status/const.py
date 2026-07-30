@@ -22,6 +22,31 @@ MAX_RECENT_SESSIONS = 20
 # that burst shouldn't evict another platform's/game's older history.
 MAX_RECENT_ACHIEVEMENT_UNLOCKS = 30
 
+# --- Library-wide achievement discovery (delta detection + paced backfill) ---
+# Per-cycle cap on NEW per-title achievement/trophy detail lookups a single
+# backfill tick may issue for one player, per platform. Xbox's client-side
+# limiter (pythonxbox's AchievementsProvider: ~100/15s burst, 300/300s
+# sustained) fails OPEN immediately on overrun (raises, caller just retries
+# next tick) and is only lightly shared with the real-time path (Xbox has no
+# recurring mid-session recheck today), so a slightly higher budget is safe.
+XBOX_LIBRARY_BACKFILL_BUDGET_PER_CYCLE = 8
+# PSN's per-title detail call costs 2 requests each (5 titles = 10 requests/
+# tick/player), kept lower than Xbox's because PSN's shared RateLimiter
+# BLOCKS/WAITS under contention rather than failing open -- an oversized
+# budget here doesn't just risk a 429, it adds real latency to every other
+# PSN caller sharing the bucket, including a different player's real-time
+# recheck while they're actively playing something right now.
+PSN_LIBRARY_BACKFILL_BUDGET_PER_CYCLE = 5
+# Independent of the user-configurable OPT_LIBRARY_SCAN_INTERVAL_HOURS
+# (1-24h) -- backfill progress must not be held hostage to a user
+# deliberately setting a long interval to minimize steady-state API volume.
+LIBRARY_BACKFILL_TICK_INTERVAL_SECONDS = 900
+LIBRARY_BACKFILL_INITIAL_DELAY_SECONDS = 60
+# Stagger between players within one shared tick, so multiple players'
+# coordinators don't simultaneously hammer the same shared rate-limited
+# bucket (PSN's especially, since it blocks rather than failing open).
+LIBRARY_BACKFILL_STAGGER_SECONDS = 15
+
 # ZOMBIE ATTRIBUTE CLEANUP
 ZOMBIE_ATTRIBUTES = ["grace_period_active", "xbox_last_seen_game", "debug_sync"]
 

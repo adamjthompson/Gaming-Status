@@ -10,16 +10,30 @@ playstation) that player already has a PersistentStatusSensor for -- reuses
 the exact same credential-resolution helpers (utils.resolve_*) as the
 current-game-only enrichment, so no separate credential setup is needed.
 
-No multi-cycle backfill/budgeting machinery needed here: Xbox's
-title-history call already returns every title's achievement/gamerscore
-summary in ONE request (no per-title lookup needed), and PSN's full
-trophy-titles list is similarly a handful of paginated requests, not one
-per game. Only Steam genuinely needs one achievement call per owned game
-(Steam's Web API has no bulk equivalent) -- for a very large library this
-can take a while on the first scan, which is acceptable for a background
-job on a multi-hour interval; the per-appid schema (achievement totals) is
-cached forever afterward (see utils.STEAM_SCHEMA_CACHE), so only the
-earned-count call repeats on later scans.
+Xbox's title-history call and PSN's full trophy-titles list each already
+return every title's achievement/gamerscore SUMMARY (counts) in one/a
+handful of bulk requests -- no per-title lookup needed for that. Only
+Steam genuinely needs one call per owned game for even the summary
+(Steam's Web API has no bulk equivalent) -- acceptable on a multi-hour
+interval; the per-appid schema is cached forever afterward (see
+utils.STEAM_SCHEMA_CACHE).
+
+Getting real per-achievement UNLOCK DETAIL (name/timestamp, not just
+counts) for recent_achievements IS a genuine per-title cost for Xbox/PSN,
+though -- so this module does have multi-cycle backfill/budgeting
+machinery after all, just confined to that narrower need. A free,
+already-fetched per-title "last activity" timestamp (Xbox:
+title_history.last_time_played; PSN: lastUpdatedDateTime, confirmed to
+specifically track "last trophy earned") lets a normal scan cheaply
+detect which titles changed since last time and only pay for a detail
+call on those (see the _activity_cursor diff logic in _scan_xbox/
+_scan_psn). Separately, a paced, budgeted backfill pass
+(async_run_backfill_pass, driven by an independent timer in __init__.py,
+decoupled from this coordinator's own scan interval) walks through titles
+never yet resolved a few at a time, so a large existing library doesn't
+get flooded with per-title calls in one burst just to seed real
+historical data. Steam needs none of this -- its per-game achievement
+call already returns recent_unlocks for free, every scan.
 """
 from __future__ import annotations
 
@@ -34,6 +48,12 @@ from homeassistant.util import dt as dt_util
 from . import utils
 from .utils import _normalize_game_name, _safe_parse_datetime
 from .device import safe_owner_slug
+from .const import (
+    DOMAIN,
+    PLATFORM_CONFIG,
+    XBOX_LIBRARY_BACKFILL_BUDGET_PER_CYCLE,
+    PSN_LIBRARY_BACKFILL_BUDGET_PER_CYCLE,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,6 +69,32 @@ def _percent(earned, total):
     if not total:
         return 0.0
     return round(100 * earned / total, 1)
+
+
+def _target_sensor(hass, owner_name, platform):
+    """Resolves the live PersistentStatusSensor entity for one player's
+    platform -- the same hass.data[DOMAIN]["platform_sensors"] lookup
+    __init__.py's rename_game/delete_game services already use. Lets
+    library-scan-discovered achievements feed into the exact same
+    recent_achievements history/Store the real-time tracker maintains,
+    rather than needing a separate one. Returns None if that sensor
+    doesn't exist (e.g. mid-reload) -- callers must handle that."""
+    safe_owner = safe_owner_slug(owner_name)
+    return hass.data.get(DOMAIN, {}).get("platform_sensors", {}).get(
+        f"sensor.gaming_status_{safe_owner}_{platform}"
+    )
+
+
+def _dominant_color_for(sensor_obj, game_name):
+    """Best-effort read of a sensor's own persisted per-game color cache --
+    no new local-download/extraction pipeline is added to this module just
+    for library-scan-discovered unlocks; a title never actually played
+    through this integration's own current-game tracking simply has no
+    entry yet, and the frontend already renders that gracefully."""
+    entry = sensor_obj._color_history_cache.get(game_name)
+    if isinstance(entry, dict):
+        return entry.get("color")
+    return None
 
 
 class LibraryScanCoordinator(DataUpdateCoordinator):
@@ -80,6 +126,18 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         # repeat scans skip the search+asset lookup entirely for games
         # already resolved (only new/never-seen titles cost anything).
         self._art_cache = {}
+        # {"xbox"|"playstation": {title_id: iso_timestamp}} -- per-title
+        # "last known activity" cursor for delta detection (see _scan_xbox/
+        # _scan_psn). Steam needs none: its per-game achievement call
+        # already returns recent_unlocks at zero extra cost every scan.
+        self._activity_cursor = {"xbox": {}, "playstation": {}}
+        # {"xbox"|"playstation": {title_id: True}} -- which titles have
+        # ever had their real per-achievement/trophy unlock DETAIL
+        # successfully resolved for THIS player. Deliberately per-player
+        # (not shared across players the way Trophy Hub's achievement-total
+        # cache is), since this tracks per-player unlock HISTORY, not a
+        # game-intrinsic fact like an achievement's total count.
+        self._backfill_done = {"xbox": {}, "playstation": {}}
 
     async def async_load_stored(self):
         """Restore the last scan's result + resolved-art cache immediately
@@ -88,6 +146,8 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         stored = await self._store.async_load()
         if stored:
             self._art_cache = stored.get("art_cache") or {}
+            self._activity_cursor = stored.get("activity_cursor") or {"xbox": {}, "playstation": {}}
+            self._backfill_done = stored.get("backfill_done") or {"xbox": {}, "playstation": {}}
             self.data = stored.get("data")
 
     async def async_schedule_or_refresh(self):
@@ -133,7 +193,10 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             raw_by_platform["playstation"] = await self._scan_psn(self._platform_sources["playstation"])
 
         result = _aggregate(raw_by_platform)
-        await self._store.async_save({"data": result, "art_cache": self._art_cache})
+        await self._store.async_save({
+            "data": result, "art_cache": self._art_cache,
+            "activity_cursor": self._activity_cursor, "backfill_done": self._backfill_done,
+        })
         return result
 
     async def _async_art_for(self, title):
@@ -159,6 +222,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
 
         owned_games, fetch_error = await utils.fetch_steam_owned_games(self.hass, api_key, steamid64)
         games = []
+        target_sensor = _target_sensor(self.hass, self._owner_name, "steam")
         for game in owned_games:
             appid = game.get("appid")
             name = game.get("name")
@@ -168,6 +232,18 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             earned = (result or {}).get("earned", 0)
             total = (result or {}).get("total", 0)
             art = await self._async_art_for(name)
+            # Steam's per-game achievement call already returns
+            # recent_unlocks at zero extra cost (unlike Xbox/PSN) -- feed
+            # it straight into the real-time sensor's own accumulating
+            # recent_achievements history, so a Steam achievement earned on
+            # a game that isn't currently being played still shows up, with
+            # no delta/backfill machinery needed for this platform at all.
+            if target_sensor is not None and result and result.get("recent_unlocks"):
+                target_sensor._ingest_recent_unlocks(
+                    result["recent_unlocks"], game_name=name,
+                    platform_label=PLATFORM_CONFIG.get("steam", {}).get("name_suffix", "Steam"),
+                    hero_art_url=art.get("hero"), game_dominant_color=_dominant_color_for(target_sensor, name),
+                )
             games.append({
                 "title": name, "platform": "steam", "id": str(appid),
                 "achievements_earned": earned, "achievements_total": total,
@@ -187,6 +263,9 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
 
         titles, fetch_error = await utils.fetch_xbox_title_history(self.hass, entry, session, xuid)
         games = []
+        target_sensor = _target_sensor(self.hass, self._owner_name, "xbox")
+        xbox_cursor = self._activity_cursor.setdefault("xbox", {})
+        xbox_done = self._backfill_done.setdefault("xbox", {})
         for title in titles:
             name = getattr(title, "name", None)
             if not name or _normalize_game_name(name) in self._excluded_normalized:
@@ -195,6 +274,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             earned = getattr(achievement, "current_achievements", 0) or 0
             total = getattr(achievement, "total_achievements", 0) or 0
             title_id = str(getattr(title, "title_id", "") or "")
+            art = await self._async_art_for(name)
 
             # title-history's own totalAchievements is live-confirmed
             # unreliable for some titles (observed 0 there despite a
@@ -205,15 +285,53 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             # misleadingly-low percent.
             if title_id and total < earned:
                 detail = await utils.fetch_xbox_title_achievement_counts(
-                    self.hass, entry, session, xuid, title_id
+                    self.hass, entry, session, xuid, title_id, recent_limit=utils.RECENT_UNLOCKS_LIMIT
                 )
                 if detail:
                     earned = detail.get("earned", earned)
                     total = detail.get("total", total)
+                    # Free bonus: this call already returns recent_unlocks,
+                    # so feed it in and mark this title resolved -- no
+                    # separate delta/backfill call needed for it this cycle.
+                    if target_sensor is not None and detail.get("recent_unlocks"):
+                        target_sensor._ingest_recent_unlocks(
+                            detail["recent_unlocks"], game_name=name,
+                            platform_label=PLATFORM_CONFIG.get("xbox", {}).get("name_suffix", "Xbox"),
+                            hero_art_url=art.get("hero"), game_dominant_color=_dominant_color_for(target_sensor, name),
+                        )
+                    xbox_done[title_id] = True
+
+            # --- Delta-detect new activity via the free, already-fetched
+            # last_time_played timestamp, and only pay for a per-title
+            # detail call for titles that actually changed since last scan.
+            title_history = getattr(title, "title_history", None)
+            last_played = getattr(title_history, "last_time_played", None)
+            last_played_iso = last_played.isoformat() if last_played else None
+            if title_id and last_played_iso:
+                old_ts = xbox_cursor.get(title_id)
+                if old_ts is None:
+                    # First sighting -- seed the baseline, no detail call.
+                    # This title becomes a backfill candidate (see
+                    # async_run_backfill_pass) unless the sanity re-fetch
+                    # above already resolved it this same cycle.
+                    xbox_cursor[title_id] = last_played_iso
+                elif last_played_iso > old_ts:
+                    detail = await utils.fetch_xbox_title_achievement_counts(
+                        self.hass, entry, session, xuid, title_id, recent_limit=utils.RECENT_UNLOCKS_LIMIT
+                    )
+                    if detail is not None:
+                        if target_sensor is not None and detail.get("recent_unlocks"):
+                            target_sensor._ingest_recent_unlocks(
+                                detail["recent_unlocks"], game_name=name,
+                                platform_label=PLATFORM_CONFIG.get("xbox", {}).get("name_suffix", "Xbox"),
+                                hero_art_url=art.get("hero"), game_dominant_color=_dominant_color_for(target_sensor, name),
+                            )
+                        xbox_cursor[title_id] = last_played_iso
+                        xbox_done[title_id] = True
+                    # else: failed/rate-limited -- cursor untouched, retried next cycle.
 
             gs_earned = getattr(achievement, "current_gamerscore", 0) or 0
             gs_total = getattr(achievement, "total_gamerscore", 0) or 0
-            art = await self._async_art_for(name)
             games.append({
                 "title": name, "platform": "xbox", "id": title_id,
                 "achievements_earned": earned, "achievements_total": total,
@@ -221,6 +339,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 "percent": _percent(earned, total),
                 "game_cover_art": art.get("grid"), "game_hero_art": art.get("hero"),
                 "game_logo_art": art.get("logo"), "game_icon_art": art.get("icon"),
+                "_activity_ts": last_played_iso,
             })
         return {"games": games, "error": fetch_error}
 
@@ -231,6 +350,9 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
 
         titles, fetch_error = await utils.fetch_psn_full_library(self.hass, npsso, account_id)
         games = []
+        target_sensor = _target_sensor(self.hass, self._owner_name, "playstation")
+        psn_cursor = self._activity_cursor.setdefault("playstation", {})
+        psn_done = self._backfill_done.setdefault("playstation", {})
         for title in titles:
             name = title.get("trophyTitleName")
             if not name or _normalize_game_name(name) in self._excluded_normalized:
@@ -242,15 +364,189 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             total_earned = sum(earned_counts.values())
             total_defined = sum(total_counts.values())
             art = await self._async_art_for(name)
+
+            np_comm_id = title.get("npCommunicationId")
+            last_updated = title.get("lastUpdatedDateTime")
+            # --- Delta-detect new trophy activity via the free,
+            # already-fetched lastUpdatedDateTime -- confirmed to
+            # specifically track "last trophy earned", not just last
+            # played. First sighting of ANY title always just seeds the
+            # baseline and never fetches immediately, regardless of
+            # total_earned -- otherwise a player with substantial EXISTING
+            # trophy history would trigger an expensive per-title fetch for
+            # every single one of those titles on the very first scan after
+            # enabling this feature, exactly the flood async_run_backfill_
+            # pass's pacing exists to prevent. Titles with existing
+            # progress get resolved by that paced backfill pass instead;
+            # this delta check only fires for genuinely NEW activity since
+            # a baseline was already established.
+            if np_comm_id and last_updated:
+                old_ts = psn_cursor.get(np_comm_id)
+                if old_ts is None:
+                    psn_cursor[np_comm_id] = last_updated
+                elif total_earned > 0 and last_updated > old_ts:
+                    detail = await utils.fetch_psn_trophies(
+                        self.hass, npsso, account_id, name, title_id=np_comm_id, include_recent_unlocks=True,
+                    )
+                    if detail is not None:
+                        if target_sensor is not None and detail.get("recent_unlocks"):
+                            target_sensor._ingest_recent_unlocks(
+                                detail["recent_unlocks"], game_name=name,
+                                platform_label=PLATFORM_CONFIG.get("playstation", {}).get("name_suffix", "PlayStation"),
+                                hero_art_url=art.get("hero"), game_dominant_color=_dominant_color_for(target_sensor, name),
+                            )
+                        psn_cursor[np_comm_id] = last_updated
+                        psn_done[np_comm_id] = True
+                    # else: failed -- cursor untouched, retried next cycle.
+
             games.append({
-                "title": name, "platform": "playstation", "id": title.get("npCommunicationId"),
+                "title": name, "platform": "playstation", "id": np_comm_id,
                 "achievements_earned": total_earned, "achievements_total": total_defined,
                 "trophies_earned": earned_counts, "trophies_total": total_counts,
                 "percent": _percent(total_earned, total_defined),
                 "game_cover_art": art.get("grid"), "game_hero_art": art.get("hero"),
                 "game_logo_art": art.get("logo"), "game_icon_art": art.get("icon"),
+                "_activity_ts": last_updated,
             })
         return {"games": games, "error": fetch_error}
+
+    async def async_run_backfill_pass(self):
+        """Independent-timer-driven (see __init__.py's
+        _library_backfill_tick), NOT part of the normal scan-interval
+        refresh cycle -- never touches _async_update_data/async_refresh/
+        async_schedule_or_refresh, and never re-fetches the owned-games/
+        title-history/full-library bulk lists (that's _async_update_data's
+        own job, gated by the user's configured
+        OPT_LIBRARY_SCAN_INTERVAL_HOURS). Only walks this coordinator's own
+        already-cached self.data for titles never yet resolved into
+        self._backfill_done, and resolves a small budgeted batch of them
+        via the same per-title detail calls the delta-detection above
+        uses. Steam needs no backfill pass -- it already gets recent_unlocks
+        for free on every regular scan."""
+        if not self.data:
+            return
+
+        resolved_this_pass = 0
+        if "xbox" in self._platform_sources:
+            resolved_this_pass += await self._backfill_platform("xbox", XBOX_LIBRARY_BACKFILL_BUDGET_PER_CYCLE)
+        if "playstation" in self._platform_sources:
+            resolved_this_pass += await self._backfill_platform("playstation", PSN_LIBRARY_BACKFILL_BUDGET_PER_CYCLE)
+
+        if not resolved_this_pass:
+            return
+
+        remaining = sum(
+            1
+            for platform in ("xbox", "playstation")
+            for g in (self.data.get("platforms", {}).get(platform, {}).get("games", []))
+            if str(g["id"]) not in self._backfill_done.get(platform, {})
+        )
+        if remaining:
+            _LOGGER.info(
+                "Gaming Status: achievement backfill for %s -- resolved %d titles this pass (%d remaining)",
+                self._owner_name, resolved_this_pass, remaining,
+            )
+        else:
+            total_resolved = sum(len(v) for v in self._backfill_done.values())
+            _LOGGER.info(
+                "Gaming Status: achievement backfill for %s complete -- %d titles resolved",
+                self._owner_name, total_resolved,
+            )
+        await self._store.async_save({
+            "data": self.data, "art_cache": self._art_cache,
+            "activity_cursor": self._activity_cursor, "backfill_done": self._backfill_done,
+        })
+
+    async def _backfill_platform(self, platform, budget):
+        games = self.data.get("platforms", {}).get(platform, {}).get("games", [])
+        done = self._backfill_done.setdefault(platform, {})
+        cursor = self._activity_cursor.setdefault(platform, {})
+        pending = [g for g in games if str(g["id"]) not in done]
+        if not pending:
+            return 0
+
+        # Titles confirmed to have zero achievements/trophies total need no
+        # detail call at all -- mark them done for free so they don't keep
+        # consuming budget or reappearing as "pending" on every future tick.
+        # Counted into `resolved` too (not just real API-resolved titles),
+        # so a pass that only finds zero-achievement titles still gets its
+        # progress saved below rather than silently discarded.
+        still_pending = []
+        resolved = 0
+        for g in pending:
+            if not g.get("achievements_total"):
+                done[str(g["id"])] = True
+                resolved += 1
+            else:
+                still_pending.append(g)
+        pending = still_pending
+        if not pending:
+            return resolved
+
+        source_entity_id = self._platform_sources.get(platform)
+        target_sensor = _target_sensor(self.hass, self._owner_name, platform)
+
+        if platform == "xbox":
+            entry, session, xuid = await utils.resolve_xbox_entry_and_session(self.hass, source_entity_id)
+            if not entry or not session or not xuid:
+                return resolved
+            for game in pending[:budget]:
+                title_id = str(game["id"])
+                detail = await utils.fetch_xbox_title_achievement_counts(
+                    self.hass, entry, session, xuid, title_id, recent_limit=utils.RECENT_UNLOCKS_LIMIT
+                )
+                if detail is None:
+                    continue
+                if target_sensor is not None and detail.get("recent_unlocks"):
+                    art = await self._async_art_for(game["title"])
+                    target_sensor._ingest_recent_unlocks(
+                        detail["recent_unlocks"], game_name=game["title"],
+                        platform_label=PLATFORM_CONFIG.get("xbox", {}).get("name_suffix", "Xbox"),
+                        hero_art_url=art.get("hero"), game_dominant_color=_dominant_color_for(target_sensor, game["title"]),
+                    )
+                done[title_id] = True
+                if game.get("_activity_ts"):
+                    cursor[title_id] = game["_activity_ts"]
+                resolved += 1
+
+        elif platform == "playstation":
+            npsso, account_id = utils.resolve_psn_credentials(self.hass, source_entity_id)
+            if not npsso or not account_id:
+                return resolved
+            for game in pending[:budget]:
+                np_comm_id = str(game["id"])
+                detail = await utils.fetch_psn_trophies(
+                    self.hass, npsso, account_id, game["title"], title_id=np_comm_id, include_recent_unlocks=True,
+                )
+                if detail is None:
+                    continue
+                if target_sensor is not None and detail.get("recent_unlocks"):
+                    art = await self._async_art_for(game["title"])
+                    target_sensor._ingest_recent_unlocks(
+                        detail["recent_unlocks"], game_name=game["title"],
+                        platform_label=PLATFORM_CONFIG.get("playstation", {}).get("name_suffix", "PlayStation"),
+                        hero_art_url=art.get("hero"), game_dominant_color=_dominant_color_for(target_sensor, game["title"]),
+                    )
+                done[np_comm_id] = True
+                if game.get("_activity_ts"):
+                    cursor[np_comm_id] = game["_activity_ts"]
+                resolved += 1
+
+        return resolved
+
+
+def has_pending_library_backfill(coordinator) -> bool:
+    """Pure, cheap (no I/O) check used by __init__.py's independent
+    backfill timer to skip a coordinator entirely once every Xbox/
+    PlayStation title it knows about has been resolved."""
+    if not coordinator.data:
+        return False
+    for platform in ("xbox", "playstation"):
+        games = coordinator.data.get("platforms", {}).get(platform, {}).get("games", [])
+        done = coordinator._backfill_done.get(platform, {})
+        if any(str(g["id"]) not in done for g in games):
+            return True
+    return False
 
 
 def _aggregate(raw_by_platform):

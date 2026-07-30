@@ -41,6 +41,19 @@ class TrophyLibrarySummarySensor(CoordinatorEntity, SensorEntity):
     @property
     def extra_state_attributes(self):
         data = self.coordinator.data or {}
+        # Achievement backfill (Xbox/PlayStation only -- Steam's per-game
+        # recent_unlocks arrive for free on every regular scan, no backfill
+        # needed) has no other user-visible progress indicator, since
+        # _backfill_done is otherwise a private coordinator attribute.
+        backfill_done = getattr(self.coordinator, "_backfill_done", {}) or {}
+        platforms_data = data.get("platforms", {}) or {}
+        backfill_total = 0
+        backfill_pending = 0
+        for platform in ("xbox", "playstation"):
+            games = (platforms_data.get(platform) or {}).get("games", [])
+            done = backfill_done.get(platform, {})
+            backfill_total += len(games)
+            backfill_pending += sum(1 for g in games if str(g.get("id")) not in done)
         return {
             "total_achievements_possible": data.get("total_achievements_possible"),
             "total_gamerscore": data.get("total_gamerscore"),
@@ -51,6 +64,9 @@ class TrophyLibrarySummarySensor(CoordinatorEntity, SensorEntity):
             "last_sync_success": data.get("last_sync_success"),
             "platform_errors": data.get("platform_errors"),
             "last_synced": data.get("last_synced"),
+            "achievement_backfill_pending": backfill_pending,
+            "achievement_backfill_total": backfill_total,
+            "achievement_backfill_complete": backfill_pending == 0,
             "games": data.get("games"),
         }
 

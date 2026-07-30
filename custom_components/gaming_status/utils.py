@@ -939,13 +939,17 @@ async def fetch_xbox_achievements(hass, xbox_config_entry, oauth_session, xuid, 
         return None
 
 
-async def fetch_xbox_title_achievement_counts(hass, xbox_config_entry, oauth_session, xuid, title_id):
-    """Authoritative earned/total achievement counts for one specific,
-    already-known title_id -- unlike fetch_xbox_achievements, this never
-    resolves "currently playing" (the title may not be running at all).
-    Used by library_scan.py as a fallback for titles where the title-history
-    endpoint's own totalAchievements field is live-confirmed unreliable
-    (observed 0 for titles with nonzero currentAchievements). Never raises;
+async def fetch_xbox_title_achievement_counts(hass, xbox_config_entry, oauth_session, xuid, title_id, recent_limit=0):
+    """Authoritative earned/total achievement counts (plus, when
+    recent_limit > 0, a bounded newest-first recent-unlocks list) for one
+    specific, already-known title_id -- unlike fetch_xbox_achievements,
+    this never resolves "currently playing" (the title may not be running
+    at all). Used by library_scan.py both as a fallback for titles where
+    the title-history endpoint's own totalAchievements field is
+    live-confirmed unreliable (observed 0 for titles with nonzero
+    currentAchievements, recent_limit=0 there -- unchanged), and as the
+    per-title detail call for delta-detected/backfilled achievement
+    history (recent_limit=RECENT_UNLOCKS_LIMIT there). Never raises;
     returns None on any failure."""
     if not xbox_config_entry or not oauth_session or not xuid or not title_id:
         return None
@@ -953,7 +957,7 @@ async def fetch_xbox_title_achievement_counts(hass, xbox_config_entry, oauth_ses
         from . import xbox_client
 
         client = xbox_client.get_xbox_client(hass, xbox_config_entry, oauth_session)
-        return await xbox_client.async_get_achievements(client, xuid, title_id, recent_limit=0)
+        return await xbox_client.async_get_achievements(client, xuid, title_id, recent_limit=recent_limit)
     except Exception as e:
         _LOGGER.debug(
             "[Gaming Status] Xbox per-title achievement fetch failed for xuid %s title %s: %s",

@@ -920,7 +920,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._cached_recent_unlocks = []
             self._store.async_delay_save(self._get_store_data, 5.0)
 
-    def _ingest_recent_unlocks(self, recent_unlocks):
+    def _ingest_recent_unlocks(
+        self, recent_unlocks, *,
+        game_name=None, platform_label=None, hero_art_url=None, game_dominant_color=None,
+    ):
         """Folds a platform's just-fetched recent_unlocks snapshot (see
         utils.fetch_steam_achievements/fetch_xbox_achievements/
         fetch_psn_trophies -- always {"name", "description", "unlocked_at"}
@@ -944,15 +947,28 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         session-resurrection tradeoff above): RECENT_UNLOCKS_LIMIT caps
         each fetch at 10, so unlocking more than that between two rechecks
         silently drops the oldest ones in that burst.
+
+        game_name/platform_label/hero_art_url/game_dominant_color default to
+        this sensor's own current-game context (unchanged behavior for the
+        two real-time call sites in _unified_update/_recheck_achievements),
+        but can be overridden explicitly -- used by library_scan.py's
+        delta-detection/backfill passes, which discover unlocks for games
+        that usually AREN'T whatever this sensor is currently tracking as
+        playing, and which resolve their own per-game art independently
+        (see LibraryScanCoordinator._async_art_for) rather than reusing
+        this sensor's current-game art cache.
         """
-        if not recent_unlocks or not self._current_game:
+        game_name = game_name or self._current_game
+        if not recent_unlocks or not game_name:
             return
         existing_keys = {
             (_normalize_game_name(e.get("game")), e.get("name"))
             for e in self._recent_achievements
         }
-        game_key = _normalize_game_name(self._current_game)
-        platform_label = PLATFORM_CONFIG.get(self._gaming_type, {}).get("name_suffix", self._gaming_type.title())
+        game_key = _normalize_game_name(game_name)
+        platform_label = platform_label or PLATFORM_CONFIG.get(self._gaming_type, {}).get("name_suffix", self._gaming_type.title())
+        hero_art_url = hero_art_url if hero_art_url is not None else self._cached_game_hero
+        game_dominant_color = game_dominant_color if game_dominant_color is not None else self._cached_game_color
         inserted = False
         for unlock in recent_unlocks:
             key = (game_key, unlock.get("name"))
@@ -960,14 +976,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 continue
             existing_keys.add(key)
             self._recent_achievements.insert(0, {
-                "game": self._current_game,
+                "game": game_name,
                 "platform": platform_label,
                 "name": unlock.get("name"),
                 "description": unlock.get("description"),
                 "unlocked_at": unlock.get("unlocked_at"),
                 "tier": unlock.get("tier"),  # PSN trophy tier (bronze/silver/gold/platinum); None elsewhere
-                "hero_art_url": self._cached_game_hero,
-                "game_dominant_color": self._cached_game_color,
+                "hero_art_url": hero_art_url,
+                "game_dominant_color": game_dominant_color,
             })
             inserted = True
         if inserted:
