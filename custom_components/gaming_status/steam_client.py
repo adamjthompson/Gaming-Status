@@ -67,16 +67,18 @@ class SteamClient:
         return response.get("games") or []
 
     async def async_get_schema_for_game(self, appid: int) -> dict:
-        """Returns {"total_achievements": int, "display_names": {apiname: str}}.
-        total_achievements is 0 (not an error) for a game with no
-        achievements at all. Only total_achievements is used by Gaming
-        Status today (achievement names/icons are out of scope -- earned/
-        total counts only)."""
+        """Returns {"total_achievements": int, "display_names": {apiname: str},
+        "icons": {apiname: str}}. total_achievements is 0 (not an error) for
+        a game with no achievements at all. `icons` holds each achievement's
+        unlocked-state icon URL (Steam's `icon` field -- there's also an
+        `icongray` locked-state variant, not needed here since this is only
+        ever used for already-earned unlocks)."""
         data = await self._get("ISteamUserStats/GetSchemaForGame/v2/", {"appid": appid})
         game = (data or {}).get("game") or {}
         achievements = ((game.get("availableGameStats") or {}).get("achievements")) or []
         display_names = {entry["name"]: entry.get("displayName") or entry["name"] for entry in achievements if entry.get("name")}
-        return {"total_achievements": len(achievements), "display_names": display_names}
+        icons = {entry["name"]: entry.get("icon") for entry in achievements if entry.get("name") and entry.get("icon")}
+        return {"total_achievements": len(achievements), "display_names": display_names, "icons": icons}
 
     async def async_get_player_achievements(self, steamid64: str, appid: int) -> list[dict]:
         """Returns [{"apiname", "achieved": bool, "unlocktime": int}, ...].

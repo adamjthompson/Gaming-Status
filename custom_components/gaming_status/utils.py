@@ -779,12 +779,13 @@ async def fetch_steam_achievements(hass, steamid64, api_key, appid):
 
         if appid in STEAM_SCHEMA_CACHE:
             STEAM_SCHEMA_CACHE.move_to_end(appid)
-            total, display_names = STEAM_SCHEMA_CACHE[appid]
+            total, display_names, icons = STEAM_SCHEMA_CACHE[appid]
         else:
             schema = await client.async_get_schema_for_game(appid)
             total = schema.get("total_achievements", 0)
             display_names = schema.get("display_names") or {}
-            STEAM_SCHEMA_CACHE[appid] = (total, display_names)
+            icons = schema.get("icons") or {}
+            STEAM_SCHEMA_CACHE[appid] = (total, display_names, icons)
             STEAM_SCHEMA_CACHE.move_to_end(appid)
             if len(STEAM_SCHEMA_CACHE) > MAX_ENRICHMENT_CACHE_SIZE:
                 STEAM_SCHEMA_CACHE.popitem(last=False)
@@ -803,6 +804,7 @@ async def fetch_steam_achievements(hass, steamid64, api_key, appid):
                     datetime.fromtimestamp(a["unlocktime"], tz=timezone.utc).isoformat()
                     if a.get("unlocktime") else None
                 ),
+                "icon_url": icons.get(a.get("apiname")),
             }
             for a in earned_achievements[:RECENT_UNLOCKS_LIMIT]
         ]
@@ -905,6 +907,7 @@ async def fetch_psn_trophies(hass, npsso, account_id, game_name, title_id=None, 
                 {
                     "name": t.get("name"), "description": t.get("description"),
                     "unlocked_at": t.get("earned_at"), "tier": t.get("type"),
+                    "icon_url": t.get("icon_url"),
                 }
                 for t in earned_trophies[:RECENT_UNLOCKS_LIMIT]
             ]

@@ -926,8 +926,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
     ):
         """Folds a platform's just-fetched recent_unlocks snapshot (see
         utils.fetch_steam_achievements/fetch_xbox_achievements/
-        fetch_psn_trophies -- always {"name", "description", "unlocked_at"}
-        dicts, newest-first, capped at RECENT_UNLOCKS_LIMIT) into
+        fetch_psn_trophies -- always {"name", "description", "unlocked_at",
+        "icon_url"} dicts, newest-first, capped at RECENT_UNLOCKS_LIMIT) into
         self._recent_achievements, a cross-game history that -- unlike
         _cached_recent_unlocks -- persists across game switches, the same
         way _recent_sessions does.
@@ -957,12 +957,24 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         playing, and which resolve their own per-game art independently
         (see LibraryScanCoordinator._async_art_for) rather than reusing
         this sensor's current-game art cache.
+
+        An unlock matching an already-recorded entry isn't just skipped --
+        any field that entry is still missing (e.g. icon_url, added to the
+        platform fetchers after some entries were already recorded) gets
+        opportunistically filled in from this fresher copy. This only
+        reaches entries the platform still reports as "recent" (each
+        fetcher caps its own list at RECENT_UNLOCKS_LIMIT), but that's
+        enough for a manual refresh to backfill icons onto whatever's
+        still within that window without needing a special one-time
+        migration path. unlocked_at/hero_art_url/game_dominant_color are
+        deliberately left alone here -- those reflect the entry's original
+        discovery context, not something a later fetch should overwrite.
         """
         game_name = game_name or self._current_game
         if not recent_unlocks or not game_name:
             return
-        existing_keys = {
-            (_normalize_game_name(e.get("game")), e.get("name"))
+        existing_by_key = {
+            (_normalize_game_name(e.get("game")), e.get("name")): e
             for e in self._recent_achievements
         }
         game_key = _normalize_game_name(game_name)
@@ -970,26 +982,37 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         hero_art_url = hero_art_url if hero_art_url is not None else self._cached_game_hero
         game_dominant_color = game_dominant_color if game_dominant_color is not None else self._cached_game_color
         inserted = False
+        patched = False
         for unlock in recent_unlocks:
-            key = (game_key, unlock.get("name"))
-            if not unlock.get("name") or key in existing_keys:
+            if not unlock.get("name"):
                 continue
-            existing_keys.add(key)
-            self._recent_achievements.insert(0, {
+            key = (game_key, unlock.get("name"))
+            existing = existing_by_key.get(key)
+            if existing is not None:
+                for field in ("icon_url", "description", "tier"):
+                    if not existing.get(field) and unlock.get(field):
+                        existing[field] = unlock.get(field)
+                        patched = True
+                continue
+            new_entry = {
                 "game": game_name,
                 "platform": platform_label,
                 "name": unlock.get("name"),
                 "description": unlock.get("description"),
                 "unlocked_at": unlock.get("unlocked_at"),
                 "tier": unlock.get("tier"),  # PSN trophy tier (bronze/silver/gold/platinum); None elsewhere
+                "icon_url": unlock.get("icon_url"),
                 "hero_art_url": hero_art_url,
                 "game_dominant_color": game_dominant_color,
-            })
+            }
+            self._recent_achievements.insert(0, new_entry)
+            existing_by_key[key] = new_entry
             inserted = True
         if inserted:
             self._recent_achievements.sort(key=lambda a: a.get("unlocked_at") or "", reverse=True)
             if len(self._recent_achievements) > MAX_RECENT_ACHIEVEMENT_UNLOCKS:
                 del self._recent_achievements[MAX_RECENT_ACHIEVEMENT_UNLOCKS:]
+        if inserted or patched:
             self._store.async_delay_save(self._get_store_data, 5.0)
 
     def _get_session_info(self):

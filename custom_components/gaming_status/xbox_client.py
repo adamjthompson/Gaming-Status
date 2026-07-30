@@ -101,6 +101,13 @@ async def async_get_achievements(client, xuid, title_id, recent_limit=10):
         achievements = response.achievements or []
         earned = [a for a in achievements if a.progression and a.progression.time_unlocked]
         earned.sort(key=lambda a: a.progression.time_unlocked, reverse=True)
+
+        def _icon_url(a):
+            for asset in a.media_assets or []:
+                if str(getattr(asset, "type", "")).lower() == "icon":
+                    return asset.url
+            return None
+
         return {
             "earned": len(earned),
             "total": len(achievements),
@@ -109,6 +116,7 @@ async def async_get_achievements(client, xuid, title_id, recent_limit=10):
                     "name": a.name,
                     "description": a.description,
                     "unlocked_at": a.progression.time_unlocked.isoformat(),
+                    "icon_url": _icon_url(a),
                 }
                 for a in earned[:recent_limit]
             ],

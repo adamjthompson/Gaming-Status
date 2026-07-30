@@ -400,6 +400,7 @@ class PsnClient:
                     "name": meta.get("trophyName"),
                     "description": meta.get("trophyDetail"),
                     "type": meta.get("trophyType"),
+                    "icon_url": meta.get("trophyIconUrl"),
                     "earned": bool(progress.get("earned")),
                     "earned_at": progress.get("earnedDateTime"),
                 })
