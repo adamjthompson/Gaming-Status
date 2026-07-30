@@ -223,14 +223,42 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         owned_games, fetch_error = await utils.fetch_steam_owned_games(self.hass, api_key, steamid64)
         games = []
         target_sensor = _target_sensor(self.hass, self._owner_name, "steam")
+        # Keyed by appid (str) -- lets a per-game fetch failure below fall
+        # back to the last successfully-scanned value instead of silently
+        # zeroing a game out of the total. A whole-list fetch failure is
+        # already visible via `error` above; a single game's fetch failing
+        # partway through this loop (Steam has no bulk achievement endpoint,
+        # so this is one call per owned game, every scan -- a real target
+        # for transient rate-limiting under repeated rescans) previously had
+        # no fallback and no visibility at all: it just silently contributed
+        # 0/0 to that scan's total, corrupting the aggregate with nothing
+        # showing up in platform_errors to explain it.
+        previous_games = {
+            g.get("id"): g
+            for g in (self.data or {}).get("platforms", {}).get("steam", {}).get("games", [])
+        }
         for game in owned_games:
             appid = game.get("appid")
             name = game.get("name")
             if not appid or not name or _normalize_game_name(name) in self._excluded_normalized:
                 continue
             result = await utils.fetch_steam_achievements(self.hass, steamid64, api_key, appid)
-            earned = (result or {}).get("earned", 0)
-            total = (result or {}).get("total", 0)
+            if result is not None:
+                earned = result.get("earned", 0)
+                total = result.get("total", 0)
+            else:
+                # Fetch failed -- keep this game's last known counts rather
+                # than reporting 0/0 for it this cycle. Only a brand-new,
+                # never-successfully-scanned game has nothing to fall back
+                # to, in which case 0/0 is the best available answer.
+                previous = previous_games.get(str(appid))
+                earned = previous.get("achievements_earned", 0) if previous else 0
+                total = previous.get("achievements_total", 0) if previous else 0
+                _LOGGER.debug(
+                    "Gaming Status: Steam achievement fetch failed for %s (appid %s) -- "
+                    "keeping last known count (%s/%s) instead of zeroing it",
+                    name, appid, earned, total,
+                )
             art = await self._async_art_for(name)
             # Steam's per-game achievement call already returns
             # recent_unlocks at zero extra cost (unlike Xbox/PSN) -- feed
