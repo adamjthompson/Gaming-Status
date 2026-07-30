@@ -242,6 +242,13 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             name = game.get("name")
             if not appid or not name or _normalize_game_name(name) in self._excluded_normalized:
                 continue
+            # Apply the user's Title Overrides + display cleanup here, same
+            # as the real-time "currently playing" pipeline already does
+            # (sensor.py's _unified_update) -- otherwise a game discovered
+            # via the library scan (as opposed to actually being played
+            # right now) shows its raw, un-overridden platform title in
+            # recent_achievements and the Library sensor's games list.
+            name = utils._format_game_name_for_display(name)
             result = await utils.fetch_steam_achievements(self.hass, steamid64, api_key, appid)
             if result is not None:
                 earned = result.get("earned", 0)
@@ -315,6 +322,10 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             name = getattr(title, "name", None)
             if not name or _normalize_game_name(name) in self._excluded_normalized:
                 continue
+            # Apply the user's Title Overrides + display cleanup, matching
+            # the real-time "currently playing" pipeline (see the Steam
+            # scan above for the full rationale).
+            name = utils._format_game_name_for_display(name)
             achievement = getattr(title, "achievement", None)
             earned = getattr(achievement, "current_achievements", 0) or 0
             total = getattr(achievement, "total_achievements", 0) or 0
@@ -424,6 +435,10 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             name = title.get("trophyTitleName")
             if not name or _normalize_game_name(name) in self._excluded_normalized:
                 continue
+            # Apply the user's Title Overrides + display cleanup, matching
+            # the real-time "currently playing" pipeline (see the Steam
+            # scan's comment above for the full rationale).
+            name = utils._format_game_name_for_display(name)
             earned = title.get("earnedTrophies") or {}
             defined = title.get("definedTrophies") or {}
             earned_counts = {k: int(earned.get(k, 0)) for k in _TIER_KEYS}
