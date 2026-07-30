@@ -55,12 +55,31 @@ def get_xbox_client(hass, entry, oauth_session):
     """XboxLiveClient singleton per xbox config entry -- shared across every
     player tracked against the same Xbox account, same reasoning as the
     existing PSN client singleton (one live auth/token-refresh state, not one
-    per tracked player)."""
-    from homeassistant.helpers.httpx_client import get_async_client
+    per tracked player).
+
+    Uses a dedicated httpx client (create_async_httpx_client), NOT HA's
+    shared get_async_client() -- httpx's own default timeout is a hard 5
+    seconds (connect/read/write/pool combined, confirmed against httpx's
+    own DEFAULT_TIMEOUT_CONFIG), and get_title_history's title-history
+    fetch is a single unpaginated request whose payload size scales with
+    the account's library size (every title's name + achievement/
+    gamerscore sub-object, all in one response). For a large library, that
+    fixed 5s budget against a growing payload is a deterministic bottleneck,
+    not transient network jitter -- it fails identically on every attempt,
+    manual refresh included. Steam/PSN's own clients already set a
+    generous explicit timeout on their own dedicated sessions
+    (steam_client.py/psn_client.py, `aiohttp.ClientTimeout(total=15)`);
+    Xbox never got the equivalent since it borrowed HA's shared client
+    instead of building its own. create_async_httpx_client builds a new,
+    independent client (unlike get_async_client's cached/shared one) --
+    call it only here, once per config entry, and let the existing
+    per-entry singleton cache below reuse it."""
+    from homeassistant.helpers.httpx_client import create_async_httpx_client
 
     clients = hass.data.setdefault("gaming_status_xbox_clients", {})
     if entry.entry_id not in clients:
-        auth = AsyncConfigEntryAuth(get_async_client(hass), oauth_session)
+        xbox_http_client = create_async_httpx_client(hass, timeout=30.0)
+        auth = AsyncConfigEntryAuth(xbox_http_client, oauth_session)
         clients[entry.entry_id] = XboxLiveClient(auth)
     return clients[entry.entry_id]
 

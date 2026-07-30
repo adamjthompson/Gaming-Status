@@ -184,13 +184,20 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         await self.async_refresh()
 
     async def _async_update_data(self):
+        previous_platforms = (self.data or {}).get("platforms", {})
         raw_by_platform = {}
         if "steam" in self._platform_sources:
-            raw_by_platform["steam"] = await self._scan_steam(self._platform_sources["steam"])
+            raw_by_platform["steam"] = await self._scan_platform_safely(
+                "steam", self._scan_steam, self._platform_sources["steam"], previous_platforms
+            )
         if "xbox" in self._platform_sources:
-            raw_by_platform["xbox"] = await self._scan_xbox(self._platform_sources["xbox"])
+            raw_by_platform["xbox"] = await self._scan_platform_safely(
+                "xbox", self._scan_xbox, self._platform_sources["xbox"], previous_platforms
+            )
         if "playstation" in self._platform_sources:
-            raw_by_platform["playstation"] = await self._scan_psn(self._platform_sources["playstation"])
+            raw_by_platform["playstation"] = await self._scan_platform_safely(
+                "playstation", self._scan_psn, self._platform_sources["playstation"], previous_platforms
+            )
 
         result = _aggregate(raw_by_platform)
         await self._store.async_save({
@@ -198,6 +205,40 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             "activity_cursor": self._activity_cursor, "backfill_done": self._backfill_done,
         })
         return result
+
+    async def _scan_platform_safely(self, platform, scan_fn, source_entity_id, previous_platforms):
+        """Wraps one platform's scan so a single platform's failure can
+        never (a) crash the WHOLE coordinator update -- one
+        LibraryScanCoordinator covers every platform for a given player, so
+        an uncaught exception from just one of them would otherwise mark
+        ALL of that player's library sensors "Unavailable" -- or (b) zero
+        out that platform's own contribution to the totals just because its
+        top-level bulk list fetch failed (e.g. a Xbox title-history
+        ReadTimeout), as opposed to a single game/title within it, which the
+        per-title loops inside _scan_steam/_scan_xbox/_scan_psn already
+        protect. Falls back to this platform's own last-known-good games
+        list on either failure mode -- the same "never regress on a fetch
+        failure" principle already applied per-game, just one level up."""
+        try:
+            raw = await scan_fn(source_entity_id)
+        except Exception as e:
+            _LOGGER.warning(
+                "Gaming Status: %s library scan crashed for %s -- keeping last known data: %s: %s",
+                platform, self._owner_name, type(e).__name__, e,
+            )
+            raw = {"games": [], "error": f"{type(e).__name__}: {e}"}
+
+        if not raw.get("games") and raw.get("error"):
+            previous_games = previous_platforms.get(platform, {}).get("games")
+            if previous_games:
+                _LOGGER.debug(
+                    "Gaming Status: %s library scan failed for %s (%s) -- falling back to last "
+                    "known %d games instead of zeroing this platform's totals for this cycle",
+                    platform, self._owner_name, raw["error"], len(previous_games),
+                )
+                raw = {**raw, "games": previous_games}
+
+        return raw
 
     async def _async_art_for(self, title):
         """External-URL-only SteamGridDB lookup (see
