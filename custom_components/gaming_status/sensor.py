@@ -42,6 +42,7 @@ from .const import (
     MIN_ACHIEVEMENT_RECHECK_SECONDS,
     OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN,
     OPT_LIBRARY_SCAN_INTERVAL_HOURS, DEFAULT_LIBRARY_SCAN_INTERVAL_HOURS,
+    DISCORD_CONSOLE_SUPPRESS_COOLDOWN_SECONDS,
 )
 
 from .library_scan import LibraryScanCoordinator
@@ -177,7 +178,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._ha_offline_timestamp = None
         self._last_online_valid_timestamp = None
         self._last_game_stopped_timestamp = None
-        
+        # Discord-only: cooldown timestamp until which a sibling console's
+        # recent activity keeps suppressing this sensor's own reported game,
+        # even after that console sensor itself has already gone offline --
+        # see the "discord" branch of _get_platform_data.
+        self._discord_console_suppress_until = None
+
         # Artwork Caches
         self._cached_game_cover = None
         self._cached_game_hero = None
@@ -725,7 +731,24 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     if _cs and str(_cs.state).lower() not in ["offline", "unavailable", "unknown", "source missing", "none", ""]:
                         console_active = True
                         break
-                if self._is_game_active_elsewhere(state) or console_active:
+                # Discord's gateway has its own independent latency/caching,
+                # decoupled from the console's real state -- a bare "is the
+                # console active RIGHT NOW" check isn't enough, since a stale
+                # "still playing X" event can arrive from Discord just after
+                # the console sensor itself flips to offline, registering as
+                # a brand-new session for a game that already ended. Keep
+                # suppressing for a short cooldown after the console was last
+                # seen active, giving Discord's own gateway time to catch up.
+                now_dt = dt_util.now()
+                if console_active:
+                    self._discord_console_suppress_until = now_dt + timedelta(
+                        seconds=DISCORD_CONSOLE_SUPPRESS_COOLDOWN_SECONDS
+                    )
+                suppress_for_console = console_active or (
+                    self._discord_console_suppress_until is not None
+                    and now_dt < self._discord_console_suppress_until
+                )
+                if self._is_game_active_elsewhere(state) or suppress_for_console:
                     data["is_online"] = False
                 else:
                     data["is_online"] = True

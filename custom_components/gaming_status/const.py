@@ -22,6 +22,13 @@ MAX_RECENT_SESSIONS = 20
 # that burst shouldn't evict another platform's/game's older history.
 MAX_RECENT_ACHIEVEMENT_UNLOCKS = 30
 
+# How long to keep suppressing Discord's reported game after a sibling
+# console (Xbox/PlayStation) was last seen active -- Discord's gateway has
+# its own independent latency/caching, so a stale "still playing X" event
+# can otherwise arrive just after the console sensor itself goes offline,
+# registering as a brand-new session for a game that already ended.
+DISCORD_CONSOLE_SUPPRESS_COOLDOWN_SECONDS = 180
+
 # --- Library-wide achievement discovery (delta detection + paced backfill) ---
 # Per-cycle cap on NEW per-title achievement/trophy detail lookups a single
 # backfill tick may issue for one player, per platform. Xbox's client-side
