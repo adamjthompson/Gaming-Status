@@ -294,6 +294,23 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         target_sensor = _target_sensor(self.hass, self._owner_name, "xbox")
         xbox_cursor = self._activity_cursor.setdefault("xbox", {})
         xbox_done = self._backfill_done.setdefault("xbox", {})
+        # Keyed by title_id (str) -- same "never let a per-title count go
+        # backward" floor Steam's per-appid loop already has, generalized
+        # here since achievements/gamerscore can only ever increase for a
+        # real player. Xbox's bulk title-history response has no per-title
+        # error signal (unlike Steam's one-call-per-game loop, there's
+        # nothing to catch a "this one fetch failed" exception on) -- but
+        # Xbox Live's own achievement sync is documented as asynchronous/
+        # eventually-consistent (Microsoft states this can take up to 72h),
+        # so a given scan's bulk data for one title can be transiently
+        # stale/incomplete relative to what a previous scan already
+        # correctly recorded. Without this floor, that shows up as the
+        # whole-library total visibly dropping and not recovering until
+        # the next scan happens to catch fresher data.
+        previous_games = {
+            g.get("id"): g
+            for g in (self.data or {}).get("platforms", {}).get("xbox", {}).get("games", [])
+        }
         for title in titles:
             name = getattr(title, "name", None)
             if not name or _normalize_game_name(name) in self._excluded_normalized:
@@ -360,6 +377,19 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
 
             gs_earned = getattr(achievement, "current_gamerscore", 0) or 0
             gs_total = getattr(achievement, "total_gamerscore", 0) or 0
+            previous = previous_games.get(title_id)
+            if previous:
+                if earned < previous.get("achievements_earned", 0) or total < previous.get("achievements_total", 0):
+                    _LOGGER.debug(
+                        "Gaming Status: Xbox title-history data for %s (title_id %s) looks stale this "
+                        "scan (%s/%s vs previously-recorded %s/%s) -- keeping the higher, last known count",
+                        name, title_id, earned, total,
+                        previous.get("achievements_earned", 0), previous.get("achievements_total", 0),
+                    )
+                earned = max(earned, previous.get("achievements_earned", 0))
+                total = max(total, previous.get("achievements_total", 0))
+                gs_earned = max(gs_earned, previous.get("gamerscore_earned", 0))
+                gs_total = max(gs_total, previous.get("gamerscore_total", 0))
             games.append({
                 "title": name, "platform": "xbox", "id": title_id,
                 "achievements_earned": earned, "achievements_total": total,
@@ -381,6 +411,15 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         target_sensor = _target_sensor(self.hass, self._owner_name, "playstation")
         psn_cursor = self._activity_cursor.setdefault("playstation", {})
         psn_done = self._backfill_done.setdefault("playstation", {})
+        # Same "never let a per-title count go backward" floor as Xbox/
+        # Steam -- PSN's bulk trophyTitles response has no per-title error
+        # signal either, and trophies can only ever accumulate for a real
+        # player, so a lower count this scan than last scan is bad/stale
+        # data, not a real regression.
+        previous_games = {
+            g.get("id"): g
+            for g in (self.data or {}).get("platforms", {}).get("playstation", {}).get("games", [])
+        }
         for title in titles:
             name = title.get("trophyTitleName")
             if not name or _normalize_game_name(name) in self._excluded_normalized:
@@ -389,11 +428,26 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             defined = title.get("definedTrophies") or {}
             earned_counts = {k: int(earned.get(k, 0)) for k in _TIER_KEYS}
             total_counts = {k: int(defined.get(k, 0)) for k in _TIER_KEYS}
+            np_comm_id = title.get("npCommunicationId")
+            previous = previous_games.get(np_comm_id)
+            if previous:
+                prev_earned = previous.get("trophies_earned") or {}
+                prev_total = previous.get("trophies_total") or {}
+                if any(earned_counts[k] < int(prev_earned.get(k, 0)) for k in _TIER_KEYS) or any(
+                    total_counts[k] < int(prev_total.get(k, 0)) for k in _TIER_KEYS
+                ):
+                    _LOGGER.debug(
+                        "Gaming Status: PSN trophyTitles data for %s (id %s) looks stale this scan -- "
+                        "keeping the higher, last known count per tier",
+                        name, np_comm_id,
+                    )
+                for k in _TIER_KEYS:
+                    earned_counts[k] = max(earned_counts[k], int(prev_earned.get(k, 0)))
+                    total_counts[k] = max(total_counts[k], int(prev_total.get(k, 0)))
             total_earned = sum(earned_counts.values())
             total_defined = sum(total_counts.values())
             art = await self._async_art_for(name)
 
-            np_comm_id = title.get("npCommunicationId")
             last_updated = title.get("lastUpdatedDateTime")
             # --- Delta-detect new trophy activity via the free,
             # already-fetched lastUpdatedDateTime -- confirmed to
