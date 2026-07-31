@@ -118,7 +118,14 @@ async def async_get_achievements(client, xuid, title_id, recent_limit=10):
     try:
         response = await client.achievements.get_achievements_xboxone_gameprogress(xuid, title_id)
         achievements = response.achievements or []
-        earned = [a for a in achievements if a.progression and a.progression.time_unlocked]
+        # progress_state ("Achieved" vs "NotStarted"/"InProgress") is the
+        # correct earned/locked signal -- progression.time_unlocked is a
+        # non-optional datetime in the underlying model, so Xbox fills it
+        # with a placeholder (e.g. 0001-01-01T00:00:00Z) for achievements
+        # that were NEVER unlocked. That placeholder still parses to a
+        # truthy datetime, so checking time_unlocked's truthiness alone
+        # previously counted every achievement as earned.
+        earned = [a for a in achievements if (a.progress_state or "").lower() == "achieved"]
         earned.sort(key=lambda a: a.progression.time_unlocked, reverse=True)
 
         def _icon_url(a):
