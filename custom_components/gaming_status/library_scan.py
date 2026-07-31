@@ -68,6 +68,23 @@ def _percent(earned, total):
     # "None%" in dashboards.
     if not total:
         return 0.0
+    if earned > total:
+        # Impossible for a real player -- earned can never exceed the true
+        # total. This is a sure sign the platform's own reported total is
+        # transiently too low (a known Xbox title-history/per-title
+        # achievement-list reliability issue -- see _scan_xbox's "total <
+        # earned" sanity re-fetch, which doesn't always fully correct it),
+        # not that the player somehow exceeded 100%. Reporting this as
+        # literal 100%+ would be a false positive for anything that filters
+        # on "fully complete" (the 100% Completion / Near Completion cards)
+        # -- capping just under 100% keeps it out of that bucket without
+        # claiming a completion state we can't actually verify.
+        _LOGGER.debug(
+            "Gaming Status: earned (%s) exceeds total (%s) -- platform-reported total looks "
+            "unreliable this scan, capping percent below 100 instead of reporting false completion",
+            earned, total,
+        )
+        return 99.9
     return round(100 * earned / total, 1)
 
 
@@ -278,9 +295,14 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             g.get("id"): g
             for g in (self.data or {}).get("platforms", {}).get("steam", {}).get("games", [])
         }
+        # Tracked regardless of exclusion, so an excluded game is never
+        # carried forward by the "missing title" fallback below.
+        seen_ids = set()
         for game in owned_games:
             appid = game.get("appid")
             name = game.get("name")
+            if appid:
+                seen_ids.add(str(appid))
             if not appid or not name or _normalize_game_name(name) in self._excluded_normalized:
                 continue
             # Apply the user's Title Overrides + display cleanup here, same
@@ -330,6 +352,19 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 "game_cover_art": art.get("grid"), "game_hero_art": art.get("hero"),
                 "game_logo_art": art.get("logo"), "game_icon_art": art.get("icon"),
             })
+
+        # Carry forward any previously-tracked game simply ABSENT from this
+        # scan's owned-games list entirely (not just present with a lower
+        # count, which the per-game fallback above already handles) -- a
+        # large enough response can come back incomplete without tripping
+        # any error at all, and a game tracked last cycle doesn't actually
+        # vanish from someone's real Steam library. Carrying it forward
+        # unchanged is strictly safer than letting its contribution to the
+        # total quietly disappear.
+        for prev_id, prev_game in previous_games.items():
+            if prev_id not in seen_ids:
+                games.append(prev_game)
+
         return {"games": games, "error": fetch_error}
 
     async def _scan_xbox(self, source_entity_id):
@@ -359,8 +394,14 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             g.get("id"): g
             for g in (self.data or {}).get("platforms", {}).get("xbox", {}).get("games", [])
         }
+        # Tracked regardless of exclusion, so an excluded title is never
+        # carried forward by the "missing title" fallback below.
+        seen_ids = set()
         for title in titles:
             name = getattr(title, "name", None)
+            title_id = str(getattr(title, "title_id", "") or "")
+            if title_id:
+                seen_ids.add(title_id)
             if not name or _normalize_game_name(name) in self._excluded_normalized:
                 continue
             # Apply the user's Title Overrides + display cleanup, matching
@@ -370,7 +411,6 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             achievement = getattr(title, "achievement", None)
             earned = getattr(achievement, "current_achievements", 0) or 0
             total = getattr(achievement, "total_achievements", 0) or 0
-            title_id = str(getattr(title, "title_id", "") or "")
             art = await self._async_art_for(name)
 
             # title-history's own totalAchievements is live-confirmed
@@ -451,6 +491,19 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 "game_logo_art": art.get("logo"), "game_icon_art": art.get("icon"),
                 "_activity_ts": last_played_iso,
             })
+
+        # Carry forward any previously-tracked title simply ABSENT from this
+        # scan's results entirely (not just present with a lower count,
+        # which the per-title floor above already handles) -- a large
+        # enough title-history response can come back incomplete without
+        # tripping any error at all, and a title tracked last cycle doesn't
+        # actually vanish from someone's real Xbox library. Carrying it
+        # forward unchanged is strictly safer than letting its contribution
+        # to the total quietly disappear.
+        for prev_id, prev_game in previous_games.items():
+            if prev_id not in seen_ids:
+                games.append(prev_game)
+
         return {"games": games, "error": fetch_error}
 
     async def _scan_psn(self, source_entity_id):
@@ -472,8 +525,14 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             g.get("id"): g
             for g in (self.data or {}).get("platforms", {}).get("playstation", {}).get("games", [])
         }
+        # Tracked regardless of exclusion, so an excluded title is never
+        # carried forward by the "missing title" fallback below.
+        seen_ids = set()
         for title in titles:
             name = title.get("trophyTitleName")
+            np_comm_id = title.get("npCommunicationId")
+            if np_comm_id:
+                seen_ids.add(np_comm_id)
             if not name or _normalize_game_name(name) in self._excluded_normalized:
                 continue
             # Apply the user's Title Overrides + display cleanup, matching
@@ -484,7 +543,6 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             defined = title.get("definedTrophies") or {}
             earned_counts = {k: int(earned.get(k, 0)) for k in _TIER_KEYS}
             total_counts = {k: int(defined.get(k, 0)) for k in _TIER_KEYS}
-            np_comm_id = title.get("npCommunicationId")
             previous = previous_games.get(np_comm_id)
             if previous:
                 prev_earned = previous.get("trophies_earned") or {}
@@ -546,6 +604,19 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 "game_logo_art": art.get("logo"), "game_icon_art": art.get("icon"),
                 "_activity_ts": last_updated,
             })
+
+        # Carry forward any previously-tracked title simply ABSENT from this
+        # scan's results entirely (not just present with a lower count,
+        # which the per-title floor above already handles) -- a large
+        # enough trophyTitles response can come back incomplete without
+        # tripping any error at all, and a title tracked last cycle doesn't
+        # actually vanish from someone's real PSN library. Carrying it
+        # forward unchanged is strictly safer than letting its contribution
+        # to the total quietly disappear.
+        for prev_id, prev_game in previous_games.items():
+            if prev_id not in seen_ids:
+                games.append(prev_game)
+
         return {"games": games, "error": fetch_error}
 
     async def async_run_backfill_pass(self):
