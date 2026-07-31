@@ -984,7 +984,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
     def _ingest_recent_unlocks(
         self, recent_unlocks, *,
-        game_name=None, platform_label=None, hero_art_url=None, game_dominant_color=None,
+        game_name=None, console=None, platform_label=None, hero_art_url=None, game_dominant_color=None,
     ):
         """Folds a platform's just-fetched recent_unlocks snapshot (see
         utils.fetch_steam_achievements/fetch_xbox_achievements/
@@ -1020,6 +1020,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         (see LibraryScanCoordinator._async_art_for) rather than reusing
         this sensor's current-game art cache.
 
+        console (PSN trophyTitlePlatform / Xbox devices, e.g. "PS4" or
+        "XB1") is folded into the de-dup key alongside game+achievement
+        name -- a PS3 disc version and a PS4 remaster of the same game can
+        plausibly share identical trophy names, which would otherwise
+        wrongly collapse two distinct trophy histories into one entry.
+        Always None for the two real-time call sites and for Steam (no
+        console-generation concept there).
+
         An unlock matching an already-recorded entry isn't just skipped --
         any field that entry is still missing (e.g. icon_url, added to the
         platform fetchers after some entries were already recorded) gets
@@ -1036,7 +1044,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         if not recent_unlocks or not game_name:
             return
         existing_by_key = {
-            (_normalize_game_name(e.get("game")), e.get("name")): e
+            (_normalize_game_name(e.get("game")), e.get("console"), e.get("name")): e
             for e in self._recent_achievements
         }
         game_key = _normalize_game_name(game_name)
@@ -1048,7 +1056,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         for unlock in recent_unlocks:
             if not unlock.get("name"):
                 continue
-            key = (game_key, unlock.get("name"))
+            key = (game_key, console, unlock.get("name"))
             existing = existing_by_key.get(key)
             if existing is not None:
                 for field in ("icon_url", "description", "tier"):
@@ -1068,6 +1076,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 continue
             new_entry = {
                 "game": game_name,
+                "console": console,  # PSN/Xbox console generation (e.g. "PS4"); None elsewhere
                 "platform": platform_label,
                 "name": unlock.get("name"),
                 "description": unlock.get("description"),

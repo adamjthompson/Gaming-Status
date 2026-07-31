@@ -61,6 +61,32 @@ _LOGGER = logging.getLogger(__name__)
 _STORAGE_VERSION = 1
 _TIER_KEYS = ("bronze", "silver", "gold", "platinum")
 
+# Console/platform disambiguation for titles that exist as separate
+# entries per console generation (e.g. a PS3 disc version and a separate
+# PS4 remaster of the same game, sharing no other distinguishing text in
+# their name) -- there's no way to tell which is which from the title
+# alone. Surfaced as its own "console" field on each game entry (see
+# _scan_psn/_scan_xbox), deliberately never appended to `name`/`title` --
+# that would get silently truncated away in exactly the narrow-column
+# contexts where it matters most, and would also require the plain name
+# used for art lookup/matching to diverge from the displayed title.
+#
+# PSN's trophyTitlePlatform values (PS3/PS4/PS5/PSVITA) are well-
+# documented (see the PSN Trophy API v2 reference already linked in this
+# module) and confirmed stable.
+_PSN_PLATFORM_LABELS = {"ps3": "PS3", "ps4": "PS4", "ps5": "PS5", "psvita": "VITA", "pspc": "PC"}
+# Xbox's titlehub "devices" values are NOT as well documented -- XboxOne/
+# XboxSeries/PC/Win32 are confirmed directly against python-xbox's own
+# test fixtures (tests/data/responses/titlehub_titlehistory.json). Xbox360
+# and the original Xbox aren't present in those fixtures (no back-compat
+# example title in that test data) -- included here as a best-effort
+# guess following the same naming pattern, not independently confirmed;
+# adjust if real data shows a different string.
+_XBOX_DEVICE_LABELS = {
+    "xboxseries": "XBX", "xboxone": "XB1", "xbox360": "360", "xbox": "Xbox",
+    "pc": "PC", "win32": "PC",
+}
+
 
 def _percent(earned, total):
     # total == 0 covers both "this title genuinely has no achievements" and
@@ -419,6 +445,14 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             # the real-time "currently playing" pipeline (see the Steam
             # scan above for the full rationale).
             name = utils._format_game_name_for_display(name)
+            # Console/device(s) this title is playable on (Xbox One/Series/
+            # PC/etc) -- see _XBOX_DEVICE_LABELS above. Kept as its own
+            # field (not appended to `name`) so `title` stays the plain,
+            # un-suffixed game name everywhere.
+            console = ", ".join(
+                _XBOX_DEVICE_LABELS.get(str(d).strip().lower(), str(d).strip())
+                for d in (getattr(title, "devices", None) or []) if str(d).strip()
+            ) or None
             achievement = getattr(title, "achievement", None)
             earned = getattr(achievement, "current_achievements", 0) or 0
             total = getattr(achievement, "total_achievements", 0) or 0
@@ -443,7 +477,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                     # separate delta/backfill call needed for it this cycle.
                     if target_sensor is not None and detail.get("recent_unlocks"):
                         target_sensor._ingest_recent_unlocks(
-                            detail["recent_unlocks"], game_name=name,
+                            detail["recent_unlocks"], game_name=name, console=console,
                             platform_label=PLATFORM_CONFIG.get("xbox", {}).get("name_suffix", "Xbox"),
                             hero_art_url=art.get("hero"), game_dominant_color=_dominant_color_for(target_sensor, name),
                         )
@@ -470,7 +504,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                     if detail is not None:
                         if target_sensor is not None and detail.get("recent_unlocks"):
                             target_sensor._ingest_recent_unlocks(
-                                detail["recent_unlocks"], game_name=name,
+                                detail["recent_unlocks"], game_name=name, console=console,
                                 platform_label=PLATFORM_CONFIG.get("xbox", {}).get("name_suffix", "Xbox"),
                                 hero_art_url=art.get("hero"), game_dominant_color=_dominant_color_for(target_sensor, name),
                             )
@@ -503,7 +537,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                     earned, total,
                 )
             games.append({
-                "title": name, "platform": "xbox", "id": title_id,
+                "title": name, "platform": "xbox", "id": title_id, "console": console,
                 "achievements_earned": earned, "achievements_total": total,
                 "gamerscore_earned": gs_earned, "gamerscore_total": gs_total,
                 # Gamerscore-based, not achievement-count-based (unlike
@@ -589,6 +623,15 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             # the real-time "currently playing" pipeline (see the Steam
             # scan's comment above for the full rationale).
             name = utils._format_game_name_for_display(name)
+            # Console/platform generation this specific trophy title is
+            # for (PS3/PS4/PS5/VITA) -- see _PSN_PLATFORM_LABELS above.
+            # Kept as its own field (not appended to `name`) so `title`
+            # stays the plain, un-suffixed game name everywhere.
+            raw_platform = title.get("trophyTitlePlatform") or ""
+            console = ", ".join(
+                _PSN_PLATFORM_LABELS.get(p.strip().lower(), p.strip())
+                for p in raw_platform.split(",") if p.strip()
+            ) or None
             earned = title.get("earnedTrophies") or {}
             defined = title.get("definedTrophies") or {}
             earned_counts = {k: int(earned.get(k, 0)) for k in _TIER_KEYS}
@@ -637,7 +680,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                     if detail is not None:
                         if target_sensor is not None and detail.get("recent_unlocks"):
                             target_sensor._ingest_recent_unlocks(
-                                detail["recent_unlocks"], game_name=name,
+                                detail["recent_unlocks"], game_name=name, console=console,
                                 platform_label=PLATFORM_CONFIG.get("playstation", {}).get("name_suffix", "PlayStation"),
                                 hero_art_url=art.get("hero"), game_dominant_color=_dominant_color_for(target_sensor, name),
                             )
@@ -646,7 +689,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                     # else: failed -- cursor untouched, retried next cycle.
 
             games.append({
-                "title": name, "platform": "playstation", "id": np_comm_id,
+                "title": name, "platform": "playstation", "id": np_comm_id, "console": console,
                 "achievements_earned": total_earned, "achievements_total": total_defined,
                 "trophies_earned": earned_counts, "trophies_total": total_counts,
                 "percent": _percent(total_earned, total_defined),
