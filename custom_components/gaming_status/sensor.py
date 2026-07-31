@@ -24,7 +24,8 @@ from .const import (
     DOMAIN, ZOMBIE_ATTRIBUTES, PLATFORM_CONFIG, PLATFORM_PRIORITY,
     DEFAULT_RESET_HISTORY, DEFAULT_GRACE_PERIOD_SECONDS,
     DEFAULT_AWAY_GRACE_PERIOD_SECONDS, DEFAULT_GAME_TRANSITION_GRACE_SECONDS,
-    DEFAULT_MIN_SESSION_DURATION, MAX_RECENT_SESSIONS, MAX_RECENT_ACHIEVEMENT_UNLOCKS, OPT_TITLE_CLEANUPS,
+    DEFAULT_MIN_SESSION_DURATION, MAX_RECENT_SESSIONS, MAX_RECENT_ACHIEVEMENT_UNLOCKS,
+    MASTER_RECENT_ACHIEVEMENTS_RESERVED_PER_PLATFORM, OPT_TITLE_CLEANUPS,
     CONF_STEAMGRIDDB_API_KEY, OPT_RATING_OVERRIDES, OPT_PLAYERS, OPT_GRACE_PERIOD,
     OPT_AWAY_GRACE_PERIOD, OPT_TRANSITION_GRACE, OPT_MIN_SESSION,
     OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS,
@@ -2906,9 +2907,27 @@ class MasterGamingSensor(RestoreSensor):
         new_attrs["recent_sessions"] = sorted(
             master_recent_sessions, key=lambda r: r.get("start_time") or "", reverse=True
         )[:MAX_RECENT_SESSIONS]
-        new_attrs["recent_achievements"] = sorted(
-            master_recent_achievements, key=lambda a: a.get("unlocked_at") or "", reverse=True
-        )[:MAX_RECENT_ACHIEVEMENT_UNLOCKS]
+        # A flat global sort+cap here would let one much-more-active platform
+        # (e.g. Xbox generating 30+ recent unlocks) completely starve a
+        # quieter one (e.g. PlayStation, untouched in months) out of every
+        # single slot -- even though the quiet platform's own history is
+        # perfectly intact, just never recent enough to compete globally.
+        # Guarantee each platform present a minimum reserved share of the
+        # cap first; only the leftover budget is filled by pure recency.
+        achievements_by_platform = {}
+        for entry in master_recent_achievements:
+            achievements_by_platform.setdefault(entry.get("platform"), []).append(entry)
+        guaranteed_achievements = []
+        leftover_achievements = []
+        for platform_entries in achievements_by_platform.values():
+            platform_entries.sort(key=lambda a: a.get("unlocked_at") or "", reverse=True)
+            guaranteed_achievements.extend(platform_entries[:MASTER_RECENT_ACHIEVEMENTS_RESERVED_PER_PLATFORM])
+            leftover_achievements.extend(platform_entries[MASTER_RECENT_ACHIEVEMENTS_RESERVED_PER_PLATFORM:])
+        leftover_achievements.sort(key=lambda a: a.get("unlocked_at") or "", reverse=True)
+        remaining_budget = max(0, MAX_RECENT_ACHIEVEMENT_UNLOCKS - len(guaranteed_achievements))
+        final_achievements = guaranteed_achievements + leftover_achievements[:remaining_budget]
+        final_achievements.sort(key=lambda a: a.get("unlocked_at") or "", reverse=True)
+        new_attrs["recent_achievements"] = final_achievements
         new_attrs["all_time_total_hours"] = round(master_all_time_hours, 1)
         new_attrs["all_time_session_count"] = master_all_time_sessions
         new_attrs["all_time_top_games"] = top_n_games(master_all_time_seconds_by_game, 10)
@@ -3202,9 +3221,24 @@ class PCGamingSensor(RestoreSensor):
         self._attr_extra_state_attributes["recent_sessions"] = sorted(
             merged_sessions, key=lambda r: r.get("start_time") or "", reverse=True
         )[:MAX_RECENT_SESSIONS]
-        self._attr_extra_state_attributes["recent_achievements"] = sorted(
-            merged_achievements, key=lambda a: a.get("unlocked_at") or "", reverse=True
-        )[:MAX_RECENT_ACHIEVEMENT_UNLOCKS]
+        # Same per-platform starvation risk as MasterGamingSensor's own
+        # cross-platform merge (see _update_master_state) -- a flat global
+        # sort+cap here would let one much-more-active PC platform (Steam
+        # vs. Playnite) squeeze the other out of every slot entirely.
+        achievements_by_platform = {}
+        for entry in merged_achievements:
+            achievements_by_platform.setdefault(entry.get("platform"), []).append(entry)
+        guaranteed_achievements = []
+        leftover_achievements = []
+        for platform_entries in achievements_by_platform.values():
+            platform_entries.sort(key=lambda a: a.get("unlocked_at") or "", reverse=True)
+            guaranteed_achievements.extend(platform_entries[:MASTER_RECENT_ACHIEVEMENTS_RESERVED_PER_PLATFORM])
+            leftover_achievements.extend(platform_entries[MASTER_RECENT_ACHIEVEMENTS_RESERVED_PER_PLATFORM:])
+        leftover_achievements.sort(key=lambda a: a.get("unlocked_at") or "", reverse=True)
+        remaining_budget = max(0, MAX_RECENT_ACHIEVEMENT_UNLOCKS - len(guaranteed_achievements))
+        final_achievements = guaranteed_achievements + leftover_achievements[:remaining_budget]
+        final_achievements.sort(key=lambda a: a.get("unlocked_at") or "", reverse=True)
+        self._attr_extra_state_attributes["recent_achievements"] = final_achievements
         self._attr_extra_state_attributes["color_extraction_enabled"] = utils.ENABLE_VIBRANT_COLOR
         self._attr_extra_state_attributes["achievement_tracking_enabled"] = utils.ENABLE_ACHIEVEMENT_TRACKING
 

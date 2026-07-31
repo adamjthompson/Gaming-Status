@@ -21,6 +21,14 @@ MAX_RECENT_SESSIONS = 20
 # a single game completion can unlock a dozen+ achievements at once, and
 # that burst shouldn't evict another platform's/game's older history.
 MAX_RECENT_ACHIEVEMENT_UNLOCKS = 30
+# When a sub/master sensor merges recent_achievements across multiple
+# platform sensors for one player, each platform present is guaranteed at
+# least this many of its own most-recent entries in the final capped list,
+# so a much-more-active platform (e.g. Xbox) can't fully starve a quieter
+# one (e.g. PlayStation, untouched for months) out of every slot. The
+# remaining budget up to MAX_RECENT_ACHIEVEMENT_UNLOCKS is still filled by
+# pure global recency.
+MASTER_RECENT_ACHIEVEMENTS_RESERVED_PER_PLATFORM = 5
 
 # Discord's own documented, fixed application_id for its Xbox account-
 # connection integration (https://docs.discord.food/resources/presence,
