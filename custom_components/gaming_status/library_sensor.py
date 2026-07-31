@@ -47,13 +47,22 @@ class TrophyLibrarySummarySensor(CoordinatorEntity, SensorEntity):
         # _backfill_done is otherwise a private coordinator attribute.
         backfill_done = getattr(self.coordinator, "_backfill_done", {}) or {}
         platforms_data = data.get("platforms", {}) or {}
+        backfill_by_platform = {}
         backfill_total = 0
         backfill_pending = 0
         for platform in ("xbox", "playstation"):
             games = (platforms_data.get(platform) or {}).get("games", [])
             done = backfill_done.get(platform, {})
+            platform_pending = sum(1 for g in games if str(g.get("id")) not in done)
+            # Broken out per-platform in addition to the combined totals
+            # below -- the combined figure alone can't tell "PSN backfill is
+            # still in progress" apart from "PSN backfill finished but
+            # Xbox's is what's actually still pending," which otherwise
+            # requires reading the coordinator's private state directly to
+            # answer.
+            backfill_by_platform[platform] = {"pending": platform_pending, "total": len(games)}
             backfill_total += len(games)
-            backfill_pending += sum(1 for g in games if str(g.get("id")) not in done)
+            backfill_pending += platform_pending
         return {
             "total_achievements_possible": data.get("total_achievements_possible"),
             "total_gamerscore": data.get("total_gamerscore"),
@@ -67,6 +76,7 @@ class TrophyLibrarySummarySensor(CoordinatorEntity, SensorEntity):
             "achievement_backfill_pending": backfill_pending,
             "achievement_backfill_total": backfill_total,
             "achievement_backfill_complete": backfill_pending == 0,
+            "achievement_backfill_by_platform": backfill_by_platform,
             "games": data.get("games"),
         }
 
