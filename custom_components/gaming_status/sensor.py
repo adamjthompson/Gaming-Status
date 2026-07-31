@@ -42,7 +42,7 @@ from .const import (
     MIN_ACHIEVEMENT_RECHECK_SECONDS,
     OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN,
     OPT_LIBRARY_SCAN_INTERVAL_HOURS, DEFAULT_LIBRARY_SCAN_INTERVAL_HOURS,
-    DISCORD_CONSOLE_SUPPRESS_COOLDOWN_SECONDS,
+    DISCORD_XBOX_CONNECTION_APP_ID,
 )
 
 from .library_scan import LibraryScanCoordinator
@@ -178,11 +178,21 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._ha_offline_timestamp = None
         self._last_online_valid_timestamp = None
         self._last_game_stopped_timestamp = None
-        # Discord-only: cooldown timestamp until which a sibling console's
-        # recent activity keeps suppressing this sensor's own reported game,
-        # even after that console sensor itself has already gone offline --
-        # see the "discord" branch of _get_platform_data.
-        self._discord_console_suppress_until = None
+        # Discord-only: event-freshness tracking used by the "discord"
+        # branch of _get_platform_data to tell a genuinely NEW Discord
+        # presence event apart from a stale one still describing a console
+        # session that already ended (Discord's own gateway/account-
+        # connection relay has its own independent latency, decoupled from
+        # the real console state). _discord_last_event_at only advances on
+        # an actual SUBSTANCE change in what Discord reports (see
+        # _async_discord_update's _discord_last_reported_key comparison) --
+        # not on every bus event received, since Discord's gateway can
+        # re-fire presence-update events that merely re-announce the same
+        # already-known activity, which would otherwise always look "just
+        # now" and defeat this check entirely.
+        self._discord_last_event_at = None
+        self._discord_last_reported_key = None
+        self._console_last_active_at = None
 
         # Artwork Caches
         self._cached_game_cover = None
@@ -731,23 +741,51 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     if _cs and str(_cs.state).lower() not in ["offline", "unavailable", "unknown", "source missing", "none", ""]:
                         console_active = True
                         break
-                # Discord's gateway has its own independent latency/caching,
-                # decoupled from the console's real state -- a bare "is the
-                # console active RIGHT NOW" check isn't enough, since a stale
-                # "still playing X" event can arrive from Discord just after
-                # the console sensor itself flips to offline, registering as
-                # a brand-new session for a game that already ended. Keep
-                # suppressing for a short cooldown after the console was last
-                # seen active, giving Discord's own gateway time to catch up.
-                now_dt = dt_util.now()
-                if console_active:
-                    self._discord_console_suppress_until = now_dt + timedelta(
-                        seconds=DISCORD_CONSOLE_SUPPRESS_COOLDOWN_SECONDS
+
+                # Layer 1 (definitive, no timing involved): Discord's Xbox
+                # account-connection integration always reports this exact,
+                # fixed application_id -- confirmed via Discord's own API
+                # docs -- regardless of which game is actually being played.
+                # If this player also has a real Xbox sensor configured,
+                # that sensor is strictly more authoritative and timely, so
+                # this Discord data is pure redundant (and laggy) noise --
+                # suppress it outright. If no Xbox sensor is configured for
+                # this player at all, Discord's relay is the only signal
+                # available, so still let it through.
+                is_xbox_connection_relay = app_id == DISCORD_XBOX_CONNECTION_APP_ID
+                has_native_xbox_sibling = self.hass.states.get(
+                    self._desired_entity_id.replace(f"_{self._gaming_type}", "_xbox")
+                ) is not None
+
+                if is_xbox_connection_relay and has_native_xbox_sibling:
+                    suppress_for_console = True
+                else:
+                    # Layer 2 (general safety net -- covers anything Layer 1
+                    # doesn't, e.g. PlayStation's own connection relay, which
+                    # has no equivalent documented fixed application_id).
+                    # Discord's gateway has its own independent latency,
+                    # decoupled from the console's real state -- a bare "is
+                    # the console active RIGHT NOW" check isn't enough,
+                    # since a stale "still playing X" event can arrive from
+                    # Discord just after the console sensor itself flips to
+                    # offline, registering as a brand-new session for a game
+                    # that already ended. Instead of guessing a fixed
+                    # cooldown duration, only trust Discord's reported game
+                    # once it has delivered a genuinely NEW event (tracked
+                    # in _async_discord_update, not here) AFTER the console
+                    # was last confirmed active -- correct regardless of how
+                    # long Discord's real-world relay lag turns out to be.
+                    now_dt = dt_util.now()
+                    if console_active:
+                        self._console_last_active_at = now_dt
+                    suppress_for_console = console_active or (
+                        self._discord_last_event_at is None
+                        or (
+                            self._console_last_active_at is not None
+                            and self._discord_last_event_at <= self._console_last_active_at
+                        )
                     )
-                suppress_for_console = console_active or (
-                    self._discord_console_suppress_until is not None
-                    and now_dt < self._discord_console_suppress_until
-                )
+
                 if self._is_game_active_elsewhere(state) or suppress_for_console:
                     data["is_online"] = False
                 else:
@@ -1948,8 +1986,25 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
     @callback
     def _async_discord_update(self, event):
+        # A genuinely NEW piece of information from Discord's gateway --
+        # recorded here (not inside _get_platform_data, which re-evaluates
+        # the same cached state on every poll cycle) so the "discord" branch
+        # can tell a fresh event apart from a stale one still describing an
+        # already-ended console session.
+        #
+        # Only advance the timestamp on a genuine SUBSTANCE change (the
+        # reported game/app_id actually different from last time) --
+        # Discord's gateway can re-fire on_presence_update/on_member_update
+        # for reasons unrelated to the activity itself (e.g. an idle/status
+        # change bundled alongside an unchanged "still playing X"), and
+        # every one of those would otherwise look "just now" relative to
+        # any past console-active timestamp, defeating this check entirely.
         data = event.data
         state = data["state"]
+        reported_key = (state, data["app_id"])
+        if reported_key != self._discord_last_reported_key:
+            self._discord_last_reported_key = reported_key
+            self._discord_last_event_at = dt_util.now()
         attrs = {
             "application_id": data["app_id"],
             "discord_data": {

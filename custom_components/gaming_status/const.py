@@ -22,12 +22,14 @@ MAX_RECENT_SESSIONS = 20
 # that burst shouldn't evict another platform's/game's older history.
 MAX_RECENT_ACHIEVEMENT_UNLOCKS = 30
 
-# How long to keep suppressing Discord's reported game after a sibling
-# console (Xbox/PlayStation) was last seen active -- Discord's gateway has
-# its own independent latency/caching, so a stale "still playing X" event
-# can otherwise arrive just after the console sensor itself goes offline,
-# registering as a brand-new session for a game that already ended.
-DISCORD_CONSOLE_SUPPRESS_COOLDOWN_SECONDS = 180
+# Discord's own documented, fixed application_id for its Xbox account-
+# connection integration (https://docs.discord.food/resources/presence,
+# mirroring Discord's official API docs) -- every game relayed through
+# Discord's Xbox Connection reports this exact ID, never the game's own
+# individual Discord Rich Presence application_id. A reliable, timing-
+# independent signal that a reported activity is a stale console relay,
+# not a native PC report.
+DISCORD_XBOX_CONNECTION_APP_ID = "622174530214821906"
 
 # --- Library-wide achievement discovery (delta detection + paced backfill) ---
 # Per-cycle cap on NEW per-title achievement/trophy detail lookups a single
