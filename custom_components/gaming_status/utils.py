@@ -351,7 +351,14 @@ async def fetch_game_grid_urls_remote(hass, game_name):
     Kept as its own small function rather than threaded through
     fetch_game_assets's local-cache/custom-override/memory-cache machinery,
     which doesn't apply here and would risk destabilizing that already-
-    exercised current-game path for a feature that needs none of it.
+    exercised current-game path for a feature that needs none of it. The
+    user's CUSTOM_GRID/HERO/LOGO/ICON_MAP overrides are the one piece of
+    that machinery still worth checking here, though -- a manual override is
+    exactly as relevant to a library-scanned game's artwork as it is to a
+    currently-playing one, and since an override is either a direct remote
+    URL or a local path reference, honoring it needs no download/caching
+    step, so it doesn't reintroduce any of the machinery this function
+    otherwise deliberately avoids.
 
     Paced by its own shared rate limiter (5 capacity, 2/sec) -- a library
     scan can mean hundreds of lookups in one pass, unlike the current-game
@@ -359,7 +366,30 @@ async def fetch_game_grid_urls_remote(hass, game_name):
     {"grid": None, "hero": None, "logo": None, "icon": None} on any
     failure or missing API key."""
     assets = {"grid": None, "hero": None, "logo": None, "icon": None}
-    if not game_name or not STEAMGRIDDB_API_KEY:
+    if not game_name:
+        return assets
+
+    search_name = _normalize_game_name(game_name)
+    override_maps = {
+        "grid": CUSTOM_GRID_MAP, "hero": CUSTOM_HERO_MAP,
+        "logo": CUSTOM_LOGO_MAP, "icon": CUSTOM_ICON_MAP,
+    }
+    for asset_type, map_dict in override_maps.items():
+        remote_url = safe_url(map_dict.get(search_name))
+        if not remote_url:
+            continue
+        if not remote_url.startswith("http") and remote_url.startswith("/local/"):
+            try:
+                base_url = get_url(hass, prefer_external=True)
+            except NoURLAvailableError:
+                base_url = ""
+            assets[asset_type] = f"{base_url}{remote_url}"
+        else:
+            assets[asset_type] = remote_url
+
+    # If the user provided all 4 overrides, skip the SteamGridDB API
+    # entirely -- same short-circuit fetch_game_assets already applies.
+    if all(assets.values()) or not STEAMGRIDDB_API_KEY:
         return assets
 
     try:
@@ -397,6 +427,8 @@ async def fetch_game_grid_urls_remote(hass, game_name):
             return score
 
         for asset_type, endpoint in endpoints.items():
+            if assets[asset_type]:
+                continue  # Already filled by an override above.
             await limiter.async_acquire(timeout=RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS)
             async with session.get(endpoint, headers=headers, timeout=10) as resp:
                 if resp.status != 200:
@@ -791,7 +823,7 @@ async def fetch_steam_achievements(hass, steamid64, api_key, appid):
                 STEAM_SCHEMA_CACHE.popitem(last=False)
 
         if not total:
-            return {"earned": 0, "total": 0, "recent_unlocks": []}
+            return {"earned": 0, "total": 0, "recent_unlocks": [], "last_achievement_at": None}
 
         achievements = await client.async_get_player_achievements(steamid64, appid)
         earned_achievements = [a for a in achievements if a.get("achieved")]
@@ -808,7 +840,20 @@ async def fetch_steam_achievements(hass, steamid64, api_key, appid):
             }
             for a in earned_achievements[:RECENT_UNLOCKS_LIMIT]
         ]
-        return {"earned": len(earned_achievements), "total": total, "recent_unlocks": recent_unlocks}
+        # Most recent achievement unlock, if any -- Steam's own analog to
+        # Xbox's last-played timestamp / PSN's last-trophy-earned timestamp
+        # (see _scan_steam's use of this as that game's _activity_ts).
+        # earned_achievements is already sorted newest-first above, so this
+        # is free; None for a game with zero achievements earned yet, same
+        # as a game with no achievements at all.
+        last_achievement_at = (
+            datetime.fromtimestamp(earned_achievements[0]["unlocktime"], tz=timezone.utc).isoformat()
+            if earned_achievements and earned_achievements[0].get("unlocktime") else None
+        )
+        return {
+            "earned": len(earned_achievements), "total": total, "recent_unlocks": recent_unlocks,
+            "last_achievement_at": last_achievement_at,
+        }
     except Exception as e:
         _LOGGER.debug("[Gaming Status] Steam achievement fetch failed for appid %s: %s", appid, e)
         return None

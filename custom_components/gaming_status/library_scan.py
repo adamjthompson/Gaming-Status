@@ -53,6 +53,7 @@ from .const import (
     PLATFORM_CONFIG,
     XBOX_LIBRARY_BACKFILL_BUDGET_PER_CYCLE,
     PSN_LIBRARY_BACKFILL_BUDGET_PER_CYCLE,
+    LIBRARY_BACKFILL_MAX_ATTEMPTS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -138,6 +139,12 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         # cache is), since this tracks per-player unlock HISTORY, not a
         # game-intrinsic fact like an achievement's total count.
         self._backfill_done = {"xbox": {}, "playstation": {}}
+        # {"xbox"|"playstation": {title_id: failure_count}} -- consecutive
+        # failed detail-fetch attempts for a title still in _backfill_done.
+        # Cleared the moment a title actually resolves; a title that never
+        # resolves reaches LIBRARY_BACKFILL_MAX_ATTEMPTS and gets given up
+        # on (see _backfill_platform) instead of retrying forever.
+        self._backfill_attempts = {"xbox": {}, "playstation": {}}
 
     async def async_load_stored(self):
         """Restore the last scan's result + resolved-art cache immediately
@@ -148,6 +155,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             self._art_cache = stored.get("art_cache") or {}
             self._activity_cursor = stored.get("activity_cursor") or {"xbox": {}, "playstation": {}}
             self._backfill_done = stored.get("backfill_done") or {"xbox": {}, "playstation": {}}
+            self._backfill_attempts = stored.get("backfill_attempts") or {"xbox": {}, "playstation": {}}
             self.data = stored.get("data")
 
     async def async_schedule_or_refresh(self):
@@ -203,6 +211,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         await self._store.async_save({
             "data": result, "art_cache": self._art_cache,
             "activity_cursor": self._activity_cursor, "backfill_done": self._backfill_done,
+            "backfill_attempts": self._backfill_attempts,
         })
         return result
 
@@ -243,16 +252,30 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
     async def _async_art_for(self, title):
         """External-URL-only SteamGridDB lookup (see
         utils.fetch_game_grid_urls_remote) -- never downloaded/cached
-        locally, unlike the current-game sensors' artwork. Persisted here by
-        resolved title so a 12h+ rescan doesn't repeat the search for games
-        already resolved."""
-        if not utils.STEAMGRIDDB_API_KEY or not title:
+        locally, unlike the current-game sensors' artwork. The SteamGridDB-
+        sourced result is persisted here by resolved title so a 12h+ rescan
+        doesn't repeat the search for games already resolved -- but a title
+        with a manual CUSTOM_GRID/HERO/LOGO/ICON_MAP override skips this
+        cache entirely and re-resolves fresh every scan (a cheap in-memory
+        dict lookup for the override itself, still no local download either
+        way), so a newly-added or changed override takes effect on the very
+        next scan instead of being shadowed by whatever was cached before it
+        existed. Not gated on STEAMGRIDDB_API_KEY here -- a library scanned
+        entirely through manual overrides, with no SteamGridDB key
+        configured at all, is a valid setup fetch_game_grid_urls_remote
+        already handles on its own."""
+        if not title:
             return {"grid": None, "hero": None, "logo": None, "icon": None}
         cache_key = _normalize_game_name(title)
-        if cache_key in self._art_cache:
+        has_override = any(
+            cache_key in m for m in (
+                utils.CUSTOM_GRID_MAP, utils.CUSTOM_HERO_MAP, utils.CUSTOM_LOGO_MAP, utils.CUSTOM_ICON_MAP,
+            )
+        )
+        if not has_override and cache_key in self._art_cache:
             return self._art_cache[cache_key]
         art = await utils.fetch_game_grid_urls_remote(self.hass, title)
-        if any(art.values()):
+        if any(art.values()) and not has_override:
             self._art_cache[cache_key] = art
         return art
 
@@ -296,17 +319,26 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             # recent_achievements and the Library sensor's games list.
             name = utils._format_game_name_for_display(name)
             result = await utils.fetch_steam_achievements(self.hass, steamid64, api_key, appid)
+            previous = previous_games.get(str(appid))
             if result is not None:
                 earned = result.get("earned", 0)
                 total = result.get("total", 0)
+                # Steam's own analog to Xbox's last-played timestamp / PSN's
+                # last-trophy-earned timestamp -- lets the Near Completion
+                # card's "exclude games not played in X months" filter work
+                # for Steam too, instead of leaving every Steam game exempt
+                # from it (see gaming-status-cards.js's use of _activity_ts).
+                # Falls back to the last known value rather than clearing it
+                # when this game has never had an achievement earned yet.
+                activity_ts = result.get("last_achievement_at") or (previous.get("_activity_ts") if previous else None)
             else:
                 # Fetch failed -- keep this game's last known counts rather
                 # than reporting 0/0 for it this cycle. Only a brand-new,
                 # never-successfully-scanned game has nothing to fall back
                 # to, in which case 0/0 is the best available answer.
-                previous = previous_games.get(str(appid))
                 earned = previous.get("achievements_earned", 0) if previous else 0
                 total = previous.get("achievements_total", 0) if previous else 0
+                activity_ts = previous.get("_activity_ts") if previous else None
                 _LOGGER.debug(
                     "Gaming Status: Steam achievement fetch failed for %s (appid %s) -- "
                     "keeping last known count (%s/%s) instead of zeroing it",
@@ -334,6 +366,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 "playtime_hours": round((game.get("playtime_forever") or 0) / 60, 1),
                 "game_cover_art": art.get("grid"), "game_hero_art": art.get("hero"),
                 "game_logo_art": art.get("logo"), "game_icon_art": art.get("icon"),
+                "_activity_ts": activity_ts,
             })
 
         # Carry forward any previously-tracked game simply ABSENT from this
@@ -522,7 +555,23 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             np_comm_id = title.get("npCommunicationId")
             if np_comm_id:
                 seen_ids.add(np_comm_id)
-            if not name or _normalize_game_name(name) in self._excluded_normalized:
+            if not name:
+                continue
+            # PSN's own trophyTitleName metadata literally includes a
+            # "Trophies" suffix for some titles -- most often older PS3-era
+            # HD remaster/collection trophy sets, e.g. "God of War
+            # Trophies" -- rather than just the game's name. There's no
+            # cleaner alternative name field in the API response to use
+            # instead, and no real PlayStation title's actual marketing
+            # name ends this way, so stripping it is always a display
+            # improvement, never a false positive. Done before the
+            # exclusion check + Title Overrides below so both work off the
+            # clean name, same as a user would expect to reference it.
+            if name.rstrip().lower().endswith(" trophies"):
+                stripped = name.rstrip()[:-len(" trophies")].strip()
+                if stripped:
+                    name = stripped
+            if _normalize_game_name(name) in self._excluded_normalized:
                 continue
             # Apply the user's Title Overrides + display cleanup, matching
             # the real-time "currently playing" pipeline (see the Steam
@@ -653,12 +702,14 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         await self._store.async_save({
             "data": self.data, "art_cache": self._art_cache,
             "activity_cursor": self._activity_cursor, "backfill_done": self._backfill_done,
+            "backfill_attempts": self._backfill_attempts,
         })
 
     async def _backfill_platform(self, platform, budget):
         games = self.data.get("platforms", {}).get(platform, {}).get("games", [])
         done = self._backfill_done.setdefault(platform, {})
         cursor = self._activity_cursor.setdefault(platform, {})
+        attempts = self._backfill_attempts.setdefault(platform, {})
         pending = [g for g in games if str(g["id"]) not in done]
         if not pending:
             return 0
@@ -694,7 +745,25 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                     self.hass, entry, session, xuid, title_id, recent_limit=utils.RECENT_UNLOCKS_LIMIT
                 )
                 if detail is None:
+                    # A title stuck here forever would occupy this same slot
+                    # in pending[:budget] every future cycle, permanently
+                    # starving every other still-pending title queued behind
+                    # it. Give up on it (using whatever summary data the
+                    # bulk scan already has) once it's failed too many times
+                    # in a row, so the pass can actually reach completion.
+                    attempts[title_id] = attempts.get(title_id, 0) + 1
+                    if attempts[title_id] >= LIBRARY_BACKFILL_MAX_ATTEMPTS:
+                        _LOGGER.warning(
+                            "Gaming Status: giving up on achievement detail for Xbox title '%s' "
+                            "(title_id %s) after %d failed attempts -- keeping its existing "
+                            "summary counts without per-achievement unlock detail",
+                            game["title"], title_id, attempts[title_id],
+                        )
+                        done[title_id] = True
+                        attempts.pop(title_id, None)
+                        resolved += 1
                     continue
+                attempts.pop(title_id, None)
                 if target_sensor is not None and detail.get("recent_unlocks"):
                     art = await self._async_art_for(game["title"])
                     target_sensor._ingest_recent_unlocks(
@@ -717,7 +786,21 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                     self.hass, npsso, account_id, game["title"], title_id=np_comm_id, include_recent_unlocks=True,
                 )
                 if detail is None:
+                    # See the matching Xbox comment above -- same head-of-
+                    # line-blocking risk applies here.
+                    attempts[np_comm_id] = attempts.get(np_comm_id, 0) + 1
+                    if attempts[np_comm_id] >= LIBRARY_BACKFILL_MAX_ATTEMPTS:
+                        _LOGGER.warning(
+                            "Gaming Status: giving up on trophy detail for PlayStation title '%s' "
+                            "(id %s) after %d failed attempts -- keeping its existing summary "
+                            "counts without per-trophy unlock detail",
+                            game["title"], np_comm_id, attempts[np_comm_id],
+                        )
+                        done[np_comm_id] = True
+                        attempts.pop(np_comm_id, None)
+                        resolved += 1
                     continue
+                attempts.pop(np_comm_id, None)
                 if target_sensor is not None and detail.get("recent_unlocks"):
                     art = await self._async_art_for(game["title"])
                     target_sensor._ingest_recent_unlocks(

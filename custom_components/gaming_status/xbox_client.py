@@ -114,7 +114,7 @@ async def async_get_achievements(client, xuid, title_id, recent_limit=10):
     unlocked_at). Rate-limited client-side by pythonxbox itself
     (AchievementsProvider.RATE_LIMITS: ~100/15s burst, 300/300s sustained) --
     no separate token-bucket limiter needed here. Never raises; returns None
-    on failure."""
+    on failure (after also trying the legacy Xbox 360 endpoint below)."""
     try:
         response = await client.achievements.get_achievements_xboxone_gameprogress(xuid, title_id)
         achievements = response.achievements or []
@@ -148,7 +148,47 @@ async def async_get_achievements(client, xuid, title_id, recent_limit=10):
             ],
         }
     except Exception as e:
-        _LOGGER.debug("[Gaming Status] Xbox achievement fetch failed for xuid %s title %s: %s", xuid, title_id, e)
+        _LOGGER.debug(
+            "[Gaming Status] Xbox modern achievement fetch failed for xuid %s title %s (%s) -- "
+            "trying the legacy Xbox 360 endpoint next",
+            xuid, title_id, e,
+        )
+        return await _async_get_achievements_legacy_360(client, xuid, title_id, recent_limit)
+
+
+async def _async_get_achievements_legacy_360(client, xuid, title_id, recent_limit=10):
+    """Fallback for titles the modern xboxone_gameprogress endpoint can't
+    resolve -- Xbox 360 (including backward-compatible) titles predate that
+    schema entirely and 404 against it. Achievement360's own `unlocked` bool
+    is the earned signal here, unlike the modern schema's progress_state --
+    no placeholder-timestamp ambiguity to work around. Never raises; returns
+    None on failure."""
+    try:
+        response = await client.achievements.get_achievements_xbox360_all(xuid, title_id)
+        achievements = response.achievements or []
+        earned = [a for a in achievements if a.unlocked]
+        earned.sort(key=lambda a: a.time_unlocked, reverse=True)
+
+        return {
+            "earned": len(earned),
+            "total": len(achievements),
+            "recent_unlocks": [
+                {
+                    "name": a.name,
+                    "description": a.description,
+                    "unlocked_at": a.time_unlocked.isoformat(),
+                    # Achievement360 has no media_assets list to source an
+                    # icon URL from (unlike the modern Achievement model).
+                    "icon_url": None,
+                }
+                for a in earned[:recent_limit]
+            ],
+        }
+    except Exception as e:
+        _LOGGER.debug(
+            "[Gaming Status] Xbox legacy 360 achievement fetch also failed for xuid %s title %s: %s",
+            xuid, title_id, e,
+        )
         return None
 
 

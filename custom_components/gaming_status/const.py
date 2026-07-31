@@ -55,6 +55,14 @@ LIBRARY_BACKFILL_INITIAL_DELAY_SECONDS = 60
 # coordinators don't simultaneously hammer the same shared rate-limited
 # bucket (PSN's especially, since it blocks rather than failing open).
 LIBRARY_BACKFILL_STAGGER_SECONDS = 15
+# A title whose per-title detail fetch keeps failing (private/delisted
+# title, a legacy schema our client can't parse, etc.) would otherwise
+# retry forever, occupying its slot in every future cycle's budget and
+# starving every other still-pending title queued behind it. After this
+# many failed attempts, _backfill_platform gives up on that one title
+# (marks it done with whatever summary data the bulk scan already has)
+# so the pass can actually reach completion instead of stalling forever.
+LIBRARY_BACKFILL_MAX_ATTEMPTS = 5
 
 # ZOMBIE ATTRIBUTE CLEANUP
 ZOMBIE_ATTRIBUTES = ["grace_period_active", "xbox_last_seen_game", "debug_sync"]
