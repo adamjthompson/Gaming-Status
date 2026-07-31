@@ -1055,6 +1055,16 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     if not existing.get(field) and unlock.get(field):
                         existing[field] = unlock.get(field)
                         patched = True
+                # Unlike the fields above (filled only if missing), "game"
+                # is refreshed unconditionally to the freshly-formatted
+                # name -- title-cleanup rules (trademark-symbol stripping,
+                # Title Overrides/Cleanups) can be added or changed after
+                # an entry was first recorded, and the dedup key this
+                # matched on is already normalized-name-based, so there's
+                # no risk of this clobbering a different game's entry.
+                if existing.get("game") != game_name:
+                    existing["game"] = game_name
+                    patched = True
                 continue
             new_entry = {
                 "game": game_name,
@@ -1758,6 +1768,27 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._all_time_game_seconds = {}
             self._all_time_session_count = 0
             self._all_time_seeded = False
+
+        # --- TEMPORARY ONE-OFF MIGRATION -- SAFE TO DELETE THIS BLOCK ---
+        # Re-cleans already-recorded recent_achievements "game" names that
+        # predate _ingest_recent_unlocks's game-name-refresh fix. Existing
+        # entries never got their "game" field retroactively cleaned by
+        # normal re-ingestion (that only happens on NEW activity for that
+        # title), so a game with nothing new since a title-cleanup rule
+        # (trademark-symbol stripping, Title Overrides/Cleanups) was added
+        # or changed stays stuck showing its original, uncleaned name
+        # forever. Idempotent and cheap (only rewrites entries that
+        # actually differ) -- once every existing installation has run
+        # this at least once, it and this comment can be removed entirely.
+        _migrated_any_achievement_name = False
+        for _achievement_entry in self._recent_achievements:
+            _cleaned_game_name = utils._format_game_name_for_display(_achievement_entry.get("game"))
+            if _cleaned_game_name and _cleaned_game_name != _achievement_entry.get("game"):
+                _achievement_entry["game"] = _cleaned_game_name
+                _migrated_any_achievement_name = True
+        if _migrated_any_achievement_name:
+            self._store.async_delay_save(self._get_store_data, 5.0)
+        # --- END TEMPORARY ONE-OFF MIGRATION ---
 
         if not getattr(self, "_all_time_seeded", False):
             # One-time backfill for installs upgrading from before this feature
