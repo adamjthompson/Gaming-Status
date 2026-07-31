@@ -68,23 +68,6 @@ def _percent(earned, total):
     # "None%" in dashboards.
     if not total:
         return 0.0
-    if earned > total:
-        # Impossible for a real player -- earned can never exceed the true
-        # total. This is a sure sign the platform's own reported total is
-        # transiently too low (a known Xbox title-history/per-title
-        # achievement-list reliability issue -- see _scan_xbox's "total <
-        # earned" sanity re-fetch, which doesn't always fully correct it),
-        # not that the player somehow exceeded 100%. Reporting this as
-        # literal 100%+ would be a false positive for anything that filters
-        # on "fully complete" (the 100% Completion / Near Completion cards)
-        # -- capping just under 100% keeps it out of that bucket without
-        # claiming a completion state we can't actually verify.
-        _LOGGER.debug(
-            "Gaming Status: earned (%s) exceeds total (%s) -- platform-reported total looks "
-            "unreliable this scan, capping percent below 100 instead of reporting false completion",
-            earned, total,
-        )
-        return 99.9
     return round(100 * earned / total, 1)
 
 
@@ -377,19 +360,14 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         target_sensor = _target_sensor(self.hass, self._owner_name, "xbox")
         xbox_cursor = self._activity_cursor.setdefault("xbox", {})
         xbox_done = self._backfill_done.setdefault("xbox", {})
-        # Keyed by title_id (str) -- same "never let a per-title count go
-        # backward" floor Steam's per-appid loop already has, generalized
-        # here since achievements/gamerscore can only ever increase for a
-        # real player. Xbox's bulk title-history response has no per-title
-        # error signal (unlike Steam's one-call-per-game loop, there's
-        # nothing to catch a "this one fetch failed" exception on) -- but
-        # Xbox Live's own achievement sync is documented as asynchronous/
-        # eventually-consistent (Microsoft states this can take up to 72h),
-        # so a given scan's bulk data for one title can be transiently
-        # stale/incomplete relative to what a previous scan already
-        # correctly recorded. Without this floor, that shows up as the
-        # whole-library total visibly dropping and not recovering until
-        # the next scan happens to catch fresher data.
+        # Keyed by title_id (str) -- used below only to carry forward a
+        # title that's entirely ABSENT from this scan's results (see the
+        # "carry forward" loop at the end of this method). Deliberately NOT
+        # used to floor individual titles' earned/total counts against
+        # their previous values -- see the comment further down where
+        # `earned`/`total` are finalized for why that specific protection
+        # was removed (it could permanently lock in a one-time bad HIGH
+        # reading with no way to self-correct).
         previous_games = {
             g.get("id"): g
             for g in (self.data or {}).get("platforms", {}).get("xbox", {}).get("games", [])
@@ -469,19 +447,28 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
 
             gs_earned = getattr(achievement, "current_gamerscore", 0) or 0
             gs_total = getattr(achievement, "total_gamerscore", 0) or 0
+            # Deliberately NOT floored against previous_games (unlike Steam's
+            # per-appid loop) -- a floor here can't tell a transient LOW
+            # reading apart from a one-time bad HIGH reading, and the latter
+            # gets permanently locked in with no path to self-correct (a
+            # single bad "earned" value from a stale/mis-associated read
+            # would floor every future -- correct -- lower reading back up
+            # forever, since achievements can only go up). Trusting each
+            # scan's fresh data directly means an occasional single-scan
+            # blip self-corrects next cycle instead of freezing wrong
+            # forever; whole-list failures are still covered by
+            # _scan_platform_safely, and a title missing from this scan
+            # entirely is still covered by the "carry forward" loop below.
             previous = previous_games.get(title_id)
-            if previous:
-                if earned < previous.get("achievements_earned", 0) or total < previous.get("achievements_total", 0):
-                    _LOGGER.debug(
-                        "Gaming Status: Xbox title-history data for %s (title_id %s) looks stale this "
-                        "scan (%s/%s vs previously-recorded %s/%s) -- keeping the higher, last known count",
-                        name, title_id, earned, total,
-                        previous.get("achievements_earned", 0), previous.get("achievements_total", 0),
-                    )
-                earned = max(earned, previous.get("achievements_earned", 0))
-                total = max(total, previous.get("achievements_total", 0))
-                gs_earned = max(gs_earned, previous.get("gamerscore_earned", 0))
-                gs_total = max(gs_total, previous.get("gamerscore_total", 0))
+            if previous and (earned < previous.get("achievements_earned", 0) or total < previous.get("achievements_total", 0)):
+                _LOGGER.debug(
+                    "Gaming Status: Xbox title-history data for %s (title_id %s) shows a decrease "
+                    "vs previously-recorded %s/%s -> %s/%s this scan -- trusting the fresh read "
+                    "rather than flooring it back up",
+                    name, title_id,
+                    previous.get("achievements_earned", 0), previous.get("achievements_total", 0),
+                    earned, total,
+                )
             games.append({
                 "title": name, "platform": "xbox", "id": title_id,
                 "achievements_earned": earned, "achievements_total": total,
@@ -493,13 +480,15 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             })
 
         # Carry forward any previously-tracked title simply ABSENT from this
-        # scan's results entirely (not just present with a lower count,
-        # which the per-title floor above already handles) -- a large
-        # enough title-history response can come back incomplete without
-        # tripping any error at all, and a title tracked last cycle doesn't
-        # actually vanish from someone's real Xbox library. Carrying it
-        # forward unchanged is strictly safer than letting its contribution
-        # to the total quietly disappear.
+        # scan's results entirely -- a large enough title-history response
+        # can come back incomplete without tripping any error at all, and a
+        # title tracked last cycle doesn't actually vanish from someone's
+        # real Xbox library. Carrying it forward unchanged is strictly
+        # safer than letting its contribution to the total quietly
+        # disappear. (This is distinct from a title that IS present this
+        # scan but with a different count -- that case is trusted at face
+        # value now, see the comment above where earned/total are
+        # finalized.)
         for prev_id, prev_game in previous_games.items():
             if prev_id not in seen_ids:
                 games.append(prev_game)
