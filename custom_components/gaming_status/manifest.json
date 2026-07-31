@@ -13,5 +13,5 @@
     "nextcord>=3.1,<4.0",
     "python-xbox>=0.2.0"
   ],
-  "version": "4.0.0-gamma7"
+  "version": "4.0.0-gamma8"
 }
