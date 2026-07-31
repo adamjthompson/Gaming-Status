@@ -506,7 +506,19 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 "title": name, "platform": "xbox", "id": title_id,
                 "achievements_earned": earned, "achievements_total": total,
                 "gamerscore_earned": gs_earned, "gamerscore_total": gs_total,
-                "percent": _percent(earned, total),
+                # Gamerscore-based, not achievement-count-based (unlike
+                # Steam/PSN) -- confirmed live that achievements_total can
+                # undercount a DLC-spanning title (e.g. OUTRIDERS: bulk
+                # title-history reported achievements_total=32 when the real
+                # total across base game + 2 DLC packs is 52, while
+                # gamerscore_total correctly matched the real 1305 total).
+                # Gamerscore appears to be the more completely-aggregated
+                # field for titles like this, so it's the single signal used
+                # here rather than cross-checking the two against each
+                # other (a pattern this module has already been burned by
+                # twice this session -- see the removed 99.9%-cap and
+                # per-title-floor logic above).
+                "percent": _percent(gs_earned, gs_total),
                 "game_cover_art": art.get("grid"), "game_hero_art": art.get("hero"),
                 "game_logo_art": art.get("logo"), "game_icon_art": art.get("icon"),
                 "_activity_ts": last_played_iso,
