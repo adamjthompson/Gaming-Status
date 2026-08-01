@@ -1058,11 +1058,23 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 continue
             key = (game_key, console, unlock.get("name"))
             existing = existing_by_key.get(key)
+            if existing is None and console is not None:
+                # A legacy entry recorded before `console` tracking existed
+                # has no "console" field at all (reads as None here) --
+                # adopt this fresher console value onto it instead of
+                # inserting a duplicate. Only ever falls back for a
+                # None-console legacy entry; two entries that already have
+                # DIFFERENT known console values must stay separate, since
+                # that's the entire reason console is part of this key.
+                existing = existing_by_key.get((game_key, None, unlock.get("name")))
             if existing is not None:
                 for field in ("icon_url", "description", "tier"):
                     if not existing.get(field) and unlock.get(field):
                         existing[field] = unlock.get(field)
                         patched = True
+                if existing.get("console") != console:
+                    existing["console"] = console
+                    patched = True
                 # Unlike the fields above (filled only if missing), "game"
                 # is refreshed unconditionally to the freshly-formatted
                 # name -- title-cleanup rules (trademark-symbol stripping,
@@ -1796,6 +1808,52 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 _achievement_entry["game"] = _cleaned_game_name
                 _migrated_any_achievement_name = True
         if _migrated_any_achievement_name:
+            self._store.async_delay_save(self._get_store_data, 5.0)
+        # --- END TEMPORARY ONE-OFF MIGRATION ---
+
+        # --- TEMPORARY ONE-OFF MIGRATION -- SAFE TO DELETE THIS BLOCK ---
+        # Cleans up the fallout from a brief window where Xbox entries
+        # carried a "console" field derived from title.devices -- since
+        # removed (that field lists every device a title's ENTITLEMENT
+        # covers, e.g. an Xbox Play Anywhere title lists both PC and
+        # console for one purchase, not which device a given unlock
+        # actually happened on -- unlike PSN's genuinely per-console
+        # trophyTitlePlatform, which is kept). During that window, an old
+        # entry (no "console" field at all) and a freshly re-ingested copy
+        # of the SAME achievement (a real console value, not matching the
+        # old entry's key) briefly produced duplicate rows, before
+        # _ingest_recent_unlocks's legacy-entry fallback matching existed
+        # to prevent it. Strips "console" from every Xbox entry, then
+        # merges any now-identical duplicates (same normalized game +
+        # achievement name + unlocked_at), keeping whichever copy has the
+        # most fields already filled in. Idempotent -- once every existing
+        # installation has run this at least once, it and this comment can
+        # be removed entirely.
+        _migrated_duplicates = False
+        _xbox_label = PLATFORM_CONFIG.get("xbox", {}).get("name_suffix", "Xbox")
+        for _achievement_entry in self._recent_achievements:
+            if _achievement_entry.get("platform") == _xbox_label and _achievement_entry.get("console") is not None:
+                _achievement_entry["console"] = None
+                _migrated_duplicates = True
+
+        _seen_by_dupe_key = {}
+        _deduped_achievements = []
+        for _achievement_entry in self._recent_achievements:
+            _dupe_key = (
+                _normalize_game_name(_achievement_entry.get("game")),
+                _achievement_entry.get("name"), _achievement_entry.get("unlocked_at"),
+            )
+            _prior = _seen_by_dupe_key.get(_dupe_key)
+            if _prior is None:
+                _seen_by_dupe_key[_dupe_key] = _achievement_entry
+                _deduped_achievements.append(_achievement_entry)
+            else:
+                for _field in ("icon_url", "description", "tier", "console", "hero_art_url", "game_dominant_color"):
+                    if not _prior.get(_field) and _achievement_entry.get(_field):
+                        _prior[_field] = _achievement_entry.get(_field)
+                _migrated_duplicates = True
+        if _migrated_duplicates:
+            self._recent_achievements = _deduped_achievements
             self._store.async_delay_save(self._get_store_data, 5.0)
         # --- END TEMPORARY ONE-OFF MIGRATION ---
 

@@ -61,31 +61,23 @@ _LOGGER = logging.getLogger(__name__)
 _STORAGE_VERSION = 1
 _TIER_KEYS = ("bronze", "silver", "gold", "platinum")
 
-# Console/platform disambiguation for titles that exist as separate
-# entries per console generation (e.g. a PS3 disc version and a separate
-# PS4 remaster of the same game, sharing no other distinguishing text in
-# their name) -- there's no way to tell which is which from the title
-# alone. Surfaced as its own "console" field on each game entry (see
-# _scan_psn/_scan_xbox), deliberately never appended to `name`/`title` --
-# that would get silently truncated away in exactly the narrow-column
-# contexts where it matters most, and would also require the plain name
-# used for art lookup/matching to diverge from the displayed title.
+# Console disambiguation for PSN titles that exist as separate entries per
+# console generation (e.g. a PS3 disc version and a separate PS4 remaster
+# of the same game, sharing no other distinguishing text in their name) --
+# there's no way to tell which is which from the title alone. Surfaced as
+# its own "console" field on each game entry (see _scan_psn), deliberately
+# never appended to `name`/`title` -- that would get silently truncated
+# away in exactly the narrow-column contexts where it matters most, and
+# would also require the plain name used for art lookup/matching to
+# diverge from the displayed title.
 #
 # PSN's trophyTitlePlatform values (PS3/PS4/PS5/PSVITA) are well-
 # documented (see the PSN Trophy API v2 reference already linked in this
 # module) and confirmed stable.
+#
+# No Xbox equivalent -- see the comment in _scan_xbox where `console` is
+# set to None for why title.devices isn't fit for this same purpose there.
 _PSN_PLATFORM_LABELS = {"ps3": "PS3", "ps4": "PS4", "ps5": "PS5", "psvita": "VITA", "pspc": "PC"}
-# Xbox's titlehub "devices" values are NOT as well documented -- XboxOne/
-# XboxSeries/PC/Win32 are confirmed directly against python-xbox's own
-# test fixtures (tests/data/responses/titlehub_titlehistory.json). Xbox360
-# and the original Xbox aren't present in those fixtures (no back-compat
-# example title in that test data) -- included here as a best-effort
-# guess following the same naming pattern, not independently confirmed;
-# adjust if real data shows a different string.
-_XBOX_DEVICE_LABELS = {
-    "xboxseries": "XBX", "xboxone": "XB1", "xbox360": "360", "xbox": "Xbox",
-    "pc": "PC", "win32": "PC",
-}
 
 
 def _percent(earned, total):
@@ -445,14 +437,18 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             # the real-time "currently playing" pipeline (see the Steam
             # scan above for the full rationale).
             name = utils._format_game_name_for_display(name)
-            # Console/device(s) this title is playable on (Xbox One/Series/
-            # PC/etc) -- see _XBOX_DEVICE_LABELS above. Kept as its own
-            # field (not appended to `name`) so `title` stays the plain,
-            # un-suffixed game name everywhere.
-            console = ", ".join(
-                _XBOX_DEVICE_LABELS.get(str(d).strip().lower(), str(d).strip())
-                for d in (getattr(title, "devices", None) or []) if str(d).strip()
-            ) or None
+            # Deliberately no Xbox equivalent of PSN's `console` field (see
+            # _PSN_PLATFORM_LABELS above) -- title.devices lists every
+            # device an Xbox Play Anywhere-style entitlement COVERS (often
+            # both PC and console for one purchase), not which one a given
+            # unlock actually happened on, unlike PSN's trophyTitlePlatform
+            # (a genuinely separate trophy list per console). Live-
+            # confirmed this distinction matters: it produced misleading
+            # multi-device labels and, worse, duplicate recent_achievements
+            # entries for existing titles (see _ingest_recent_unlocks's
+            # legacy-entry fallback matching for the migration-safety half
+            # of that fix). console stays None for every Xbox entry.
+            console = None
             achievement = getattr(title, "achievement", None)
             earned = getattr(achievement, "current_achievements", 0) or 0
             total = getattr(achievement, "total_achievements", 0) or 0
@@ -623,15 +619,20 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             # the real-time "currently playing" pipeline (see the Steam
             # scan's comment above for the full rationale).
             name = utils._format_game_name_for_display(name)
-            # Console/platform generation this specific trophy title is
-            # for (PS3/PS4/PS5/VITA) -- see _PSN_PLATFORM_LABELS above.
-            # Kept as its own field (not appended to `name`) so `title`
-            # stays the plain, un-suffixed game name everywhere.
-            raw_platform = title.get("trophyTitlePlatform") or ""
-            console = ", ".join(
-                _PSN_PLATFORM_LABELS.get(p.strip().lower(), p.strip())
-                for p in raw_platform.split(",") if p.strip()
-            ) or None
+            # Console/platform generation this specific trophy title is for
+            # (PS3/PS4/PS5/VITA) -- see _PSN_PLATFORM_LABELS above. Kept as
+            # its own field (not appended to `name`) so `title` stays the
+            # plain, un-suffixed game name everywhere. Only set when
+            # trophyTitlePlatform resolves to EXACTLY one platform -- a
+            # cross-buy release (e.g. "PS5,PC" or "PS3,VITA,PS4", one
+            # trophy list shared across all of them) isn't a specific
+            # console any more than Xbox's devices list was (see the
+            # comment in _scan_xbox where that field's console equivalent
+            # was removed for the same reason) -- live-confirmed real
+            # examples of both single- and multi-platform values in the
+            # same library, so this can't be assumed away as rare.
+            raw_platforms = [p.strip() for p in (title.get("trophyTitlePlatform") or "").split(",") if p.strip()]
+            console = _PSN_PLATFORM_LABELS.get(raw_platforms[0].lower(), raw_platforms[0]) if len(raw_platforms) == 1 else None
             earned = title.get("earnedTrophies") or {}
             defined = title.get("definedTrophies") or {}
             earned_counts = {k: int(earned.get(k, 0)) for k in _TIER_KEYS}
