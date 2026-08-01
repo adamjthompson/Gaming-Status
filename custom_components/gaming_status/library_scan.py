@@ -600,19 +600,22 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             if not name:
                 continue
             # PSN's own trophyTitleName metadata literally includes a
-            # "Trophies" suffix for some titles -- most often older PS3-era
-            # HD remaster/collection trophy sets, e.g. "God of War
-            # Trophies" -- rather than just the game's name. There's no
-            # cleaner alternative name field in the API response to use
+            # trophy-list/platform suffix for some titles -- most often
+            # older PS3/Vita-era HD remaster/collection trophy sets, e.g.
+            # "God of War Trophies", "flOw Trophy Set", or "Gravity Rush
+            # PlayStationVita" -- rather than just the game's name. There's
+            # no cleaner alternative name field in the API response to use
             # instead, and no real PlayStation title's actual marketing
             # name ends this way, so stripping it is always a display
             # improvement, never a false positive. Done before the
             # exclusion check + Title Overrides below so both work off the
             # clean name, same as a user would expect to reference it.
-            if name.rstrip().lower().endswith(" trophies"):
-                stripped = name.rstrip()[:-len(" trophies")].strip()
-                if stripped:
-                    name = stripped
+            for _suffix in (" trophies", " trophy set", " playstationvita"):
+                if name.rstrip().lower().endswith(_suffix):
+                    stripped = name.rstrip()[:-len(_suffix)].strip()
+                    if stripped:
+                        name = stripped
+                    break
             if _normalize_game_name(name) in self._excluded_normalized:
                 continue
             # Apply the user's Title Overrides + display cleanup, matching
