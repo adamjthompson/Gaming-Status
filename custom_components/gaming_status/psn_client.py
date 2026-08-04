@@ -167,7 +167,12 @@ class PsnClient:
         access_token = body.get("access_token")
         refresh_token = body.get("refresh_token")
         if not access_token or not refresh_token:
-            raise MalformedResponseError(f"Unexpected PSN token response shape: {body!r}")
+            missing = [
+                name
+                for name, value in (("access_token", access_token), ("refresh_token", refresh_token))
+                if not value
+            ]
+            raise MalformedResponseError(f"PSN token response missing field(s): {', '.join(missing)}")
         self._access_token = access_token
         self._access_token_expires_at = now + float(body.get("expires_in", 0))
         self._refresh_token = refresh_token
