@@ -499,8 +499,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         return True
                     if _is_same_base_game(clean_current, clean_other, self._active_settings["SAME_GAME_PREFIX_WORDS"]):
                         return True
-        except Exception:
-            pass
+        except (AttributeError, KeyError) as err:
+            _LOGGER.debug(
+                "Gaming Status: %s cross-platform double-count guard skipped due to %s: %s",
+                self.entity_id, type(err).__name__, err,
+            )
 
         return False
 
