@@ -9,6 +9,7 @@ from datetime import timedelta
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 
 from .device import safe_owner_slug
@@ -172,7 +173,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.error("Failed to setup Discord Bot: %s", e)
 
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    try:
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    except OSError as err:
+        raise ConfigEntryNotReady(f"Gaming Status platform setup not ready: {err}") from err
 
     # Achievement backfill: an independent repeating timer, deliberately
     # decoupled from each player's own (user-configurable, 1-24h) library
