@@ -2,6 +2,7 @@
 (steam_client.py, psn_client.py, xbox_client.py) and the full-library-scan
 subsystem (library_scan.py).
 """
+
 from __future__ import annotations
 
 

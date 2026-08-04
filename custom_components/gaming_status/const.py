@@ -76,37 +76,21 @@ LIBRARY_BACKFILL_MAX_ATTEMPTS = 5
 ZOMBIE_ATTRIBUTES = ["grace_period_active", "xbox_last_seen_game", "debug_sync"]
 
 PLATFORM_CONFIG = {
-    "playnite": {
-        "icon": "mdi:controller",
-        "name_suffix": "Playnite",
-        "group": "PC"
-    },
-    "custom": {
-        "icon": "mdi:gamepad-square",
-        "name_suffix": "Custom",
-        "group": "PC"
-    },
-    "steam": {
-        "icon": "mdi:steam",
-        "name_suffix": "Steam",
-        "group": "PC"
-    },
+    "playnite": {"icon": "mdi:controller", "name_suffix": "Playnite", "group": "PC"},
+    "custom": {"icon": "mdi:gamepad-square", "name_suffix": "Custom", "group": "PC"},
+    "steam": {"icon": "mdi:steam", "name_suffix": "Steam", "group": "PC"},
     "xbox": {
         "icon": "mdi:microsoft-xbox",
         "name_suffix": "Xbox",
         "idle_states": ["Home", "Xbox App", "Online", "Microsoft Store"],
-        "group": "Xbox"
+        "group": "Xbox",
     },
     "playstation": {
         "icon": "mdi:sony-playstation",
         "name_suffix": "PlayStation",
-        "group": "PlayStation"
+        "group": "PlayStation",
     },
-    "discord": {
-        "icon": "mdi:gamepad-variant",
-        "name_suffix": "Discord",
-        "group": "PC"
-    },
+    "discord": {"icon": "mdi:gamepad-variant", "name_suffix": "Discord", "group": "PC"},
 }
 
 PLATFORM_PRIORITY = ["custom", "steam", "xbox", "playstation", "playnite", "discord"]
@@ -139,7 +123,14 @@ DEFAULT_SAME_GAME_PREFIX_WORDS = 2
 OPT_MASTER_HANDOFF_GRACE = "master_handoff_grace_seconds"
 
 OPT_ENABLED_PLATFORMS = "enabled_platforms"
-DEFAULT_ENABLED_PLATFORMS = ["steam", "xbox", "playstation", "discord", "custom", "playnite"]
+DEFAULT_ENABLED_PLATFORMS = [
+    "steam",
+    "xbox",
+    "playstation",
+    "discord",
+    "custom",
+    "playnite",
+]
 
 OPT_ENABLE_PS3_TRACKING = "enable_ps3_tracking"
 DEFAULT_ENABLE_PS3_TRACKING = False
@@ -281,9 +272,13 @@ PSN_TROPHY_API_BASE = "https://m.np.playstation.com/api/trophy/v1"
 PSN_CATALOG_API_BASE = "https://m.np.playstation.com/api/catalog/v2/titles"
 PSN_PRESENCE_API_BASE = "https://m.np.playstation.com/api/userProfile/v2/internal/users"
 PSN_PROFILE_BASE = "https://m.np.playstation.com/api/userProfile/v1/internal/users"
-PSN_LEGACY_PROFILE_BASE = "https://us-prof.np.community.playstation.net/userProfile/v1/users"
+PSN_LEGACY_PROFILE_BASE = (
+    "https://us-prof.np.community.playstation.net/userProfile/v1/users"
+)
 PSN_OAUTH_CLIENT_ID = "09515159-7237-4370-9b40-3806e67c0891"
-PSN_OAUTH_BASIC_AUTH_HEADER = "Basic MDk1MTUxNTktNzIzNy00MzcwLTliNDAtMzgwNmU2N2MwODkxOnVjUGprYTV0bnRCMktxc1A="
+PSN_OAUTH_BASIC_AUTH_HEADER = (
+    "Basic MDk1MTUxNTktNzIzNy00MzcwLTliNDAtMzgwNmU2N2MwODkxOnVjUGprYTV0bnRCMktxc1A="
+)
 PSN_OAUTH_SCOPE = "psn:mobile.v2.core psn:clientapp"
 PSN_OAUTH_REDIRECT_URI = "com.scee.psxandroid.scecompcall://redirect"
 

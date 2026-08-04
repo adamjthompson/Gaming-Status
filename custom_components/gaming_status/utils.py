@@ -1,6 +1,7 @@
 """
 Utilities for Gaming Status
 """
+
 import ipaddress
 import logging
 import os
@@ -46,7 +47,9 @@ ACHIEVEMENT_RECHECK_SECONDS = 900
 # permanent, so they're cached forever (LRU-capped) rather than time-limited
 # like RATING_CACHE.
 STEAM_SCHEMA_CACHE = OrderedDict()
-PSN_TITLE_ID_CACHE = OrderedDict()  # normalized_game_name -> title_id, rare-fallback-path only
+PSN_TITLE_ID_CACHE = (
+    OrderedDict()
+)  # normalized_game_name -> title_id, rare-fallback-path only
 MAX_ENRICHMENT_CACHE_SIZE = 500
 
 # Cache Settings
@@ -76,12 +79,22 @@ MAX_RATING_CACHE_SIZE = 500
 RATING_RECHECK_SECONDS = 86400  # 24 hours
 
 # Display label for a manually-overridden age floor (RATING_OVERRIDES).
-AGE_FLOOR_LABELS = {0: "Everyone", 10: "Everyone 10+", 13: "Teen", 17: "Mature", 18: "Adults Only"}
+AGE_FLOOR_LABELS = {
+    0: "Everyone",
+    10: "Everyone 10+",
+    13: "Teen",
+    17: "Mature",
+    18: "Adults Only",
+}
+
 
 def compile_title_cleanups():
     """Pre-compile regex patterns for performance."""
     global COMPILED_TITLE_CLEANUPS
-    COMPILED_TITLE_CLEANUPS = [re.compile(re.escape(p), re.IGNORECASE) for p in TITLE_CLEANUPS]
+    COMPILED_TITLE_CLEANUPS = [
+        re.compile(re.escape(p), re.IGNORECASE) for p in TITLE_CLEANUPS
+    ]
+
 
 def _clean_image_cache(cache_dir_path: Path):
     """Enforce user retention policies based on age and total file count."""
@@ -104,7 +117,9 @@ def _clean_image_cache(cache_dir_path: Path):
                     f.unlink()
                     files.remove(f)
             except OSError as e:
-                _LOGGER.error("Gaming Status failed to delete aged image %s: %s", f.name, e)
+                _LOGGER.error(
+                    "Gaming Status failed to delete aged image %s: %s", f.name, e
+                )
 
     # 2. Prune by File Count (if feature is enabled)
     if CACHE_MAX_FILES > 0 and len(files) > CACHE_MAX_FILES:
@@ -116,7 +131,10 @@ def _clean_image_cache(cache_dir_path: Path):
             try:
                 f.unlink()
             except OSError as e:
-                _LOGGER.error("Gaming Status failed to delete excess image %s: %s", f.name, e)
+                _LOGGER.error(
+                    "Gaming Status failed to delete excess image %s: %s", f.name, e
+                )
+
 
 async def fetch_game_assets(hass, game_name):
     """
@@ -125,6 +143,7 @@ async def fetch_game_assets(hass, game_name):
     Custom overrides are downloaded to the local cache if they are external URLs.
     """
     import asyncio
+
     global _MISSING_KEY_WARNED
 
     assets = {"grid": None, "hero": None, "logo": None, "icon": None}
@@ -173,14 +192,17 @@ async def fetch_game_assets(hass, game_name):
         def _ensure_dir():
             if not cache_dir.exists():
                 cache_dir.mkdir(parents=True, exist_ok=True)
+
         if USE_LOCAL_CACHE:
             await hass.async_add_executor_job(_ensure_dir)
 
         # 2. Check Custom UI Overrides & Ensure Local Cache
         search_name = cache_key
         override_maps = {
-            "grid": CUSTOM_GRID_MAP, "hero": CUSTOM_HERO_MAP,
-            "logo": CUSTOM_LOGO_MAP, "icon": CUSTOM_ICON_MAP
+            "grid": CUSTOM_GRID_MAP,
+            "hero": CUSTOM_HERO_MAP,
+            "logo": CUSTOM_LOGO_MAP,
+            "icon": CUSTOM_ICON_MAP,
         }
 
         safe_file_prefix = re.sub(r"[^a-z0-9]", "_", cache_key)
@@ -192,7 +214,8 @@ async def fetch_game_assets(hass, game_name):
 
             if search_name in safe_map:
                 remote_url = safe_url(safe_map[search_name])
-                if not remote_url: continue
+                if not remote_url:
+                    continue
 
                 # If the user provided a raw local path, map it directly without downloading!
                 if not remote_url.startswith("http"):
@@ -218,20 +241,35 @@ async def fetch_game_assets(hass, game_name):
                 # ALWAYS download overrides to ensure the user's latest choice overwrites the old SteamGridDB file!
                 try:
                     if not await is_public_url(hass, remote_url):
-                        _LOGGER.warning("Refusing to fetch override art for %s (%s): URL does not resolve to a public host", game_name, asset_type)
+                        _LOGGER.warning(
+                            "Refusing to fetch override art for %s (%s): URL does not resolve to a public host",
+                            game_name,
+                            asset_type,
+                        )
                     else:
                         async with session.get(remote_url, timeout=15) as img_resp:
                             if img_resp.status == 200:
                                 img_bytes = await img_resp.read()
-                                await hass.async_add_executor_job(lambda: file_path.write_bytes(img_bytes))
+                                await hass.async_add_executor_job(
+                                    lambda: file_path.write_bytes(img_bytes)
+                                )
                 except Exception as e:
-                    _LOGGER.error("Failed to cache override for %s (%s): %s", game_name, asset_type, e)
+                    _LOGGER.error(
+                        "Failed to cache override for %s (%s): %s",
+                        game_name,
+                        asset_type,
+                        e,
+                    )
 
                 try:
-                    mt = int(await hass.async_add_executor_job(os.path.getmtime, file_path))
+                    mt = int(
+                        await hass.async_add_executor_job(os.path.getmtime, file_path)
+                    )
                 except Exception:
                     mt = int(time.time())
-                assets[asset_type] = f"{base_url}/local/gaming_status_cache/{file_name}?v={mt}"
+                assets[asset_type] = (
+                    f"{base_url}/local/gaming_status_cache/{file_name}?v={mt}"
+                )
 
         def _update_cache(name, data_dict):
             final_dict = {k: assets[k] or data_dict.get(k) for k in assets}
@@ -245,8 +283,10 @@ async def fetch_game_assets(hass, game_name):
 
                 # Fire off non-blocking cache cleanup whenever a NEW game enters RAM
                 if USE_LOCAL_CACHE:
+
                     async def _run_cleanup():
                         await hass.async_add_executor_job(_clean_image_cache, cache_dir)
+
                     hass.async_create_task(_run_cleanup())
 
             return final_dict
@@ -257,7 +297,9 @@ async def fetch_game_assets(hass, game_name):
 
         if not STEAMGRIDDB_API_KEY:
             if not _MISSING_KEY_WARNED:
-                _LOGGER.warning("[Gaming Status] SteamGridDB API key is not configured.")
+                _LOGGER.warning(
+                    "[Gaming Status] SteamGridDB API key is not configured."
+                )
                 _MISSING_KEY_WARNED = True
             return _update_cache(cache_key, assets)
 
@@ -267,24 +309,29 @@ async def fetch_game_assets(hass, game_name):
 
         try:
             safe_title = quote(game_name, safe="")
-            search_url = f"https://www.steamgriddb.com/api/v2/search/autocomplete/{safe_title}"
+            search_url = (
+                f"https://www.steamgriddb.com/api/v2/search/autocomplete/{safe_title}"
+            )
 
             async with session.get(search_url, headers=headers, timeout=10) as resp:
-                if resp.status != 200: return _update_cache(cache_key, fetched_assets)
+                if resp.status != 200:
+                    return _update_cache(cache_key, fetched_assets)
                 search_data = await resp.json()
 
-            if not search_data.get("data"): return _update_cache(cache_key, fetched_assets)
+            if not search_data.get("data"):
+                return _update_cache(cache_key, fetched_assets)
 
             game_id = search_data["data"][0]["id"]
             endpoints = {
                 "grid": f"https://www.steamgriddb.com/api/v2/grids/game/{game_id}",
                 "hero": f"https://www.steamgriddb.com/api/v2/heroes/game/{game_id}",
                 "logo": f"https://www.steamgriddb.com/api/v2/logos/game/{game_id}",
-                "icon": f"https://www.steamgriddb.com/api/v2/icons/game/{game_id}"
+                "icon": f"https://www.steamgriddb.com/api/v2/icons/game/{game_id}",
             }
 
             for asset_type, endpoint in endpoints.items():
-                if assets[asset_type]: continue # Already filled by override
+                if assets[asset_type]:
+                    continue  # Already filled by override
 
                 async with session.get(endpoint, headers=headers, timeout=10) as resp:
                     if resp.status == 200:
@@ -293,11 +340,15 @@ async def fetch_game_assets(hass, game_name):
                             # Scoring Algorithm
                             def get_score(img):
                                 score = 0
-                                if img.get("style") == "official": score += 10
-                                if img.get("mime") == "image/png": score += 5
+                                if img.get("style") == "official":
+                                    score += 10
+                                if img.get("mime") == "image/png":
+                                    score += 5
                                 return score
 
-                            best_art = sorted(asset_data["data"], key=get_score, reverse=True)[0]
+                            best_art = sorted(
+                                asset_data["data"], key=get_score, reverse=True
+                            )[0]
                             remote_url = best_art["url"]
 
                             # Same "toggle actually controls the download" fix
@@ -313,18 +364,32 @@ async def fetch_game_assets(hass, game_name):
 
                             if not file_path.exists():
                                 if not await is_public_url(hass, remote_url):
-                                    _LOGGER.warning("Refusing to fetch %s art for %s: URL does not resolve to a public host", asset_type, game_name)
+                                    _LOGGER.warning(
+                                        "Refusing to fetch %s art for %s: URL does not resolve to a public host",
+                                        asset_type,
+                                        game_name,
+                                    )
                                 else:
-                                    async with session.get(remote_url, timeout=15) as img_resp:
+                                    async with session.get(
+                                        remote_url, timeout=15
+                                    ) as img_resp:
                                         if img_resp.status == 200:
                                             img_bytes = await img_resp.read()
-                                            await hass.async_add_executor_job(lambda: file_path.write_bytes(img_bytes))
+                                            await hass.async_add_executor_job(
+                                                lambda: file_path.write_bytes(img_bytes)
+                                            )
 
                             try:
-                                mt = int(await hass.async_add_executor_job(os.path.getmtime, file_path))
+                                mt = int(
+                                    await hass.async_add_executor_job(
+                                        os.path.getmtime, file_path
+                                    )
+                                )
                             except Exception:
                                 mt = int(time.time())
-                            fetched_assets[asset_type] = f"{base_url}/local/gaming_status_cache/{file_name}?v={mt}"
+                            fetched_assets[asset_type] = (
+                                f"{base_url}/local/gaming_status_cache/{file_name}?v={mt}"
+                            )
 
         except Exception as e:
             _LOGGER.error("Failed to fetch assets for %s: %s", game_name, e)
@@ -370,8 +435,10 @@ async def fetch_game_grid_urls_remote(hass, game_name):
 
     search_name = _normalize_game_name(game_name)
     override_maps = {
-        "grid": CUSTOM_GRID_MAP, "hero": CUSTOM_HERO_MAP,
-        "logo": CUSTOM_LOGO_MAP, "icon": CUSTOM_ICON_MAP,
+        "grid": CUSTOM_GRID_MAP,
+        "hero": CUSTOM_HERO_MAP,
+        "logo": CUSTOM_LOGO_MAP,
+        "icon": CUSTOM_ICON_MAP,
     }
     for asset_type, map_dict in override_maps.items():
         remote_url = safe_url(map_dict.get(search_name))
@@ -401,7 +468,9 @@ async def fetch_game_grid_urls_remote(hass, game_name):
         await limiter.async_acquire(timeout=RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS)
         safe_title = quote(game_name, safe="")
         async with session.get(
-            f"https://www.steamgriddb.com/api/v2/search/autocomplete/{safe_title}", headers=headers, timeout=10
+            f"https://www.steamgriddb.com/api/v2/search/autocomplete/{safe_title}",
+            headers=headers,
+            timeout=10,
         ) as resp:
             if resp.status != 200:
                 return assets
@@ -438,7 +507,11 @@ async def fetch_game_grid_urls_remote(hass, game_name):
             best_art = sorted(asset_data["data"], key=_score, reverse=True)[0]
             assets[asset_type] = best_art["url"]
     except Exception as e:
-        _LOGGER.debug("[Gaming Status] SteamGridDB remote-only art fetch failed for %s: %s", game_name, e)
+        _LOGGER.debug(
+            "[Gaming Status] SteamGridDB remote-only art fetch failed for %s: %s",
+            game_name,
+            e,
+        )
 
     return assets
 
@@ -449,6 +522,7 @@ async def get_steamgriddb_game_cover(hass, game_name):
         return None
     assets = await fetch_game_assets(hass, game_name)
     return assets.get("hero") or assets.get("grid")
+
 
 async def fetch_game_rating(hass, game_name, platform=None, platform_context=None):
     """
@@ -492,7 +566,10 @@ async def fetch_game_rating(hass, game_name, platform=None, platform_context=Non
 
     if cache_key in RATING_CACHE:
         cached = RATING_CACHE[cache_key]
-        is_stale = cached.get("unrated") and (time.time() - cached.get("checked_at", 0)) > RATING_RECHECK_SECONDS
+        is_stale = (
+            cached.get("unrated")
+            and (time.time() - cached.get("checked_at", 0)) > RATING_RECHECK_SECONDS
+        )
         if not is_stale:
             RATING_CACHE.move_to_end(cache_key)
             return cached
@@ -508,8 +585,12 @@ async def fetch_game_rating(hass, game_name, platform=None, platform_context=Non
             return native
 
     unrated = {
-        "esrb": None, "pegi": None, "age_floor": None,
-        "descriptors": [], "unrated": True, "source": None,
+        "esrb": None,
+        "pegi": None,
+        "age_floor": None,
+        "descriptors": [],
+        "unrated": True,
+        "source": None,
         "checked_at": time.time(),
     }
     RATING_CACHE[cache_key] = unrated
@@ -524,6 +605,7 @@ async def fetch_game_rating(hass, game_name, platform=None, platform_context=Non
 # see steam_client.py/psn_client.py for the actual HTTP clients this section
 # orchestrates). Opt-in (ENABLE_NATIVE_RATINGS / ENABLE_ACHIEVEMENT_TRACKING), off by default.
 # ---------------------------------------------------------------------------
+
 
 def resolve_owning_config_entry(hass, source_entity_id):
     """Walks source_entity_id (an HA entity Gaming Status already watches) to
@@ -547,7 +629,11 @@ def resolve_owning_config_entry(hass, source_entity_id):
                 subentry_unique_id = getattr(subentry, "unique_id", None)
         return entry, owning_entry, subentry_unique_id
     except Exception:
-        _LOGGER.debug("[Gaming Status] Owning config entry resolution failed for %s", source_entity_id, exc_info=True)
+        _LOGGER.debug(
+            "[Gaming Status] Owning config entry resolution failed for %s",
+            source_entity_id,
+            exc_info=True,
+        )
         return None, None, None
 
 
@@ -580,22 +666,37 @@ def resolve_steam_credentials(hass, source_entity_id):
     from .const import HA_STEAM_ONLINE_DOMAIN
 
     try:
-        entry, owning_entry, subentry_unique_id = resolve_owning_config_entry(hass, source_entity_id)
+        entry, owning_entry, subentry_unique_id = resolve_owning_config_entry(
+            hass, source_entity_id
+        )
         api_key = None
         steam_id64 = None
         if owning_entry and owning_entry.domain == HA_STEAM_ONLINE_DOMAIN:
             api_key = owning_entry.data.get(CONF_API_KEY)
             steam_id64 = subentry_unique_id
-            if not steam_id64 and entry and entry.unique_id and entry.unique_id.startswith(_STEAM_ENTITY_UNIQUE_ID_PREFIX):
-                steam_id64 = entry.unique_id[len(_STEAM_ENTITY_UNIQUE_ID_PREFIX):]
+            if (
+                not steam_id64
+                and entry
+                and entry.unique_id
+                and entry.unique_id.startswith(_STEAM_ENTITY_UNIQUE_ID_PREFIX)
+            ):
+                steam_id64 = entry.unique_id[len(_STEAM_ENTITY_UNIQUE_ID_PREFIX) :]
             if not steam_id64:
                 steam_id64 = owning_entry.unique_id
         if not api_key:
             api_key = STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE
-            steam_id64 = steam_id64 or subentry_unique_id or (owning_entry.unique_id if owning_entry else None)
+            steam_id64 = (
+                steam_id64
+                or subentry_unique_id
+                or (owning_entry.unique_id if owning_entry else None)
+            )
         return api_key, steam_id64
     except Exception:
-        _LOGGER.debug("[Gaming Status] Steam credential resolution failed for %s", source_entity_id, exc_info=True)
+        _LOGGER.debug(
+            "[Gaming Status] Steam credential resolution failed for %s",
+            source_entity_id,
+            exc_info=True,
+        )
         return None, None
 
 
@@ -606,7 +707,9 @@ def resolve_psn_credentials(hass, source_entity_id):
     from .const import HA_PLAYSTATION_NETWORK_DOMAIN, HA_PSN_NPSSO_KEY
 
     try:
-        _, owning_entry, subentry_unique_id = resolve_owning_config_entry(hass, source_entity_id)
+        _, owning_entry, subentry_unique_id = resolve_owning_config_entry(
+            hass, source_entity_id
+        )
         npsso = None
         account_id = None
         if owning_entry and owning_entry.domain == HA_PLAYSTATION_NETWORK_DOMAIN:
@@ -621,10 +724,18 @@ def resolve_psn_credentials(hass, source_entity_id):
             account_id = subentry_unique_id or owning_entry.unique_id
         if not npsso:
             npsso = PSN_NPSSO_OVERRIDE
-            account_id = account_id or subentry_unique_id or (owning_entry.unique_id if owning_entry else None)
+            account_id = (
+                account_id
+                or subentry_unique_id
+                or (owning_entry.unique_id if owning_entry else None)
+            )
         return npsso, account_id
     except Exception:
-        _LOGGER.debug("[Gaming Status] PSN credential resolution failed for %s", source_entity_id, exc_info=True)
+        _LOGGER.debug(
+            "[Gaming Status] PSN credential resolution failed for %s",
+            source_entity_id,
+            exc_info=True,
+        )
         return None, None
 
 
@@ -650,15 +761,27 @@ async def resolve_xbox_entry_and_session(hass, source_entity_id):
     from .const import HA_XBOX_DOMAIN
 
     try:
-        _, owning_entry, subentry_unique_id = resolve_owning_config_entry(hass, source_entity_id)
+        _, owning_entry, subentry_unique_id = resolve_owning_config_entry(
+            hass, source_entity_id
+        )
         if not owning_entry or owning_entry.domain != HA_XBOX_DOMAIN:
             return None, None, None
-        implementation = await config_entry_oauth2_flow.async_get_config_entry_implementation(hass, owning_entry)
-        session = config_entry_oauth2_flow.OAuth2Session(hass, owning_entry, implementation)
+        implementation = (
+            await config_entry_oauth2_flow.async_get_config_entry_implementation(
+                hass, owning_entry
+            )
+        )
+        session = config_entry_oauth2_flow.OAuth2Session(
+            hass, owning_entry, implementation
+        )
         xuid = subentry_unique_id or owning_entry.unique_id
         return owning_entry, session, xuid
     except Exception:
-        _LOGGER.debug("[Gaming Status] Xbox OAuth session resolution failed for %s", source_entity_id, exc_info=True)
+        _LOGGER.debug(
+            "[Gaming Status] Xbox OAuth session resolution failed for %s",
+            source_entity_id,
+            exc_info=True,
+        )
         return None, None, None
 
 
@@ -680,11 +803,19 @@ def _get_rate_limiter(hass, platform: str):
     limiters = hass.data.setdefault("gaming_status_rate_limiters", {})
     if platform not in limiters:
         if platform == "steam":
-            limiters[platform] = RateLimiter(STEAM_RATE_LIMIT_CAPACITY, STEAM_RATE_LIMIT_PER_SECOND, name="steam")
+            limiters[platform] = RateLimiter(
+                STEAM_RATE_LIMIT_CAPACITY, STEAM_RATE_LIMIT_PER_SECOND, name="steam"
+            )
         elif platform == "psn":
-            limiters[platform] = RateLimiter(PSN_RATE_LIMIT_CAPACITY, PSN_RATE_LIMIT_PER_SECOND, name="psn")
+            limiters[platform] = RateLimiter(
+                PSN_RATE_LIMIT_CAPACITY, PSN_RATE_LIMIT_PER_SECOND, name="psn"
+            )
         elif platform == "steamgriddb":
-            limiters[platform] = RateLimiter(STEAMGRIDDB_RATE_LIMIT_CAPACITY, STEAMGRIDDB_RATE_LIMIT_PER_SECOND, name="steamgriddb")
+            limiters[platform] = RateLimiter(
+                STEAMGRIDDB_RATE_LIMIT_CAPACITY,
+                STEAMGRIDDB_RATE_LIMIT_PER_SECOND,
+                name="steamgriddb",
+            )
         else:
             raise ValueError(f"No rate limiter configured for platform {platform!r}")
     return limiters[platform]
@@ -700,7 +831,9 @@ def _get_steam_client(hass, api_key: str = ""):
 
     clients = hass.data.setdefault("gaming_status_steam_clients", {})
     if api_key not in clients:
-        clients[api_key] = SteamClient(async_get_clientsession(hass), api_key, _get_rate_limiter(hass, "steam"))
+        clients[api_key] = SteamClient(
+            async_get_clientsession(hass), api_key, _get_rate_limiter(hass, "steam")
+        )
     return clients[api_key]
 
 
@@ -713,7 +846,9 @@ def _get_psn_client(hass, npsso: str):
 
     clients = hass.data.setdefault("gaming_status_psn_clients", {})
     if npsso not in clients:
-        clients[npsso] = PsnClient(async_get_clientsession(hass), npsso, _get_rate_limiter(hass, "psn"))
+        clients[npsso] = PsnClient(
+            async_get_clientsession(hass), npsso, _get_rate_limiter(hass, "psn")
+        )
     return clients[npsso]
 
 
@@ -738,8 +873,12 @@ async def _fetch_native_rating(hass, platform, platform_context):
             # against those 5 labels, so a raw numeric value from a
             # different board is still meaningful here.
             return {
-                "esrb": None, "pegi": None, "age_floor": int(min_age),
-                "descriptors": [], "unrated": False, "source": "xbox_native",
+                "esrb": None,
+                "pegi": None,
+                "age_floor": int(min_age),
+                "descriptors": [],
+                "unrated": False,
+                "source": "xbox_native",
             }
 
         if platform == "steam":
@@ -758,10 +897,18 @@ async def _fetch_native_rating(hass, platform, platform_context):
                 age_floor = int(required_age) if required_age else None
             if age_floor is None:
                 return None
-            descriptors = [d.strip() for d in str(esrb.get("descriptors") or "").split("\n") if d.strip()]
+            descriptors = [
+                d.strip()
+                for d in str(esrb.get("descriptors") or "").split("\n")
+                if d.strip()
+            ]
             return {
-                "esrb": rating_code.upper() or None, "pegi": None, "age_floor": age_floor,
-                "descriptors": descriptors, "unrated": False, "source": "steam_native",
+                "esrb": rating_code.upper() or None,
+                "pegi": None,
+                "age_floor": age_floor,
+                "descriptors": descriptors,
+                "unrated": False,
+                "source": "steam_native",
             }
 
         if platform == "psn":
@@ -778,14 +925,23 @@ async def _fetch_native_rating(hass, platform, platform_context):
                 return None
             content_rating = concepts.get("contentRating") or {}
             authority = content_rating.get("authority")
-            description = content_rating.get("description") or content_rating.get("name")
+            description = content_rating.get("description") or content_rating.get(
+                "name"
+            )
             return {
                 "esrb": description if authority == "ESRB" else None,
                 "pegi": description if authority == "PEGI" else None,
-                "age_floor": int(min_age), "descriptors": [], "unrated": False, "source": "psn_native",
+                "age_floor": int(min_age),
+                "descriptors": [],
+                "unrated": False,
+                "source": "psn_native",
             }
     except Exception as e:
-        _LOGGER.debug("[Gaming Status] Native rating lookup failed for platform=%s: %s", platform, e)
+        _LOGGER.debug(
+            "[Gaming Status] Native rating lookup failed for platform=%s: %s",
+            platform,
+            e,
+        )
         return None
     return None
 
@@ -827,7 +983,12 @@ async def fetch_steam_achievements(hass, steamid64, api_key, appid):
                 STEAM_SCHEMA_CACHE.popitem(last=False)
 
         if not total:
-            return {"earned": 0, "total": 0, "recent_unlocks": [], "last_achievement_at": None}
+            return {
+                "earned": 0,
+                "total": 0,
+                "recent_unlocks": [],
+                "last_achievement_at": None,
+            }
 
         achievements = await client.async_get_player_achievements(steamid64, appid)
         earned_achievements = [a for a in achievements if a.get("achieved")]
@@ -838,7 +999,8 @@ async def fetch_steam_achievements(hass, steamid64, api_key, appid):
                 "description": None,
                 "unlocked_at": (
                     datetime.fromtimestamp(a["unlocktime"], tz=UTC).isoformat()
-                    if a.get("unlocktime") else None
+                    if a.get("unlocktime")
+                    else None
                 ),
                 "icon_url": icons.get(a.get("apiname")),
             }
@@ -851,15 +1013,22 @@ async def fetch_steam_achievements(hass, steamid64, api_key, appid):
         # is free; None for a game with zero achievements earned yet, same
         # as a game with no achievements at all.
         last_achievement_at = (
-            datetime.fromtimestamp(earned_achievements[0]["unlocktime"], tz=UTC).isoformat()
-            if earned_achievements and earned_achievements[0].get("unlocktime") else None
+            datetime.fromtimestamp(
+                earned_achievements[0]["unlocktime"], tz=UTC
+            ).isoformat()
+            if earned_achievements and earned_achievements[0].get("unlocktime")
+            else None
         )
         return {
-            "earned": len(earned_achievements), "total": total, "recent_unlocks": recent_unlocks,
+            "earned": len(earned_achievements),
+            "total": total,
+            "recent_unlocks": recent_unlocks,
             "last_achievement_at": last_achievement_at,
         }
     except Exception as e:
-        _LOGGER.debug("[Gaming Status] Steam achievement fetch failed for appid %s: %s", appid, e)
+        _LOGGER.debug(
+            "[Gaming Status] Steam achievement fetch failed for appid %s: %s", appid, e
+        )
         return None
 
 
@@ -883,7 +1052,9 @@ async def resolve_psn_title_id(hass, npsso, account_id):
         return None
 
 
-async def fetch_psn_trophies(hass, npsso, account_id, game_name, title_id=None, include_recent_unlocks=False):
+async def fetch_psn_trophies(
+    hass, npsso, account_id, game_name, title_id=None, include_recent_unlocks=False
+):
     """Earned/total trophy counts (by tier) for one game on one PSN account,
     optionally with a bounded newest-first recent-unlocks list. Never raises
     -- returns None on any failure. Resolution order:
@@ -915,18 +1086,25 @@ async def fetch_psn_trophies(hass, npsso, account_id, game_name, title_id=None, 
 
         entry = None
         if title_id:
-            entry = await client.async_get_trophy_summary_for_title(account_id, title_id)
+            entry = await client.async_get_trophy_summary_for_title(
+                account_id, title_id
+            )
         elif cache_key and cache_key in PSN_TITLE_ID_CACHE:
             cached_title_id = PSN_TITLE_ID_CACHE[cache_key]
             PSN_TITLE_ID_CACHE.move_to_end(cache_key)
-            entry = await client.async_get_trophy_summary_for_title(account_id, cached_title_id)
+            entry = await client.async_get_trophy_summary_for_title(
+                account_id, cached_title_id
+            )
 
         if entry is None and cache_key:
             # Rare fallback -- full list scan, name-matched. Only reached
             # when presence-based title_id resolution isn't available.
             titles = await client.async_get_trophy_titles(account_id)
             for candidate in titles:
-                if _normalize_game_name(candidate.get("trophyTitleName") or "") == cache_key:
+                if (
+                    _normalize_game_name(candidate.get("trophyTitleName") or "")
+                    == cache_key
+                ):
                     entry = candidate
                     break
 
@@ -942,20 +1120,32 @@ async def fetch_psn_trophies(hass, npsso, account_id, game_name, title_id=None, 
         earned = entry.get("earnedTrophies") or {}
         defined = entry.get("definedTrophies") or {}
         result = {
-            "earned": {k: int(earned.get(k, 0)) for k in ("bronze", "silver", "gold", "platinum")},
-            "total": {k: int(defined.get(k, 0)) for k in ("bronze", "silver", "gold", "platinum")},
+            "earned": {
+                k: int(earned.get(k, 0))
+                for k in ("bronze", "silver", "gold", "platinum")
+            },
+            "total": {
+                k: int(defined.get(k, 0))
+                for k in ("bronze", "silver", "gold", "platinum")
+            },
             "recent_unlocks": [],
         }
 
         np_communication_id = entry.get("npCommunicationId")
         if include_recent_unlocks and np_communication_id:
-            trophies = await client.async_get_title_trophies_with_progress(account_id, np_communication_id)
-            earned_trophies = [t for t in trophies if t.get("earned") and t.get("earned_at")]
+            trophies = await client.async_get_title_trophies_with_progress(
+                account_id, np_communication_id
+            )
+            earned_trophies = [
+                t for t in trophies if t.get("earned") and t.get("earned_at")
+            ]
             earned_trophies.sort(key=lambda t: t["earned_at"], reverse=True)
             result["recent_unlocks"] = [
                 {
-                    "name": t.get("name"), "description": t.get("description"),
-                    "unlocked_at": t.get("earned_at"), "tier": t.get("type"),
+                    "name": t.get("name"),
+                    "description": t.get("description"),
+                    "unlocked_at": t.get("earned_at"),
+                    "tier": t.get("type"),
                     "icon_url": t.get("icon_url"),
                 }
                 for t in earned_trophies[:RECENT_UNLOCKS_LIMIT]
@@ -963,11 +1153,15 @@ async def fetch_psn_trophies(hass, npsso, account_id, game_name, title_id=None, 
 
         return result
     except Exception as e:
-        _LOGGER.debug("[Gaming Status] PSN trophy fetch failed for %s: %s", game_name, e)
+        _LOGGER.debug(
+            "[Gaming Status] PSN trophy fetch failed for %s: %s", game_name, e
+        )
         return None
 
 
-async def fetch_xbox_achievements(hass, xbox_config_entry, oauth_session, xuid, recent_limit=None):
+async def fetch_xbox_achievements(
+    hass, xbox_config_entry, oauth_session, xuid, recent_limit=None
+):
     """Earned/total achievement counts + a bounded newest-first
     recent-unlocks list for whatever `xuid` is currently playing, reusing
     the official xbox integration's own OAuth session (see
@@ -987,11 +1181,15 @@ async def fetch_xbox_achievements(hass, xbox_config_entry, oauth_session, xuid, 
             client, xuid, title_id, recent_limit=recent_limit or RECENT_UNLOCKS_LIMIT
         )
     except Exception as e:
-        _LOGGER.debug("[Gaming Status] Xbox achievement fetch failed for xuid %s: %s", xuid, e)
+        _LOGGER.debug(
+            "[Gaming Status] Xbox achievement fetch failed for xuid %s: %s", xuid, e
+        )
         return None
 
 
-async def fetch_xbox_title_achievement_counts(hass, xbox_config_entry, oauth_session, xuid, title_id, recent_limit=0):
+async def fetch_xbox_title_achievement_counts(
+    hass, xbox_config_entry, oauth_session, xuid, title_id, recent_limit=0
+):
     """Authoritative earned/total achievement counts (plus, when
     recent_limit > 0, a bounded newest-first recent-unlocks list) for one
     specific, already-known title_id -- unlike fetch_xbox_achievements,
@@ -1009,11 +1207,15 @@ async def fetch_xbox_title_achievement_counts(hass, xbox_config_entry, oauth_ses
         from . import xbox_client
 
         client = xbox_client.get_xbox_client(hass, xbox_config_entry, oauth_session)
-        return await xbox_client.async_get_achievements(client, xuid, title_id, recent_limit=recent_limit)
+        return await xbox_client.async_get_achievements(
+            client, xuid, title_id, recent_limit=recent_limit
+        )
     except Exception as e:
         _LOGGER.debug(
             "[Gaming Status] Xbox per-title achievement fetch failed for xuid %s title %s: %s",
-            xuid, title_id, e,
+            xuid,
+            title_id,
+            e,
         )
         return None
 
@@ -1031,10 +1233,14 @@ async def fetch_steam_owned_games(hass, api_key, steamid64):
         client = _get_steam_client(hass, api_key)
         return await client.async_get_owned_games(steamid64), None
     except ApiError as e:
-        _LOGGER.debug("[Gaming Status] Steam owned-games fetch failed for %s: %s", steamid64, e)
+        _LOGGER.debug(
+            "[Gaming Status] Steam owned-games fetch failed for %s: %s", steamid64, e
+        )
         return [], str(e)
     except Exception as e:
-        _LOGGER.debug("[Gaming Status] Steam owned-games fetch failed for %s: %s", steamid64, e)
+        _LOGGER.debug(
+            "[Gaming Status] Steam owned-games fetch failed for %s: %s", steamid64, e
+        )
         return [], f"{type(e).__name__}: {e}"
 
 
@@ -1051,7 +1257,9 @@ async def fetch_xbox_title_history(hass, xbox_config_entry, oauth_session, xuid)
         client = xbox_client.get_xbox_client(hass, xbox_config_entry, oauth_session)
         return await xbox_client.async_get_title_history(client, xuid), None
     except Exception as e:
-        _LOGGER.debug("[Gaming Status] Xbox title history fetch failed for %s: %s", xuid, e)
+        _LOGGER.debug(
+            "[Gaming Status] Xbox title history fetch failed for %s: %s", xuid, e
+        )
         return [], f"{type(e).__name__}: {e}"
 
 
@@ -1065,16 +1273,25 @@ async def fetch_psn_full_library(hass, npsso, account_id):
         client = _get_psn_client(hass, npsso)
         return await client.async_get_trophy_titles(account_id), None
     except ApiError as e:
-        _LOGGER.debug("[Gaming Status] PSN full trophy-titles fetch failed for %s: %s", account_id, e)
+        _LOGGER.debug(
+            "[Gaming Status] PSN full trophy-titles fetch failed for %s: %s",
+            account_id,
+            e,
+        )
         return [], str(e)
     except Exception as e:
-        _LOGGER.debug("[Gaming Status] PSN full trophy-titles fetch failed for %s: %s", account_id, e)
+        _LOGGER.debug(
+            "[Gaming Status] PSN full trophy-titles fetch failed for %s: %s",
+            account_id,
+            e,
+        )
         return [], f"{type(e).__name__}: {e}"
 
 
 async def fetch_and_cache_image(hass, remote_url, file_name):
     """Generic helper to cache any remote image locally."""
     from homeassistant.helpers.network import NoURLAvailableError, get_url
+
     try:
         base_url = get_url(hass, prefer_external=True)
     except NoURLAvailableError:
@@ -1098,7 +1315,9 @@ async def fetch_and_cache_image(hass, remote_url, file_name):
     # 3. Download and save
     try:
         if not await is_public_url(hass, remote_url):
-            _LOGGER.warning("Refusing to fetch avatar: URL does not resolve to a public host")
+            _LOGGER.warning(
+                "Refusing to fetch avatar: URL does not resolve to a public host"
+            )
             return remote_url
 
         session = async_get_clientsession(hass)
@@ -1115,36 +1334,55 @@ async def fetch_and_cache_image(hass, remote_url, file_name):
     except Exception as e:
         _LOGGER.error("Failed to cache avatar %s: %s", remote_url, e)
 
-    return remote_url # Fallback to remote if download fails
+    return remote_url  # Fallback to remote if download fails
+
 
 def get_base_game_name(full_name):
-    if not full_name: return full_name
+    if not full_name:
+        return full_name
     full_name_str = str(full_name)
-    if " - Playing" in full_name_str: full_name_str = full_name_str.split(" - Playing", maxsplit=1)[0]
-    elif " – Playing" in full_name_str: full_name_str = full_name_str.split(" – Playing")[0]
-    elif " Playing " in full_name_str: full_name_str = full_name_str.split(" Playing ")[0]
-    elif " - In The Menus" in full_name_str: full_name_str = full_name_str.split(" - In The Menus")[0]
+    if " - Playing" in full_name_str:
+        full_name_str = full_name_str.split(" - Playing", maxsplit=1)[0]
+    elif " – Playing" in full_name_str:
+        full_name_str = full_name_str.split(" – Playing")[0]
+    elif " Playing " in full_name_str:
+        full_name_str = full_name_str.split(" Playing ")[0]
+    elif " - In The Menus" in full_name_str:
+        full_name_str = full_name_str.split(" - In The Menus")[0]
     return full_name_str.strip()
+
 
 def _get_gamertag_from_entity(source_entity_id, platform):
     try:
         object_id = source_entity_id.split(".")[1]
-        if platform == "steam" and object_id.startswith("steam_"): return object_id[6:]
-        if platform == "xbox" and "_status" in object_id: return object_id.split("_status")[0]
+        if platform == "steam" and object_id.startswith("steam_"):
+            return object_id[6:]
+        if platform == "xbox" and "_status" in object_id:
+            return object_id.split("_status")[0]
         if platform == "playstation":
-            if object_id.endswith("_now_playing"): return object_id[:-len("_now_playing")]
-            if "_online_status" in object_id: return object_id.split("_online_status")[0]
-            if "_onlinestatus" in object_id: return object_id.split("_onlinestatus")[0]
-    except Exception: pass
-    try: return source_entity_id.split(".")[1]
-    except Exception: return "unknown"
+            if object_id.endswith("_now_playing"):
+                return object_id[: -len("_now_playing")]
+            if "_online_status" in object_id:
+                return object_id.split("_online_status")[0]
+            if "_onlinestatus" in object_id:
+                return object_id.split("_onlinestatus")[0]
+    except Exception:
+        pass
+    try:
+        return source_entity_id.split(".")[1]
+    except Exception:
+        return "unknown"
+
 
 def _format_time(seconds):
-    if not seconds or seconds < 0: return "0m"
+    if not seconds or seconds < 0:
+        return "0m"
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
-    if hours > 0: return f"{hours}h {minutes}m"
+    if hours > 0:
+        return f"{hours}h {minutes}m"
     return f"{minutes}m"
+
 
 def top_n_games(breakdown, n=10):
     """Sort a {game: seconds} breakdown descending and return the top n as
@@ -1153,14 +1391,20 @@ def top_n_games(breakdown, n=10):
     if not breakdown:
         return []
     ranked = sorted(breakdown.items(), key=lambda item: item[1], reverse=True)
-    return [{"game": game, "hours": round(seconds / 3600, 1)} for game, seconds in ranked[:n]]
+    return [
+        {"game": game, "hours": round(seconds / 3600, 1)}
+        for game, seconds in ranked[:n]
+    ]
+
 
 def _format_game_name_for_display(game_name):
-    if not game_name: return game_name
+    if not game_name:
+        return game_name
     clean_name = " ".join(str(game_name).split())
     clean_name = GAME_TITLE_OVERRIDES.get(_normalize_game_name(clean_name), clean_name)
 
-    if " - " in clean_name: clean_name = clean_name.split(" - ")[0].strip()
+    if " - " in clean_name:
+        clean_name = clean_name.split(" - ")[0].strip()
     clean_name = re.sub(r"[™®©]", "", clean_name).strip()
 
     for pattern in COMPILED_TITLE_CLEANUPS:
@@ -1168,6 +1412,7 @@ def _format_game_name_for_display(game_name):
 
     clean_name = " ".join(clean_name.split())
     return clean_name
+
 
 def _normalize_game_name(game_name):
     """
@@ -1177,74 +1422,109 @@ def _normalize_game_name(game_name):
     cross-platform same-game detection, cache/filename keys) so punctuation
     differences never cause a mismatch.
     """
-    if not game_name: return ""
+    if not game_name:
+        return ""
     clean = re.sub(r"[,:\-™®©]", "", str(game_name).lower())
     return " ".join(clean.split())
 
+
 def _is_same_base_game(name_a, name_b, prefix_words):
-    if not prefix_words or prefix_words <= 0: return False
+    if not prefix_words or prefix_words <= 0:
+        return False
     words_a = _normalize_game_name(name_a).split()
     words_b = _normalize_game_name(name_b).split()
-    if not words_a or not words_b: return False
+    if not words_a or not words_b:
+        return False
     return words_a[:prefix_words] == words_b[:prefix_words]
 
+
 def _safe_parse_datetime(value):
-    if not value: return None
+    if not value:
+        return None
     try:
         dt_obj = value if isinstance(value, datetime) else parser.isoparse(str(value))
-        if dt_obj.tzinfo is None: dt_obj = dt_obj.replace(tzinfo=UTC)
-        else: dt_obj = dt_obj.astimezone(UTC)
+        if dt_obj.tzinfo is None:
+            dt_obj = dt_obj.replace(tzinfo=UTC)
+        else:
+            dt_obj = dt_obj.astimezone(UTC)
         return dt_obj
-    except Exception: return None
+    except Exception:
+        return None
+
 
 def _parse_relative_time_from_status(status_text):
-    if not status_text or isinstance(status_text, datetime): return None
+    if not status_text or isinstance(status_text, datetime):
+        return None
     text = str(status_text).lower()
-    if "last seen" not in text and "last online" not in text: return None
+    if "last seen" not in text and "last online" not in text:
+        return None
     try:
         now = dt_util.now()
         parts = text.split(" ")
         for i, part in enumerate(parts):
             if part.isdigit() and i + 1 < len(parts):
-                val, unit, delta = int(part), parts[i+1], None
-                if "m" in unit: delta = timedelta(minutes=val)
-                elif "h" in unit: delta = timedelta(hours=val)
-                elif "d" in unit: delta = timedelta(days=val)
-                elif "s" in unit: delta = timedelta(seconds=val)
-                if delta: return (now - delta).isoformat()
+                val, unit, delta = int(part), parts[i + 1], None
+                if "m" in unit:
+                    delta = timedelta(minutes=val)
+                elif "h" in unit:
+                    delta = timedelta(hours=val)
+                elif "d" in unit:
+                    delta = timedelta(days=val)
+                elif "s" in unit:
+                    delta = timedelta(seconds=val)
+                if delta:
+                    return (now - delta).isoformat()
             if part[-1] in ["d", "h", "m", "s"] and part[:-1].isdigit():
                 val, unit, delta = int(part[:-1]), part[-1], None
-                if unit == "d": delta = timedelta(days=val)
-                elif unit == "h": delta = timedelta(hours=val)
-                elif unit == "m": delta = timedelta(minutes=val)
-                elif unit == "s": delta = timedelta(seconds=val)
-                if delta: return (now - delta).isoformat()
-    except Exception: return None
+                if unit == "d":
+                    delta = timedelta(days=val)
+                elif unit == "h":
+                    delta = timedelta(hours=val)
+                elif unit == "m":
+                    delta = timedelta(minutes=val)
+                elif unit == "s":
+                    delta = timedelta(seconds=val)
+                if delta:
+                    return (now - delta).isoformat()
+    except Exception:
+        return None
     return None
 
+
 def _calculate_time_ago_v2(timestamp_val):
-    if not timestamp_val: return None, "No TS"
+    if not timestamp_val:
+        return None, "No TS"
     try:
         ts = _safe_parse_datetime(timestamp_val)
-        if not ts: return None, "Parse Fail"
+        if not ts:
+            return None, "Parse Fail"
         now = dt_util.now()
-        if ts.tzinfo is None: ts = ts.replace(tzinfo=now.tzinfo)
-        else: ts = ts.astimezone(now.tzinfo)
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=now.tzinfo)
+        else:
+            ts = ts.astimezone(now.tzinfo)
 
         seconds = int((now - ts).total_seconds())
         debug = f"Now:{int(now.timestamp())} - TS:{int(ts.timestamp())} = {seconds}s"
 
-        if seconds < 0: return ("just now" if seconds > -60 else "in future"), debug
-        if seconds < 60: return "just now", debug
-        if seconds < 3600: return f"{seconds // 60}m ago", debug
-        if seconds < 86400: return f"{seconds // 3600}h ago", debug
+        if seconds < 0:
+            return ("just now" if seconds > -60 else "in future"), debug
+        if seconds < 60:
+            return "just now", debug
+        if seconds < 3600:
+            return f"{seconds // 60}m ago", debug
+        if seconds < 86400:
+            return f"{seconds // 3600}h ago", debug
         return f"{seconds // 86400}d ago", debug
-    except Exception as e: return None, f"Err: {e}"
+    except Exception as e:
+        return None, f"Err: {e}"
+
 
 def safe_url(url):
     if isinstance(url, str) and (url.startswith("http") or url.startswith("/")):
         return url
     return None
+
 
 def url_host_matches(url, domain):
     """Check whether url's hostname is domain or a subdomain of it (not just a substring match)."""
@@ -1256,6 +1536,7 @@ def url_host_matches(url, domain):
         return False
     return bool(host) and (host == domain or host.endswith("." + domain))
 
+
 def safe_image_ext(url, default="png"):
     """Extract a safe file extension from a URL, rejecting anything that isn't a short alnum token."""
     try:
@@ -1263,6 +1544,7 @@ def safe_image_ext(url, default="png"):
     except ValueError:
         return default
     return raw.lower() if re.fullmatch(r"[a-z0-9]{1,4}", raw.lower()) else default
+
 
 async def is_public_url(hass, url):
     """Reject non-http(s) URLs and URLs whose host resolves to a private/loopback/link-local address, to prevent SSRF."""
@@ -1280,19 +1562,33 @@ async def is_public_url(hass, url):
             return False
         for addr in addrs:
             ip = ipaddress.ip_address(addr)
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+            if (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_reserved
+                or ip.is_multicast
+                or ip.is_unspecified
+            ):
                 return False
         return True
     except Exception:
         return False
 
-async def check_steam_url_validity(hass, url): return True
-async def get_steam_game_cover(hass, game_name, game_id=None): return await get_steamgriddb_game_cover(hass, game_name)
+
+async def check_steam_url_validity(hass, url):
+    return True
+
+
+async def get_steam_game_cover(hass, game_name, game_id=None):
+    return await get_steamgriddb_game_cover(hass, game_name)
+
 
 def extract_vibrant_color(image_path):
     """Extracts the most dominant vibrant color from an image, with a safe fallback."""
     try:
         from PIL import Image
+
         img = Image.open(image_path).convert("RGB")
         img = img.resize((50, 50))
         pixels = img.getdata()
@@ -1314,7 +1610,11 @@ def extract_vibrant_color(image_path):
 
             # Require minimum brightness and color saturation to be considered "vibrant"
             if max_val > 50 and min_val < 200 and saturation > 20:
-                color = (min(round(r/15)*15, 255), min(round(g/15)*15, 255), min(round(b/15)*15, 255))
+                color = (
+                    min(round(r / 15) * 15, 255),
+                    min(round(g / 15) * 15, 255),
+                    min(round(b / 15) * 15, 255),
+                )
                 color_counts[color] = color_counts.get(color, 0) + 1
 
         if not color_counts:
@@ -1324,7 +1624,7 @@ def extract_vibrant_color(image_path):
                 avg_g = int(fallback_g / total_pixels)
                 avg_b = int(fallback_b / total_pixels)
                 return f"#{avg_r:02x}{avg_g:02x}{avg_b:02x}"
-            return "#333333" # Absolute fallback for completely broken images
+            return "#333333"  # Absolute fallback for completely broken images
 
         dominant_rgb = max(color_counts, key=color_counts.get)
         r, g, b = [min(c, 255) for c in dominant_rgb]
@@ -1332,8 +1632,12 @@ def extract_vibrant_color(image_path):
 
     except Exception as e:
         import logging
-        logging.getLogger(__name__).warning("Failed to extract vibrant color from %s: %s", image_path, e)
+
+        logging.getLogger(__name__).warning(
+            "Failed to extract vibrant color from %s: %s", image_path, e
+        )
         return None
+
 
 def get_cached_remote_url(game_name, asset_type="grid"):
     """

@@ -17,6 +17,7 @@ inconsistent copy (binary_sensor.py skipped the regex sanitization step,
 so a player name with characters outside [a-z0-9 ] produced a different
 slug there than everywhere else).
 """
+
 from __future__ import annotations
 
 import re
@@ -32,7 +33,9 @@ def safe_owner_slug(player_name: str) -> str:
     return re.sub(r"[^a-z0-9_]", "_", player_name.lower().replace(" ", "_"))
 
 
-def player_device_info(player_name: str, safe_owner: str, platforms: list[str]) -> DeviceInfo:
+def player_device_info(
+    player_name: str, safe_owner: str, platforms: list[str]
+) -> DeviceInfo:
     model = " + ".join(
         PLATFORM_CONFIG[p]["name_suffix"] for p in platforms if p in PLATFORM_CONFIG
     )

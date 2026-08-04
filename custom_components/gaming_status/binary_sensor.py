@@ -1,4 +1,5 @@
 """Binary sensor platform for Gaming Status."""
+
 import json
 import logging
 
@@ -10,6 +11,7 @@ from .const import OPT_PLAYERS
 from .device import hub_device_info, safe_owner_slug
 
 _LOGGER = logging.getLogger(__name__)
+
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up the binary sensor platform."""
@@ -62,7 +64,14 @@ class GlobalGamingSensor(BinarySensorEntity):
 
     def _update_state(self):
         is_anyone_gaming = False
-        offline_states = ["Offline", "offline", "unavailable", "unknown", "None", "none"]
+        offline_states = [
+            "Offline",
+            "offline",
+            "unavailable",
+            "unknown",
+            "None",
+            "none",
+        ]
 
         for sensor_id in self._master_sensor_ids:
             state = self.hass.states.get(sensor_id)

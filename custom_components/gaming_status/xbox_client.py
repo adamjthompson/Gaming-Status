@@ -12,6 +12,7 @@ Requires the `python-xbox` package (import name `pythonxbox`) -- already a
 dependency of HA core's own `xbox` integration, so guaranteed present in the
 same venv once that integration is installed.
 """
+
 from __future__ import annotations
 
 import logging
@@ -97,13 +98,18 @@ async def async_get_current_title_id(client, xuid):
         if not person:
             return None
         detail = next(
-            (d for d in person.presence_details or []
-             if d.state == "Active" and d.title_id and d.is_game and d.is_primary),
+            (
+                d
+                for d in person.presence_details or []
+                if d.state == "Active" and d.title_id and d.is_game and d.is_primary
+            ),
             None,
         )
         return detail.title_id if detail else None
     except Exception as e:
-        _LOGGER.debug("[Gaming Status] Xbox title_id resolution failed for xuid %s: %s", xuid, e)
+        _LOGGER.debug(
+            "[Gaming Status] Xbox title_id resolution failed for xuid %s: %s", xuid, e
+        )
         return None
 
 
@@ -115,7 +121,9 @@ async def async_get_achievements(client, xuid, title_id, recent_limit=10):
     no separate token-bucket limiter needed here. Never raises; returns None
     on failure (after also trying the legacy Xbox 360 endpoint below)."""
     try:
-        response = await client.achievements.get_achievements_xboxone_gameprogress(xuid, title_id)
+        response = await client.achievements.get_achievements_xboxone_gameprogress(
+            xuid, title_id
+        )
         achievements = response.achievements or []
         # progress_state ("Achieved" vs "NotStarted"/"InProgress") is the
         # correct earned/locked signal -- progression.time_unlocked is a
@@ -124,7 +132,9 @@ async def async_get_achievements(client, xuid, title_id, recent_limit=10):
         # that were NEVER unlocked. That placeholder still parses to a
         # truthy datetime, so checking time_unlocked's truthiness alone
         # previously counted every achievement as earned.
-        earned = [a for a in achievements if (a.progress_state or "").lower() == "achieved"]
+        earned = [
+            a for a in achievements if (a.progress_state or "").lower() == "achieved"
+        ]
         earned.sort(key=lambda a: a.progression.time_unlocked, reverse=True)
 
         def _icon_url(a):
@@ -150,9 +160,13 @@ async def async_get_achievements(client, xuid, title_id, recent_limit=10):
         _LOGGER.debug(
             "[Gaming Status] Xbox modern achievement fetch failed for xuid %s title %s (%s) -- "
             "trying the legacy Xbox 360 endpoint next",
-            xuid, title_id, e,
+            xuid,
+            title_id,
+            e,
         )
-        return await _async_get_achievements_legacy_360(client, xuid, title_id, recent_limit)
+        return await _async_get_achievements_legacy_360(
+            client, xuid, title_id, recent_limit
+        )
 
 
 async def _async_get_achievements_legacy_360(client, xuid, title_id, recent_limit=10):
@@ -163,7 +177,9 @@ async def _async_get_achievements_legacy_360(client, xuid, title_id, recent_limi
     no placeholder-timestamp ambiguity to work around. Never raises; returns
     None on failure."""
     try:
-        response = await client.achievements.get_achievements_xbox360_all(xuid, title_id)
+        response = await client.achievements.get_achievements_xbox360_all(
+            xuid, title_id
+        )
         achievements = response.achievements or []
         earned = [a for a in achievements if a.unlocked]
         earned.sort(key=lambda a: a.time_unlocked, reverse=True)
@@ -186,7 +202,9 @@ async def _async_get_achievements_legacy_360(client, xuid, title_id, recent_limi
     except Exception as e:
         _LOGGER.debug(
             "[Gaming Status] Xbox legacy 360 achievement fetch also failed for xuid %s title %s: %s",
-            xuid, title_id, e,
+            xuid,
+            title_id,
+            e,
         )
         return None
 

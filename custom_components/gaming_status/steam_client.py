@@ -8,6 +8,7 @@ key's own account, regardless of privacy settings -- a long-documented Steam
 Web API restriction. Resolving the API key per the owning steam_online
 config entry (see utils.py) is the best available mitigation, not a full fix.
 """
+
 from __future__ import annotations
 
 import logging
@@ -34,13 +35,17 @@ _TIMEOUT = aiohttp.ClientTimeout(total=15)
 
 
 class SteamClient:
-    def __init__(self, session: aiohttp.ClientSession, api_key: str, rate_limiter: RateLimiter) -> None:
+    def __init__(
+        self, session: aiohttp.ClientSession, api_key: str, rate_limiter: RateLimiter
+    ) -> None:
         self._session = session
         self._api_key = api_key
         self._rate_limiter = rate_limiter
 
     async def _get(self, path: str, params: dict) -> dict:
-        await self._rate_limiter.async_acquire(timeout=RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS)
+        await self._rate_limiter.async_acquire(
+            timeout=RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS
+        )
         url = f"{STEAM_API_BASE}/{path}"
         query = {"key": self._api_key, **params}
         try:
@@ -54,9 +59,13 @@ class SteamClient:
                 try:
                     return await resp.json(content_type=None)
                 except (ValueError, aiohttp.ContentTypeError) as err:
-                    raise MalformedResponseError(f"Unexpected response body from Steam {path}: {err}") from err
+                    raise MalformedResponseError(
+                        f"Unexpected response body from Steam {path}: {err}"
+                    ) from err
         except aiohttp.ClientError as err:
-            raise NetworkError(f"Error communicating with Steam ({path}): {err}") from err
+            raise NetworkError(
+                f"Error communicating with Steam ({path}): {err}"
+            ) from err
         except TimeoutError as err:
             raise NetworkError(f"Timed out reaching Steam ({path}): {err}") from err
 
@@ -69,11 +78,17 @@ class SteamClient:
         overall profile visibility."""
         data = await self._get(
             "IPlayerService/GetOwnedGames/v1/",
-            {"steamid": steamid64, "include_appinfo": 1, "include_played_free_games": 1},
+            {
+                "steamid": steamid64,
+                "include_appinfo": 1,
+                "include_played_free_games": 1,
+            },
         )
         response = (data or {}).get("response")
         if not response or "games" not in response:
-            raise GameDetailsPrivateError(f"Steam account {steamid64}'s game details are private")
+            raise GameDetailsPrivateError(
+                f"Steam account {steamid64}'s game details are private"
+            )
         return response.get("games") or []
 
     async def async_get_schema_for_game(self, appid: int) -> dict:
@@ -85,12 +100,28 @@ class SteamClient:
         ever used for already-earned unlocks)."""
         data = await self._get("ISteamUserStats/GetSchemaForGame/v2/", {"appid": appid})
         game = (data or {}).get("game") or {}
-        achievements = ((game.get("availableGameStats") or {}).get("achievements")) or []
-        display_names = {entry["name"]: entry.get("displayName") or entry["name"] for entry in achievements if entry.get("name")}
-        icons = {entry["name"]: entry.get("icon") for entry in achievements if entry.get("name") and entry.get("icon")}
-        return {"total_achievements": len(achievements), "display_names": display_names, "icons": icons}
+        achievements = (
+            (game.get("availableGameStats") or {}).get("achievements")
+        ) or []
+        display_names = {
+            entry["name"]: entry.get("displayName") or entry["name"]
+            for entry in achievements
+            if entry.get("name")
+        }
+        icons = {
+            entry["name"]: entry.get("icon")
+            for entry in achievements
+            if entry.get("name") and entry.get("icon")
+        }
+        return {
+            "total_achievements": len(achievements),
+            "display_names": display_names,
+            "icons": icons,
+        }
 
-    async def async_get_player_achievements(self, steamid64: str, appid: int) -> list[dict]:
+    async def async_get_player_achievements(
+        self, steamid64: str, appid: int
+    ) -> list[dict]:
         """Returns [{"apiname", "achieved": bool, "unlocktime": int}, ...].
         Games with no achievements at all return an empty list (not an
         error).
@@ -105,13 +136,17 @@ class SteamClient:
         this account" instead.
         """
         try:
-            data = await self._get("ISteamUserStats/GetPlayerAchievements/v1/", {"steamid": steamid64, "appid": appid})
+            data = await self._get(
+                "ISteamUserStats/GetPlayerAchievements/v1/",
+                {"steamid": steamid64, "appid": appid},
+            )
         except AuthError:
             _LOGGER.debug(
                 "Steam returned 401/403 for GetPlayerAchievements (steamid %s, appid %s) -- "
                 "likely Steam's per-account achievement-data restriction (only reliably "
                 "available for the API key's own account), not an invalid key.",
-                steamid64, appid,
+                steamid64,
+                appid,
             )
             return []
         except NetworkError:
@@ -125,7 +160,9 @@ class SteamClient:
         if not playerstats.get("success"):
             _LOGGER.debug(
                 "Steam GetPlayerAchievements returned success=false for steamid %s appid %s: %s",
-                steamid64, appid, playerstats.get("error") or "no error message given",
+                steamid64,
+                appid,
+                playerstats.get("error") or "no error message given",
             )
             return []
         return playerstats.get("achievements") or []
@@ -139,9 +176,13 @@ class SteamClient:
         lookup otherwise fails. Never raises -- a rating lookup failing
         should never be louder than "no native rating available"."""
         try:
-            await self._rate_limiter.async_acquire(timeout=RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS)
+            await self._rate_limiter.async_acquire(
+                timeout=RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS
+            )
             async with self._session.get(
-                f"{STEAM_STORE_API_BASE}/appdetails", params={"appids": appid}, timeout=_TIMEOUT
+                f"{STEAM_STORE_API_BASE}/appdetails",
+                params={"appids": appid},
+                timeout=_TIMEOUT,
             ) as resp:
                 if resp.status != 200:
                     return None

@@ -1,4 +1,5 @@
 """Config flow for Gaming Status."""
+
 from __future__ import annotations
 
 import json
@@ -87,17 +88,21 @@ _LOGGER = logging.getLogger(__name__)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _load_json(raw: str, fallback):
     try:
         return json.loads(raw) if raw else fallback
     except (json.JSONDecodeError, TypeError):
         return fallback
 
+
 def _dump_json(obj) -> str:
     return json.dumps(obj, indent=2, ensure_ascii=False)
 
+
 async def _fetch_discord_members(token: str, server_id: str) -> list:
-    if not token or not server_id: return []
+    if not token or not server_id:
+        return []
     url = f"https://discord.com/api/v10/guilds/{server_id}/members?limit=1000"
     headers = {"Authorization": f"Bot {token}"}
     try:
@@ -109,37 +114,50 @@ async def _fetch_discord_members(token: str, server_id: str) -> list:
                     for m in data:
                         user = m.get("user", {})
                         if not user.get("bot"):
-                            display = m.get("nick") or user.get("global_name") or user.get("username")
+                            display = (
+                                m.get("nick")
+                                or user.get("global_name")
+                                or user.get("username")
+                            )
                             members.append((user.get("id"), display))
                     return sorted(members, key=lambda x: x[1].lower())
     except Exception as e:
         _LOGGER.error(f"Error fetching Discord members: {e}")
     return []
 
+
 def _players(options: dict) -> dict:
     data = _load_json(options.get(OPT_PLAYERS, ""), {})
     # Sort players alphabetically by their name (the dictionary key)
     return dict(sorted(data.items(), key=lambda item: str(item[0]).lower()))
 
+
 def _endpoints(options: dict) -> dict:
     data = _load_json(options.get(OPT_ENDPOINTS, ""), {})
     # Sort endpoints alphabetically by their displayed "name" value
-    return dict(sorted(data.items(), key=lambda item: str(item[1].get("name", "")).lower()))
+    return dict(
+        sorted(data.items(), key=lambda item: str(item[1].get("name", "")).lower())
+    )
+
 
 def _weekly_report(options: dict) -> dict:
     return _load_json(options.get(OPT_WEEKLY_REPORT, ""), {})
+
 
 def _parental(options: dict) -> dict:
     data = _load_json(options.get(OPT_PARENTAL, ""), {})
     # Sort parental rules alphabetically by the player's name
     return dict(sorted(data.items(), key=lambda item: str(item[0]).lower()))
 
+
 def _safe_id(name: str) -> str:
     return re.sub(r"[^a-z0-9_]", "_", name.lower())
+
 
 # ---------------------------------------------------------------------------
 # Initial config flow
 # ---------------------------------------------------------------------------
+
 
 class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 2
@@ -161,15 +179,19 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Start with an empty list so Discord, Custom, and Playnite are unchecked by default
         smart_platforms = []
-        if self.hass.config_entries.async_entries("steam_online"): smart_platforms.append("steam")
-        if self.hass.config_entries.async_entries("xbox"): smart_platforms.append("xbox")
-        if self.hass.config_entries.async_entries("playstation_network"): smart_platforms.append("playstation")
+        if self.hass.config_entries.async_entries("steam_online"):
+            smart_platforms.append("steam")
+        if self.hass.config_entries.async_entries("xbox"):
+            smart_platforms.append("xbox")
+        if self.hass.config_entries.async_entries("playstation_network"):
+            smart_platforms.append("playstation")
 
         if user_input is not None:
             self._temp_user_input = user_input
 
             # If they checked Discord, route them to the dedicated Discord Setup Screen
             from .const import OPT_ENABLED_PLATFORMS
+
             if "discord" in user_input.get(OPT_ENABLED_PLATFORMS, []):
                 return await self.async_step_discord_setup()
 
@@ -181,31 +203,50 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             OPT_ENABLE_PARENTAL,
             OPT_ENABLED_PLATFORMS,
         )
+
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema({
-                vol.Optional(OPT_ENABLED_PLATFORMS, default=smart_platforms): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            selector.SelectOptionDict(value="steam", label="Steam"),
-                            selector.SelectOptionDict(value="xbox", label="Xbox"),
-                            selector.SelectOptionDict(value="playstation", label="PlayStation"),
-                            selector.SelectOptionDict(value="discord", label="Discord"),
-                            selector.SelectOptionDict(value="custom", label="Custom"),
-                            selector.SelectOptionDict(value="playnite", label="Playnite"),
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        OPT_ENABLED_PLATFORMS, default=smart_platforms
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                selector.SelectOptionDict(value="steam", label="Steam"),
+                                selector.SelectOptionDict(value="xbox", label="Xbox"),
+                                selector.SelectOptionDict(
+                                    value="playstation", label="PlayStation"
+                                ),
+                                selector.SelectOptionDict(
+                                    value="discord", label="Discord"
+                                ),
+                                selector.SelectOptionDict(
+                                    value="custom", label="Custom"
+                                ),
+                                selector.SelectOptionDict(
+                                    value="playnite", label="Playnite"
+                                ),
                             ],
-                        multiple=True,
-                        mode=selector.SelectSelectorMode.LIST
-                    )
-                ),
-                vol.Optional(OPT_ENABLE_NOTIFICATIONS, default=False): bool,
-                vol.Optional(OPT_ENABLE_PARENTAL, default=False): bool,
-                vol.Optional(CONF_STEAMGRIDDB_API_KEY, default=""): selector.TextSelector(
-                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
-                ),
-                vol.Optional(OPT_USE_CACHE, default=smart_cache_default): bool,
-            }),
-            description_placeholders={"api_url": "https://www.steamgriddb.com/profile/api"},
+                            multiple=True,
+                            mode=selector.SelectSelectorMode.LIST,
+                        )
+                    ),
+                    vol.Optional(OPT_ENABLE_NOTIFICATIONS, default=False): bool,
+                    vol.Optional(OPT_ENABLE_PARENTAL, default=False): bool,
+                    vol.Optional(
+                        CONF_STEAMGRIDDB_API_KEY, default=""
+                    ): selector.TextSelector(
+                        selector.TextSelectorConfig(
+                            type=selector.TextSelectorType.PASSWORD
+                        )
+                    ),
+                    vol.Optional(OPT_USE_CACHE, default=smart_cache_default): bool,
+                }
+            ),
+            description_placeholders={
+                "api_url": "https://www.steamgriddb.com/profile/api"
+            },
         )
 
     async def async_step_discord_setup(self, user_input=None):
@@ -215,10 +256,12 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="discord_setup",
-            data_schema=vol.Schema({
-                vol.Optional(CONF_DISCORD_TOKEN, default=""): str,
-                vol.Optional(CONF_DISCORD_SERVER, default=""): str,
-            }),
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(CONF_DISCORD_TOKEN, default=""): str,
+                    vol.Optional(CONF_DISCORD_SERVER, default=""): str,
+                }
+            ),
         )
 
     async def async_step_first_player(self, user_input=None):
@@ -231,7 +274,14 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["player_name"] = "name_required"
             else:
                 player_data = {}
-                platforms = ["steam", "xbox", "playstation", "discord", "playnite", "custom"]
+                platforms = [
+                    "steam",
+                    "xbox",
+                    "playstation",
+                    "discord",
+                    "playnite",
+                    "custom",
+                ]
                 for platform in platforms:
                     val = user_input.get(platform)
                     if val is not None:
@@ -240,14 +290,18 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             player_data[platform] = val
 
                 from .const import OPT_PLAYERS
+
                 self._temp_user_input[OPT_PLAYERS] = json.dumps({name: player_data})
                 return self._create_entry_from_temp()
 
         from .const import OPT_ENABLED_PLATFORMS
+
         enabled_platforms = self._temp_user_input.get(OPT_ENABLED_PLATFORMS, [])
         schema = {vol.Required("player_name", default="Player 1"): str}
 
-        def _get_filtered_selector(integration: str, suffix: str | tuple | None = None, domain: str = "sensor"):
+        def _get_filtered_selector(
+            integration: str, suffix: str | tuple | None = None, domain: str = "sensor"
+        ):
             options = []
             try:
                 registry = er.async_get(self.hass)
@@ -255,7 +309,10 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 for entry in registry.entities.values():
                     if entry.domain == domain and entry.platform == integration:
                         if suffix:
-                            if not entry.entity_id.endswith(suffix) and getattr(entry, "translation_key", None) != tk_match:
+                            if (
+                                not entry.entity_id.endswith(suffix)
+                                and getattr(entry, "translation_key", None) != tk_match
+                            ):
                                 continue
                         options.append(entry.entity_id)
                 if suffix and not options:
@@ -268,16 +325,24 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             options.insert(0, "none")
             if len(options) > 1:
                 return selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=options, mode=selector.SelectSelectorMode.DROPDOWN, custom_value=True)
+                    selector.SelectSelectorConfig(
+                        options=options,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        custom_value=True,
+                    )
                 )
-            return selector.EntitySelector(selector.EntitySelectorConfig(domain=domain, integration=integration))
+            return selector.EntitySelector(
+                selector.EntitySelectorConfig(domain=domain, integration=integration)
+            )
 
         if "steam" in enabled_platforms:
             schema[vol.Optional("steam")] = _get_filtered_selector("steam", None)
         if "xbox" in enabled_platforms:
             schema[vol.Optional("xbox")] = _get_filtered_selector("xbox", "_status")
         if "playstation" in enabled_platforms:
-            schema[vol.Optional("playstation")] = _get_filtered_selector("playstation_network", "_now_playing")
+            schema[vol.Optional("playstation")] = _get_filtered_selector(
+                "playstation_network", "_now_playing"
+            )
         if "discord" in enabled_platforms:
             token = self._temp_user_input.get(CONF_DISCORD_TOKEN)
             server_id = self._temp_user_input.get(CONF_DISCORD_SERVER)
@@ -285,20 +350,30 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if token and server_id:
                 members = await _fetch_discord_members(token, server_id)
                 for m in members:
-                    dc_options.append(selector.SelectOptionDict(value=m[0], label=f"{m[1]} ({m[0]})"))
+                    dc_options.append(
+                        selector.SelectOptionDict(value=m[0], label=f"{m[1]} ({m[0]})")
+                    )
 
             schema[vol.Optional("discord")] = selector.SelectSelector(
-                selector.SelectSelectorConfig(options=dc_options, mode=selector.SelectSelectorMode.DROPDOWN, custom_value=True)
+                selector.SelectSelectorConfig(
+                    options=dc_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    custom_value=True,
+                )
             )
         if "playnite" in enabled_platforms:
-            schema[vol.Optional("playnite")] = selector.EntitySelector(selector.EntitySelectorConfig(domain="binary_sensor", integration="mqtt"))
+            schema[vol.Optional("playnite")] = selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="binary_sensor", integration="mqtt"
+                )
+            )
         if "custom" in enabled_platforms:
-            schema[vol.Optional("custom")] = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+            schema[vol.Optional("custom")] = selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            )
 
         return self.async_show_form(
-            step_id="first_player",
-            data_schema=vol.Schema(schema),
-            errors=errors
+            step_id="first_player", data_schema=vol.Schema(schema), errors=errors
         )
 
     def _create_entry_from_temp(self):
@@ -314,6 +389,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             OPT_ENABLED_PLATFORMS,
             OPT_PLAYERS,
         )
+
         use_cache = user_input.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
         enabled_platforms = user_input.get(OPT_ENABLED_PLATFORMS, [])
         enable_notifications = user_input.get(OPT_ENABLE_NOTIFICATIONS, False)
@@ -332,7 +408,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 OPT_ENABLED_PLATFORMS: enabled_platforms,
                 OPT_ENABLE_NOTIFICATIONS: enable_notifications,
                 OPT_ENABLE_PARENTAL: enable_parental,
-                OPT_PLAYERS: players
+                OPT_PLAYERS: players,
             },
         )
 
@@ -340,6 +416,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry):
         return GamingStatusOptionsFlow(config_entry)
+
 
 # ---------------------------------------------------------------------------
 # Options flow
@@ -368,13 +445,15 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         if self._options.get(OPT_ENABLE_PARENTAL, False):
             menu_options.append(MENU_PARENTAL)
 
-        menu_options.extend([
-            MENU_CUSTOM_ARTWORK,
-            MENU_OVERRIDES,
-            MENU_ACHIEVEMENTS_RATINGS,
-            MENU_ADVANCED,
-            MENU_GLOBAL_SETTINGS,
-        ])
+        menu_options.extend(
+            [
+                MENU_CUSTOM_ARTWORK,
+                MENU_OVERRIDES,
+                MENU_ACHIEVEMENTS_RATINGS,
+                MENU_ADVANCED,
+                MENU_GLOBAL_SETTINGS,
+            ]
+        )
 
         return self.async_show_menu(
             step_id="init",
@@ -406,27 +485,55 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         opts = self._options
 
         if user_input is not None:
-            opts[OPT_ENABLED_PLATFORMS] = user_input.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
-            opts[OPT_ENABLE_NOTIFICATIONS] = user_input.get(OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS)
-            opts[OPT_ENABLE_PARENTAL] = user_input.get(OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL)
+            opts[OPT_ENABLED_PLATFORMS] = user_input.get(
+                OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS
+            )
+            opts[OPT_ENABLE_NOTIFICATIONS] = user_input.get(
+                OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS
+            )
+            opts[OPT_ENABLE_PARENTAL] = user_input.get(
+                OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL
+            )
             opts[OPT_USE_CACHE] = user_input.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
             # Field is only in the form (and thus in user_input) when caching
             # is enabled -- see the conditional schema entry below. Leave the
             # stored preference alone otherwise, rather than stomping it to
             # False, so it comes back as-is if caching is re-enabled later.
             if opts[OPT_USE_CACHE]:
-                opts[OPT_EXTRACT_COLOR] = user_input.get(OPT_EXTRACT_COLOR, DEFAULT_EXTRACT_COLOR)
-            opts[OPT_CACHE_MAX_FILES] = user_input.get(OPT_CACHE_MAX_FILES, DEFAULT_CACHE_MAX_FILES)
-            opts[OPT_CACHE_MAX_DAYS] = user_input.get(OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS)
-            opts[OPT_GRACE_PERIOD] = user_input.get(OPT_GRACE_PERIOD, DEFAULT_GRACE_PERIOD_SECONDS)
-            opts[OPT_AWAY_GRACE_PERIOD] = user_input.get(OPT_AWAY_GRACE_PERIOD, DEFAULT_AWAY_GRACE_PERIOD_SECONDS)
-            opts[OPT_TRANSITION_GRACE] = user_input.get(OPT_TRANSITION_GRACE, DEFAULT_GAME_TRANSITION_GRACE_SECONDS)
-            opts[OPT_MIN_SESSION] = user_input.get(OPT_MIN_SESSION, DEFAULT_MIN_SESSION_DURATION)
-            opts[OPT_MASTER_HANDOFF_GRACE] = user_input.get(OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS)
-            opts[OPT_RESET_HISTORY] = user_input.get(OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY)
-            opts[OPT_REMOVE_DISABLED_SENSORS] = user_input.get(OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS)
+                opts[OPT_EXTRACT_COLOR] = user_input.get(
+                    OPT_EXTRACT_COLOR, DEFAULT_EXTRACT_COLOR
+                )
+            opts[OPT_CACHE_MAX_FILES] = user_input.get(
+                OPT_CACHE_MAX_FILES, DEFAULT_CACHE_MAX_FILES
+            )
+            opts[OPT_CACHE_MAX_DAYS] = user_input.get(
+                OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS
+            )
+            opts[OPT_GRACE_PERIOD] = user_input.get(
+                OPT_GRACE_PERIOD, DEFAULT_GRACE_PERIOD_SECONDS
+            )
+            opts[OPT_AWAY_GRACE_PERIOD] = user_input.get(
+                OPT_AWAY_GRACE_PERIOD, DEFAULT_AWAY_GRACE_PERIOD_SECONDS
+            )
+            opts[OPT_TRANSITION_GRACE] = user_input.get(
+                OPT_TRANSITION_GRACE, DEFAULT_GAME_TRANSITION_GRACE_SECONDS
+            )
+            opts[OPT_MIN_SESSION] = user_input.get(
+                OPT_MIN_SESSION, DEFAULT_MIN_SESSION_DURATION
+            )
+            opts[OPT_MASTER_HANDOFF_GRACE] = user_input.get(
+                OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS
+            )
+            opts[OPT_RESET_HISTORY] = user_input.get(
+                OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY
+            )
+            opts[OPT_REMOVE_DISABLED_SENSORS] = user_input.get(
+                OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS
+            )
             if "playstation" in opts[OPT_ENABLED_PLATFORMS]:
-                opts[OPT_ENABLE_PS3_TRACKING] = user_input.get(OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING)
+                opts[OPT_ENABLE_PS3_TRACKING] = user_input.get(
+                    OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING
+                )
 
             self._options = opts
             return await self._update_and_return()
@@ -444,18 +551,23 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         dynamic_color_default = False if is_pi else DEFAULT_EXTRACT_COLOR
 
         global_schema = {
-            vol.Optional(OPT_ENABLED_PLATFORMS, default=opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)): selector.SelectSelector(
+            vol.Optional(
+                OPT_ENABLED_PLATFORMS,
+                default=opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS),
+            ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=[
                         selector.SelectOptionDict(value="steam", label="Steam"),
                         selector.SelectOptionDict(value="xbox", label="Xbox"),
-                        selector.SelectOptionDict(value="playstation", label="PlayStation"),
+                        selector.SelectOptionDict(
+                            value="playstation", label="PlayStation"
+                        ),
                         selector.SelectOptionDict(value="discord", label="Discord"),
                         selector.SelectOptionDict(value="custom", label="Custom"),
                         selector.SelectOptionDict(value="playnite", label="Playnite"),
                     ],
                     multiple=True,
-                    mode=selector.SelectSelectorMode.LIST
+                    mode=selector.SelectSelectorMode.LIST,
                 )
             ),
         }
@@ -463,30 +575,91 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         # only offered as an option directly below "Platforms to Track" when
         # "playstation" is already checked there.
         if "playstation" in opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS):
-            global_schema[vol.Optional(OPT_ENABLE_PS3_TRACKING, default=opts.get(OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING))] = bool
-        global_schema.update({
-            vol.Optional(OPT_ENABLE_NOTIFICATIONS, default=opts.get(OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS)): bool,
-            vol.Optional(OPT_ENABLE_PARENTAL, default=opts.get(OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL)): bool,
-            vol.Optional(OPT_USE_CACHE, default=opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)): bool,
-        })
+            global_schema[
+                vol.Optional(
+                    OPT_ENABLE_PS3_TRACKING,
+                    default=opts.get(
+                        OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING
+                    ),
+                )
+            ] = bool
+        global_schema.update(
+            {
+                vol.Optional(
+                    OPT_ENABLE_NOTIFICATIONS,
+                    default=opts.get(
+                        OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS
+                    ),
+                ): bool,
+                vol.Optional(
+                    OPT_ENABLE_PARENTAL,
+                    default=opts.get(OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL),
+                ): bool,
+                vol.Optional(
+                    OPT_USE_CACHE, default=opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
+                ): bool,
+            }
+        )
         # Only meaningful (and shown) once local caching is enabled -- it
         # samples pixels from a locally-cached image file, so it can't do
         # anything with caching off. Mirrors the PS3-tracking conditional
         # field above; keeps the stored preference in opts even while
         # hidden (see the save logic above), it just isn't offered here.
         if opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE):
-            global_schema[vol.Optional(OPT_EXTRACT_COLOR, default=opts.get(OPT_EXTRACT_COLOR, dynamic_color_default))] = bool
-        global_schema.update({
-            vol.Optional(OPT_CACHE_MAX_FILES, default=opts.get(OPT_CACHE_MAX_FILES, DEFAULT_CACHE_MAX_FILES)): vol.All(int, vol.Range(min=0)),
-            vol.Optional(OPT_CACHE_MAX_DAYS, default=opts.get(OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS)): vol.All(int, vol.Range(min=0)),
-            vol.Optional(OPT_GRACE_PERIOD, default=opts.get(OPT_GRACE_PERIOD, DEFAULT_GRACE_PERIOD_SECONDS)): vol.All(int, vol.Range(min=0)),
-            vol.Optional(OPT_AWAY_GRACE_PERIOD, default=opts.get(OPT_AWAY_GRACE_PERIOD, DEFAULT_AWAY_GRACE_PERIOD_SECONDS)): vol.All(int, vol.Range(min=0)),
-            vol.Optional(OPT_TRANSITION_GRACE, default=opts.get(OPT_TRANSITION_GRACE, DEFAULT_GAME_TRANSITION_GRACE_SECONDS)): vol.All(int, vol.Range(min=0)),
-            vol.Optional(OPT_MIN_SESSION, default=opts.get(OPT_MIN_SESSION, DEFAULT_MIN_SESSION_DURATION)): vol.All(int, vol.Range(min=0)),
-            vol.Optional(OPT_MASTER_HANDOFF_GRACE, default=opts.get(OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS)): vol.All(int, vol.Range(min=0)),
-            vol.Optional(OPT_RESET_HISTORY, default=opts.get(OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY)): bool,
-            vol.Optional(OPT_REMOVE_DISABLED_SENSORS, default=opts.get(OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS)): bool,
-        })
+            global_schema[
+                vol.Optional(
+                    OPT_EXTRACT_COLOR,
+                    default=opts.get(OPT_EXTRACT_COLOR, dynamic_color_default),
+                )
+            ] = bool
+        global_schema.update(
+            {
+                vol.Optional(
+                    OPT_CACHE_MAX_FILES,
+                    default=opts.get(OPT_CACHE_MAX_FILES, DEFAULT_CACHE_MAX_FILES),
+                ): vol.All(int, vol.Range(min=0)),
+                vol.Optional(
+                    OPT_CACHE_MAX_DAYS,
+                    default=opts.get(OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS),
+                ): vol.All(int, vol.Range(min=0)),
+                vol.Optional(
+                    OPT_GRACE_PERIOD,
+                    default=opts.get(OPT_GRACE_PERIOD, DEFAULT_GRACE_PERIOD_SECONDS),
+                ): vol.All(int, vol.Range(min=0)),
+                vol.Optional(
+                    OPT_AWAY_GRACE_PERIOD,
+                    default=opts.get(
+                        OPT_AWAY_GRACE_PERIOD, DEFAULT_AWAY_GRACE_PERIOD_SECONDS
+                    ),
+                ): vol.All(int, vol.Range(min=0)),
+                vol.Optional(
+                    OPT_TRANSITION_GRACE,
+                    default=opts.get(
+                        OPT_TRANSITION_GRACE, DEFAULT_GAME_TRANSITION_GRACE_SECONDS
+                    ),
+                ): vol.All(int, vol.Range(min=0)),
+                vol.Optional(
+                    OPT_MIN_SESSION,
+                    default=opts.get(OPT_MIN_SESSION, DEFAULT_MIN_SESSION_DURATION),
+                ): vol.All(int, vol.Range(min=0)),
+                vol.Optional(
+                    OPT_MASTER_HANDOFF_GRACE,
+                    default=opts.get(
+                        OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS
+                    ),
+                ): vol.All(int, vol.Range(min=0)),
+                vol.Optional(
+                    OPT_RESET_HISTORY,
+                    default=opts.get(OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY),
+                ): bool,
+                vol.Optional(
+                    OPT_REMOVE_DISABLED_SENSORS,
+                    default=opts.get(
+                        OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS
+                    ),
+                ): bool,
+            }
+        )
 
         return self.async_show_form(
             step_id=MENU_GLOBAL_SETTINGS,
@@ -511,22 +684,28 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 return await self.async_step_edit_player()
             return await self.async_step_init()
 
-        choices = [
-            selector.SelectOptionDict(value=p, label=p) for p in player_names
-        ]
-        choices.insert(0, selector.SelectOptionDict(value="__add_new__", label="➕ Add New Player"))
+        choices = [selector.SelectOptionDict(value=p, label=p) for p in player_names]
+        choices.insert(
+            0, selector.SelectOptionDict(value="__add_new__", label="➕ Add New Player")
+        )
 
         return self.async_show_form(
             step_id=MENU_MANAGE_PLAYERS,
             data_schema=vol.Schema(
                 {
-                    vol.Required("player_choice", default="__add_new__"): selector.SelectSelector(
-                        selector.SelectSelectorConfig(options=choices, mode=selector.SelectSelectorMode.DROPDOWN)
+                    vol.Required(
+                        "player_choice", default="__add_new__"
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=choices, mode=selector.SelectSelectorMode.DROPDOWN
+                        )
                     ),
                 }
             ),
             description_placeholders={
-                "player_count_text": f"You have {len(player_names)} player(s) configured." if player_names else "You currently have 0 players configured.",
+                "player_count_text": f"You have {len(player_names)} player(s) configured."
+                if player_names
+                else "You currently have 0 players configured.",
             },
         )
 
@@ -577,8 +756,11 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 OPT_ENABLE_PS3_TRACKING,
                 OPT_ENABLED_PLATFORMS,
             )
+
             updated_platforms = self._player_data_from_input(user_input)
-            enabled_platforms = self._options.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
+            enabled_platforms = self._options.get(
+                OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS
+            )
 
             for p in enabled_platforms:
                 if p in updated_platforms:
@@ -594,7 +776,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             # while its field is actually visible (playstation + PS3
             # tracking both on), so toggling PS3 tracking off elsewhere
             # doesn't silently wipe a saved selection.
-            ps3_tracking_enabled = self._options.get(OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING)
+            ps3_tracking_enabled = self._options.get(
+                OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING
+            )
             if "playstation" in enabled_platforms and ps3_tracking_enabled:
                 if "ps3" in updated_platforms:
                     existing["ps3"] = updated_platforms["ps3"]
@@ -621,7 +805,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
         endpoints = _endpoints(self._options)
         endpoint_options = [
-            selector.SelectOptionDict(value=k, label=v["name"]) for k, v in endpoints.items()
+            selector.SelectOptionDict(value=k, label=v["name"])
+            for k, v in endpoints.items()
         ]
 
         xbox_options = [
@@ -635,15 +820,21 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             exclude_raw = user_input.get("exclude_games", "")
 
-            existing["suppresses_xbox_sensors"] = user_input.get("suppresses_xbox_sensors", [])
+            existing["suppresses_xbox_sensors"] = user_input.get(
+                "suppresses_xbox_sensors", []
+            )
             existing["exclude_games"] = [
                 e.strip() for e in exclude_raw.splitlines() if e.strip()
             ]
 
             # Only update destinations if the UI actually displayed them
             if notifications_enabled:
-                existing["notify_start_destinations"] = user_input.get("notify_start_destinations", [])
-                existing["notify_end_destinations"] = user_input.get("notify_end_destinations", [])
+                existing["notify_start_destinations"] = user_input.get(
+                    "notify_start_destinations", []
+                )
+                existing["notify_end_destinations"] = user_input.get(
+                    "notify_end_destinations", []
+                )
 
             players[name] = existing
             self._options[OPT_PLAYERS] = _dump_json(players)
@@ -654,40 +845,51 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         schema_dict = {}
 
         if endpoint_options and notifications_enabled:
-            schema_dict[vol.Optional("notify_start_destinations", default=existing.get("notify_start_destinations", []))] = (
-                selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=endpoint_options,
-                        multiple=True,
-                        mode=selector.SelectSelectorMode.DROPDOWN
-                    )
+            schema_dict[
+                vol.Optional(
+                    "notify_start_destinations",
+                    default=existing.get("notify_start_destinations", []),
+                )
+            ] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=endpoint_options,
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             )
-            schema_dict[vol.Optional("notify_end_destinations", default=existing.get("notify_end_destinations", []))] = (
-                selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=endpoint_options,
-                        multiple=True,
-                        mode=selector.SelectSelectorMode.DROPDOWN
-                    )
+            schema_dict[
+                vol.Optional(
+                    "notify_end_destinations",
+                    default=existing.get("notify_end_destinations", []),
+                )
+            ] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=endpoint_options,
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             )
 
-        schema_dict[vol.Optional("suppresses_xbox_sensors", default=existing.get("suppresses_xbox_sensors", []))] = (
-            selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=xbox_options,
-                    multiple=True,
-                    mode=selector.SelectSelectorMode.DROPDOWN
-                )
+        schema_dict[
+            vol.Optional(
+                "suppresses_xbox_sensors",
+                default=existing.get("suppresses_xbox_sensors", []),
+            )
+        ] = selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=xbox_options,
+                multiple=True,
+                mode=selector.SelectSelectorMode.DROPDOWN,
             )
         )
 
-        schema_dict.update({
-            vol.Optional("exclude_games", description={"suggested_value": exclude_default}): selector.TextSelector(
-                selector.TextSelectorConfig(multiline=True)
-            ),
-        })
+        schema_dict.update(
+            {
+                vol.Optional(
+                    "exclude_games", description={"suggested_value": exclude_default}
+                ): selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
+            }
+        )
 
         return self.async_show_form(
             step_id="player_details",
@@ -705,7 +907,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
         if user_input is not None:
             # 1. Save the new artwork selection FIRST
-            opts[OPT_NOTIFY_ARTWORK] = user_input.get(OPT_NOTIFY_ARTWORK, "game_cover_art")
+            opts[OPT_NOTIFY_ARTWORK] = user_input.get(
+                OPT_NOTIFY_ARTWORK, "game_cover_art"
+            )
             self._options = opts
 
             # 2. Then handle the routing
@@ -727,32 +931,48 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
         # Build the new dropdown choices with a dedicated Save option
         choices = [
-            selector.SelectOptionDict(value="__save_settings__", label="Save Artwork Setting"),
-            selector.SelectOptionDict(value="__add_new__", label="➕ Add New Notification"),
-            selector.SelectOptionDict(value="__discord_colors__", label="Discord Notification Colors"),
-            selector.SelectOptionDict(value="__weekly_report__", label="Weekly Report Settings"),
+            selector.SelectOptionDict(
+                value="__save_settings__", label="Save Artwork Setting"
+            ),
+            selector.SelectOptionDict(
+                value="__add_new__", label="➕ Add New Notification"
+            ),
+            selector.SelectOptionDict(
+                value="__discord_colors__", label="Discord Notification Colors"
+            ),
+            selector.SelectOptionDict(
+                value="__weekly_report__", label="Weekly Report Settings"
+            ),
         ]
 
         for k, v in endpoints.items():
-            choices.append(selector.SelectOptionDict(value=k, label=f"Edit: {v['name']}"))
+            choices.append(
+                selector.SelectOptionDict(value=k, label=f"Edit: {v['name']}")
+            )
 
         return self.async_show_form(
             step_id=MENU_NOTIFICATIONS,
             data_schema=vol.Schema(
                 {
-                    vol.Required("endpoint_choice", default="__save_settings__"): selector.SelectSelector(
-                        selector.SelectSelectorConfig(options=choices, mode=selector.SelectSelectorMode.DROPDOWN)
+                    vol.Required(
+                        "endpoint_choice", default="__save_settings__"
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=choices, mode=selector.SelectSelectorMode.DROPDOWN
+                        )
                     ),
                     vol.Optional(
                         OPT_NOTIFY_ARTWORK,
-                        default=opts.get(OPT_NOTIFY_ARTWORK, "game_cover_art")
-                    ): vol.In({
-                        "game_cover_art": "Cover/Grid (Vertical)",
-                        "game_hero_art": "Hero (Horizontal)",
-                        "game_logo_art": "Logo (Transparent Title)",
-                        "game_icon_art": "Icon (Small Square)",
-                        "none": "No Artwork"
-                    }),
+                        default=opts.get(OPT_NOTIFY_ARTWORK, "game_cover_art"),
+                    ): vol.In(
+                        {
+                            "game_cover_art": "Cover/Grid (Vertical)",
+                            "game_hero_art": "Hero (Horizontal)",
+                            "game_logo_art": "Logo (Transparent Title)",
+                            "game_icon_art": "Icon (Small Square)",
+                            "none": "No Artwork",
+                        }
+                    ),
                 }
             ),
         )
@@ -798,7 +1018,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 return await self._update_and_return()
 
             if not errors:
-                existing["name"] = user_input.get("endpoint_name", existing.get("name")).strip()
+                existing["name"] = user_input.get(
+                    "endpoint_name", existing.get("name")
+                ).strip()
                 existing["type"] = user_input.get("notification_type", "Mobile App")
                 existing["notifier"] = user_input.get("notifier", "").strip()
                 existing["target_id"] = user_input.get("target_id", "").strip()
@@ -826,33 +1048,57 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     errors[field] = "invalid_hex_color"
 
             if not errors:
-                self._options[OPT_DISCORD_COLORS] = _dump_json({
-                    "mode": user_input.get("discord_color_mode", "default"),
-                    "color_start": user_input.get("color_start", "#00FF00").strip(),
-                    "color_end": user_input.get("color_end", "#FF0000").strip(),
-                    "color_parental": user_input.get("color_parental", "#0000FF").strip(),
-                })
+                self._options[OPT_DISCORD_COLORS] = _dump_json(
+                    {
+                        "mode": user_input.get("discord_color_mode", "default"),
+                        "color_start": user_input.get("color_start", "#00FF00").strip(),
+                        "color_end": user_input.get("color_end", "#FF0000").strip(),
+                        "color_parental": user_input.get(
+                            "color_parental", "#0000FF"
+                        ).strip(),
+                    }
+                )
                 return await self._update_and_return()
 
         return self.async_show_form(
             step_id="discord_colors",
             errors=errors,
-            data_schema=vol.Schema({
-                vol.Optional("discord_color_mode", default=colors.get("mode", "default")): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            selector.SelectOptionDict(value="default", label="Default (Green / Red / Blue)"),
-                            selector.SelectOptionDict(value="platform", label="Platform Colors"),
-                            selector.SelectOptionDict(value="game", label="Game Color"),
-                            selector.SelectOptionDict(value="custom", label="Custom Colors"),
-                        ],
-                        mode=selector.SelectSelectorMode.DROPDOWN
-                    )
-                ),
-                vol.Optional("color_start", default=colors.get("color_start", "#00FF00")): str,
-                vol.Optional("color_end", default=colors.get("color_end", "#FF0000")): str,
-                vol.Optional("color_parental", default=colors.get("color_parental", "#0000FF")): str,
-            }),
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        "discord_color_mode", default=colors.get("mode", "default")
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                selector.SelectOptionDict(
+                                    value="default",
+                                    label="Default (Green / Red / Blue)",
+                                ),
+                                selector.SelectOptionDict(
+                                    value="platform", label="Platform Colors"
+                                ),
+                                selector.SelectOptionDict(
+                                    value="game", label="Game Color"
+                                ),
+                                selector.SelectOptionDict(
+                                    value="custom", label="Custom Colors"
+                                ),
+                            ],
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
+                    vol.Optional(
+                        "color_start", default=colors.get("color_start", "#00FF00")
+                    ): str,
+                    vol.Optional(
+                        "color_end", default=colors.get("color_end", "#FF0000")
+                    ): str,
+                    vol.Optional(
+                        "color_parental",
+                        default=colors.get("color_parental", "#0000FF"),
+                    ): str,
+                }
+            ),
         )
 
     async def async_step_weekly_report(self, user_input=None):
@@ -860,7 +1106,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         endpoints = _endpoints(self._options)
 
         endpoint_options = [
-            selector.SelectOptionDict(value=k, label=v["name"]) for k, v in endpoints.items()
+            selector.SelectOptionDict(value=k, label=v["name"])
+            for k, v in endpoints.items()
         ]
 
         if user_input is not None:
@@ -872,8 +1119,13 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             return await self._update_and_return()
 
         day_options = {
-            0: "Monday", 1: "Tuesday", 2: "Wednesday", 3: "Thursday",
-            4: "Friday", 5: "Saturday", 6: "Sunday",
+            0: "Monday",
+            1: "Tuesday",
+            2: "Wednesday",
+            3: "Thursday",
+            4: "Friday",
+            5: "Saturday",
+            6: "Sunday",
         }
 
         schema_dict = {
@@ -883,13 +1135,13 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         }
 
         if endpoint_options:
-            schema_dict[vol.Optional("destinations", default=report.get("destinations", []))] = (
-                selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=endpoint_options,
-                        multiple=True,
-                        mode=selector.SelectSelectorMode.DROPDOWN
-                    )
+            schema_dict[
+                vol.Optional("destinations", default=report.get("destinations", []))
+            ] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=endpoint_options,
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             )
 
@@ -910,7 +1162,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             return self.async_show_form(
                 step_id=MENU_PARENTAL,
                 data_schema=vol.Schema({}),
-                description_placeholders={"info": "No players configured yet. Add players first."},
+                description_placeholders={
+                    "info": "No players configured yet. Add players first."
+                },
             )
 
         if user_input is not None:
@@ -933,7 +1187,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     vol.Required("player_choice"): vol.In(player_names),
                     vol.Optional(
                         OPT_ENABLE_NATIVE_RATINGS,
-                        default=self._options.get(OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS),
+                        default=self._options.get(
+                            OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS
+                        ),
                     ): bool,
                 }
             ),
@@ -941,6 +1197,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_parental_player(self, user_input=None):
         from .const import OPT_ENABLE_NOTIFICATIONS
+
         notifications_enabled = self._options.get(OPT_ENABLE_NOTIFICATIONS, False)
 
         name = self._editing_player or ""
@@ -959,7 +1216,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
         endpoints = _endpoints(self._options)
         endpoint_options = [
-            selector.SelectOptionDict(value=k, label=v["name"]) for k, v in endpoints.items()
+            selector.SelectOptionDict(value=k, label=v["name"])
+            for k, v in endpoints.items()
         ]
 
         # Set on the prior step (async_step_parental_controls), within this
@@ -967,14 +1225,32 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         # "can't react to this submission's own checkbox" limitation, since
         # it was already submitted and applied to self._options one step
         # ago, not on this same form.
-        ratings_enabled = self._options.get(OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS)
+        ratings_enabled = self._options.get(
+            OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS
+        )
 
         if user_input is not None:
             # Preserve existing values if the UI hides them, otherwise grab new user input
-            st_action_final = user_input.get("st_action_targets", st.get("action", [])) if notifications_enabled else st.get("action", [])
-            cf_action_final = user_input.get("cf_action_targets", cf.get("action", [])) if notifications_enabled else cf.get("action", [])
-            rt_enabled_final = user_input.get("rt_enabled", rt.get("enabled", False)) if ratings_enabled else rt.get("enabled", False)
-            rt_max_age_floor_final = int(user_input.get("rt_max_age_floor", rt.get("max_age_floor", 13))) if ratings_enabled else rt.get("max_age_floor", 13)
+            st_action_final = (
+                user_input.get("st_action_targets", st.get("action", []))
+                if notifications_enabled
+                else st.get("action", [])
+            )
+            cf_action_final = (
+                user_input.get("cf_action_targets", cf.get("action", []))
+                if notifications_enabled
+                else cf.get("action", [])
+            )
+            rt_enabled_final = (
+                user_input.get("rt_enabled", rt.get("enabled", False))
+                if ratings_enabled
+                else rt.get("enabled", False)
+            )
+            rt_max_age_floor_final = (
+                int(user_input.get("rt_max_age_floor", rt.get("max_age_floor", 13)))
+                if ratings_enabled
+                else rt.get("max_age_floor", 13)
+            )
             rt_action_final = (
                 user_input.get("rt_action_targets", rt.get("action", []))
                 if (notifications_enabled and ratings_enabled)
@@ -1008,57 +1284,88 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         st_action = st.get("action", [])
         if isinstance(st_action, str):
             if st_action and st_action.lower() != "none":
-                st_action = [st_action.replace("endpoint_", "", 1)] if st_action.startswith("endpoint_") else [st_action]
+                st_action = (
+                    [st_action.replace("endpoint_", "", 1)]
+                    if st_action.startswith("endpoint_")
+                    else [st_action]
+                )
             else:
                 st_action = []
 
         cf_action = cf.get("action", [])
         if isinstance(cf_action, str):
             if cf_action and cf_action.lower() != "none":
-                cf_action = [cf_action.replace("endpoint_", "", 1)] if cf_action.startswith("endpoint_") else [cf_action]
+                cf_action = (
+                    [cf_action.replace("endpoint_", "", 1)]
+                    if cf_action.startswith("endpoint_")
+                    else [cf_action]
+                )
             else:
                 cf_action = []
 
         rt_action = rt.get("action", [])
         if isinstance(rt_action, str):
             if rt_action and rt_action.lower() != "none":
-                rt_action = [rt_action.replace("endpoint_", "", 1)] if rt_action.startswith("endpoint_") else [rt_action]
+                rt_action = (
+                    [rt_action.replace("endpoint_", "", 1)]
+                    if rt_action.startswith("endpoint_")
+                    else [rt_action]
+                )
             else:
                 rt_action = []
 
         schema_dict = {
             vol.Optional("st_enabled", default=st.get("enabled", False)): bool,
-            vol.Optional("st_weekday_minutes", default=st.get("weekday_minutes", 120)): vol.All(int, vol.Range(min=0)),
-            vol.Optional("st_weekend_minutes", default=st.get("weekend_minutes", 180)): vol.All(int, vol.Range(min=0)),
-            vol.Optional("st_repeat", default=str(st.get("repeat", 0))): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=REPEAT_OPTIONS, mode=selector.SelectSelectorMode.DROPDOWN)
+            vol.Optional(
+                "st_weekday_minutes", default=st.get("weekday_minutes", 120)
+            ): vol.All(int, vol.Range(min=0)),
+            vol.Optional(
+                "st_weekend_minutes", default=st.get("weekend_minutes", 180)
+            ): vol.All(int, vol.Range(min=0)),
+            vol.Optional(
+                "st_repeat", default=str(st.get("repeat", 0))
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=REPEAT_OPTIONS, mode=selector.SelectSelectorMode.DROPDOWN
+                )
             ),
         }
 
         if endpoint_options and notifications_enabled:
-            schema_dict[vol.Optional("st_action_targets", default=st_action)] = selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=endpoint_options,
-                    multiple=True,
-                    mode=selector.SelectSelectorMode.DROPDOWN
+            schema_dict[vol.Optional("st_action_targets", default=st_action)] = (
+                selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=endpoint_options,
+                        multiple=True,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
                 )
             )
 
-        schema_dict.update({
-            vol.Optional("cf_enabled", default=cf.get("enabled", False)): bool,
-            vol.Optional("cf_weekday", default=cf.get("weekday", "22:00")): str,
-            vol.Optional("cf_weekend", default=cf.get("weekend", "23:00")): str,
-            vol.Optional("cf_repeat", default=str(cf.get("repeat", 0))): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=REPEAT_OPTIONS, mode=selector.SelectSelectorMode.DROPDOWN)
-            ),
-        })
+        schema_dict.update(
+            {
+                vol.Optional("cf_enabled", default=cf.get("enabled", False)): bool,
+                vol.Optional("cf_weekday", default=cf.get("weekday", "22:00")): str,
+                vol.Optional("cf_weekend", default=cf.get("weekend", "23:00")): str,
+                vol.Optional(
+                    "cf_repeat", default=str(cf.get("repeat", 0))
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=REPEAT_OPTIONS,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+            }
+        )
 
         if endpoint_options and notifications_enabled:
-            schema_dict[vol.Optional("cf_action_targets", default=cf_action)] = selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=endpoint_options,
-                    multiple=True,
-                    mode=selector.SelectSelectorMode.DROPDOWN
+            schema_dict[vol.Optional("cf_action_targets", default=cf_action)] = (
+                selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=endpoint_options,
+                        multiple=True,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
                 )
             )
 
@@ -1070,18 +1377,22 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         # is never subject to the "same form, unsaved checkbox" limitation
         # that forces other fields in this integration to stay always-visible.
         if ratings_enabled:
-            schema_dict.update({
-                vol.Optional("rt_enabled", default=rt.get("enabled", False)): bool,
-                vol.Optional("rt_max_age_floor", default=str(rt.get("max_age_floor", 13))): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            selector.SelectOptionDict(value=str(age), label=label)
-                            for age, label in RATING_THRESHOLD_OPTIONS
-                        ],
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                    )
-                ),
-            })
+            schema_dict.update(
+                {
+                    vol.Optional("rt_enabled", default=rt.get("enabled", False)): bool,
+                    vol.Optional(
+                        "rt_max_age_floor", default=str(rt.get("max_age_floor", 13))
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                selector.SelectOptionDict(value=str(age), label=label)
+                                for age, label in RATING_THRESHOLD_OPTIONS
+                            ],
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
+                }
+            )
 
         # Shown alongside rt_enabled/rt_max_age_floor as soon as ratings are
         # on -- NOT additionally gated on rt_enabled's own saved state, so
@@ -1094,11 +1405,13 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         # the read-fallback above already preserves the existing stored
         # value when this is hidden.
         if ratings_enabled and endpoint_options and notifications_enabled:
-            schema_dict[vol.Optional("rt_action_targets", default=rt_action)] = selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=endpoint_options,
-                    multiple=True,
-                    mode=selector.SelectSelectorMode.DROPDOWN
+            schema_dict[vol.Optional("rt_action_targets", default=rt_action)] = (
+                selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=endpoint_options,
+                        multiple=True,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
                 )
             )
 
@@ -1143,17 +1456,44 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 return "\n".join([f"{k} = {v}" for k, v in parsed.items()])
             return "\n".join([f"{k} = {v}" for k, v in fallback.items()])
 
-        multiline_text = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
+        multiline_text = selector.TextSelector(
+            selector.TextSelectorConfig(multiline=True)
+        )
 
         return self.async_show_form(
             step_id=MENU_CUSTOM_ARTWORK,
             data_schema=vol.Schema(
                 {
-                    vol.Optional("custom_grid", description={"suggested_value": _get_dict_default(OPT_CUSTOM_GRID, {})}): multiline_text,
-                    vol.Optional("custom_hero", description={"suggested_value": _get_dict_default(OPT_CUSTOM_HERO, {})}): multiline_text,
-                    vol.Optional("custom_logo", description={"suggested_value": _get_dict_default(OPT_CUSTOM_LOGO, {})}): multiline_text,
-                    vol.Optional("custom_icon", description={"suggested_value": _get_dict_default(OPT_CUSTOM_ICON, {})}): multiline_text,
-                    vol.Optional("custom_colors", description={"suggested_value": _get_dict_default(OPT_CUSTOM_COLORS, {})}): multiline_text,
+                    vol.Optional(
+                        "custom_grid",
+                        description={
+                            "suggested_value": _get_dict_default(OPT_CUSTOM_GRID, {})
+                        },
+                    ): multiline_text,
+                    vol.Optional(
+                        "custom_hero",
+                        description={
+                            "suggested_value": _get_dict_default(OPT_CUSTOM_HERO, {})
+                        },
+                    ): multiline_text,
+                    vol.Optional(
+                        "custom_logo",
+                        description={
+                            "suggested_value": _get_dict_default(OPT_CUSTOM_LOGO, {})
+                        },
+                    ): multiline_text,
+                    vol.Optional(
+                        "custom_icon",
+                        description={
+                            "suggested_value": _get_dict_default(OPT_CUSTOM_ICON, {})
+                        },
+                    ): multiline_text,
+                    vol.Optional(
+                        "custom_colors",
+                        description={
+                            "suggested_value": _get_dict_default(OPT_CUSTOM_COLORS, {})
+                        },
+                    ): multiline_text,
                 }
             ),
             description_placeholders={"example_url": "https://link-to-image.png"},
@@ -1166,6 +1506,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_overrides_exclusions(self, user_input=None):
         from .const import OPT_ENABLE_PARENTAL
+
         opts = self._options
         errors = {}
         parental_enabled = opts.get(OPT_ENABLE_PARENTAL, False)
@@ -1221,25 +1562,45 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 return "\n".join([f"{k} = {v}" for k, v in parsed.items()])
             return "\n".join([f"{k} = {v}" for k, v in fallback.items()])
 
-        multiline_text = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
+        multiline_text = selector.TextSelector(
+            selector.TextSelectorConfig(multiline=True)
+        )
 
         schema_dict = {
             vol.Optional(
                 "title_overrides",
-                description={"suggested_value": _get_dict_default(OPT_TITLE_OVERRIDES, {})},
+                description={
+                    "suggested_value": _get_dict_default(OPT_TITLE_OVERRIDES, {})
+                },
             ): multiline_text,
             vol.Optional(
                 "title_cleanups",
-                description={"suggested_value": _get_list_default(OPT_TITLE_CLEANUPS, [])},
+                description={
+                    "suggested_value": _get_list_default(OPT_TITLE_CLEANUPS, [])
+                },
             ): multiline_text,
             vol.Optional(
                 "global_exclusions",
-                description={"suggested_value": _get_list_default(OPT_GLOBAL_EXCLUSIONS, [
-                    "Home", "Online", "Xbox App", "YouTube", "Netflix",
-                    "Hulu", "Amazon Prime Video", "Spotify",
-                    "Microsoft Store", "Store", "Xbox 360 Dashboard",
-                    "Setting up...", "Wallpaper Engine",
-                ])},
+                description={
+                    "suggested_value": _get_list_default(
+                        OPT_GLOBAL_EXCLUSIONS,
+                        [
+                            "Home",
+                            "Online",
+                            "Xbox App",
+                            "YouTube",
+                            "Netflix",
+                            "Hulu",
+                            "Amazon Prime Video",
+                            "Spotify",
+                            "Microsoft Store",
+                            "Store",
+                            "Xbox 360 Dashboard",
+                            "Setting up...",
+                            "Wallpaper Engine",
+                        ],
+                    )
+                },
             ): multiline_text,
         }
 
@@ -1249,7 +1610,12 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             rating_overrides_default = "\n".join(
                 f"{k} = {reverse_codes.get(v, v)}" for k, v in raw_ratings.items()
             )
-            schema_dict[vol.Optional("rating_overrides", description={"suggested_value": rating_overrides_default})] = multiline_text
+            schema_dict[
+                vol.Optional(
+                    "rating_overrides",
+                    description={"suggested_value": rating_overrides_default},
+                )
+            ] = multiline_text
 
         return self.async_show_form(
             step_id=MENU_OVERRIDES,
@@ -1295,24 +1661,44 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         errors = {}
 
         if user_input is not None:
-            opts[OPT_ENABLE_NATIVE_RATINGS] = user_input.get(OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS)
-            opts[OPT_ENABLE_ACHIEVEMENT_TRACKING] = user_input.get(OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING)
+            opts[OPT_ENABLE_NATIVE_RATINGS] = user_input.get(
+                OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS
+            )
+            opts[OPT_ENABLE_ACHIEVEMENT_TRACKING] = user_input.get(
+                OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING
+            )
             opts[OPT_ACHIEVEMENT_RECHECK_SECONDS] = max(
                 MIN_ACHIEVEMENT_RECHECK_SECONDS,
-                user_input.get(OPT_ACHIEVEMENT_RECHECK_SECONDS, DEFAULT_ACHIEVEMENT_RECHECK_SECONDS),
+                user_input.get(
+                    OPT_ACHIEVEMENT_RECHECK_SECONDS, DEFAULT_ACHIEVEMENT_RECHECK_SECONDS
+                ),
             )
-            opts[OPT_ENABLE_LIBRARY_SCAN] = user_input.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN)
+            opts[OPT_ENABLE_LIBRARY_SCAN] = user_input.get(
+                OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN
+            )
             opts[OPT_LIBRARY_SCAN_INTERVAL_HOURS] = max(
                 MIN_LIBRARY_SCAN_INTERVAL_HOURS,
-                min(MAX_LIBRARY_SCAN_INTERVAL_HOURS, user_input.get(OPT_LIBRARY_SCAN_INTERVAL_HOURS, DEFAULT_LIBRARY_SCAN_INTERVAL_HOURS)),
+                min(
+                    MAX_LIBRARY_SCAN_INTERVAL_HOURS,
+                    user_input.get(
+                        OPT_LIBRARY_SCAN_INTERVAL_HOURS,
+                        DEFAULT_LIBRARY_SCAN_INTERVAL_HOURS,
+                    ),
+                ),
             )
 
-            steam_achievements_key_override = user_input.get(CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, "").strip()
+            steam_achievements_key_override = user_input.get(
+                CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, ""
+            ).strip()
             psn_npsso_override = user_input.get(CONF_PSN_NPSSO_OVERRIDE, "").strip()
             new_data = dict(self._config_entry.data)
-            new_data[CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE] = steam_achievements_key_override
+            new_data[CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE] = (
+                steam_achievements_key_override
+            )
             new_data[CONF_PSN_NPSSO_OVERRIDE] = psn_npsso_override
-            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            self.hass.config_entries.async_update_entry(
+                self._config_entry, data=new_data
+            )
 
             if not errors:
                 self._options = opts
@@ -1321,27 +1707,44 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         schema_dict = {
             vol.Optional(
                 OPT_ENABLE_NATIVE_RATINGS,
-                default=opts.get(OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS),
+                default=opts.get(
+                    OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS
+                ),
             ): bool,
             vol.Optional(
                 OPT_ENABLE_ACHIEVEMENT_TRACKING,
-                default=opts.get(OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING),
+                default=opts.get(
+                    OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING
+                ),
             ): bool,
             vol.Optional(
                 OPT_ACHIEVEMENT_RECHECK_SECONDS,
-                default=opts.get(OPT_ACHIEVEMENT_RECHECK_SECONDS, DEFAULT_ACHIEVEMENT_RECHECK_SECONDS),
+                default=opts.get(
+                    OPT_ACHIEVEMENT_RECHECK_SECONDS, DEFAULT_ACHIEVEMENT_RECHECK_SECONDS
+                ),
             ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=MIN_ACHIEVEMENT_RECHECK_SECONDS, mode=selector.NumberSelectorMode.BOX)
+                selector.NumberSelectorConfig(
+                    min=MIN_ACHIEVEMENT_RECHECK_SECONDS,
+                    mode=selector.NumberSelectorMode.BOX,
+                )
             ),
             vol.Optional(
                 CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE,
-                description={"suggested_value": self._config_entry.data.get(CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, "")},
+                description={
+                    "suggested_value": self._config_entry.data.get(
+                        CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, ""
+                    )
+                },
             ): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
             ),
             vol.Optional(
                 CONF_PSN_NPSSO_OVERRIDE,
-                description={"suggested_value": self._config_entry.data.get(CONF_PSN_NPSSO_OVERRIDE, "")},
+                description={
+                    "suggested_value": self._config_entry.data.get(
+                        CONF_PSN_NPSSO_OVERRIDE, ""
+                    )
+                },
             ): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
             ),
@@ -1351,10 +1754,13 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             ): bool,
             vol.Optional(
                 OPT_LIBRARY_SCAN_INTERVAL_HOURS,
-                default=opts.get(OPT_LIBRARY_SCAN_INTERVAL_HOURS, DEFAULT_LIBRARY_SCAN_INTERVAL_HOURS),
+                default=opts.get(
+                    OPT_LIBRARY_SCAN_INTERVAL_HOURS, DEFAULT_LIBRARY_SCAN_INTERVAL_HOURS
+                ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=MIN_LIBRARY_SCAN_INTERVAL_HOURS, max=MAX_LIBRARY_SCAN_INTERVAL_HOURS,
+                    min=MIN_LIBRARY_SCAN_INTERVAL_HOURS,
+                    max=MAX_LIBRARY_SCAN_INTERVAL_HOURS,
                     mode=selector.NumberSelectorMode.BOX,
                 )
             ),
@@ -1371,7 +1777,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         errors = {}
 
         if user_input is not None:
-            opts[OPT_SAME_GAME_PREFIX_WORDS] = user_input.get(OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS)
+            opts[OPT_SAME_GAME_PREFIX_WORDS] = user_input.get(
+                OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS
+            )
 
             api_key = user_input.get(CONF_STEAMGRIDDB_API_KEY, "").strip()
             dc_token = user_input.get(CONF_DISCORD_TOKEN, "").strip()
@@ -1380,40 +1788,61 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             new_data[CONF_STEAMGRIDDB_API_KEY] = api_key
             new_data[CONF_DISCORD_TOKEN] = dc_token
             new_data[CONF_DISCORD_SERVER] = dc_server
-            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            self.hass.config_entries.async_update_entry(
+                self._config_entry, data=new_data
+            )
 
             if not errors:
                 self._options = opts
                 return await self._update_and_return()
 
         from .const import DEFAULT_ENABLED_PLATFORMS, OPT_ENABLED_PLATFORMS
+
         enabled_platforms = opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
 
         schema_dict = {
             vol.Optional(
                 CONF_STEAMGRIDDB_API_KEY,
-                description={"suggested_value": self._config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, "")},
+                description={
+                    "suggested_value": self._config_entry.data.get(
+                        CONF_STEAMGRIDDB_API_KEY, ""
+                    )
+                },
             ): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
             ),
         }
 
         if "discord" in enabled_platforms:
-            schema_dict.update({
-                vol.Optional(
-                    CONF_DISCORD_TOKEN,
-                    description={"suggested_value": self._config_entry.data.get(CONF_DISCORD_TOKEN, "")},
-                ): str,
-                vol.Optional(
-                    CONF_DISCORD_SERVER,
-                    description={"suggested_value": self._config_entry.data.get(CONF_DISCORD_SERVER, "")},
-                ): str,
-            })
+            schema_dict.update(
+                {
+                    vol.Optional(
+                        CONF_DISCORD_TOKEN,
+                        description={
+                            "suggested_value": self._config_entry.data.get(
+                                CONF_DISCORD_TOKEN, ""
+                            )
+                        },
+                    ): str,
+                    vol.Optional(
+                        CONF_DISCORD_SERVER,
+                        description={
+                            "suggested_value": self._config_entry.data.get(
+                                CONF_DISCORD_SERVER, ""
+                            )
+                        },
+                    ): str,
+                }
+            )
 
-        schema_dict[vol.Optional(
-            OPT_SAME_GAME_PREFIX_WORDS,
-            default=opts.get(OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS),
-        )] = vol.All(int, vol.Range(min=0))
+        schema_dict[
+            vol.Optional(
+                OPT_SAME_GAME_PREFIX_WORDS,
+                default=opts.get(
+                    OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS
+                ),
+            )
+        ] = vol.All(int, vol.Range(min=0))
 
         return self.async_show_form(
             step_id=MENU_ADVANCED,
@@ -1425,7 +1854,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     # Shared Helpers
     # ---------------------------------------------------------------------------
 
-    def _player_schema(self, existing: dict | None = None, is_new: bool = False) -> vol.Schema:
+    def _player_schema(
+        self, existing: dict | None = None, is_new: bool = False
+    ) -> vol.Schema:
         from .const import (
             DEFAULT_ENABLE_PS3_TRACKING,
             DEFAULT_ENABLED_PLATFORMS,
@@ -1435,13 +1866,22 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
         existing = existing or {}
         schema = {}
-        enabled_platforms = self._options.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
-        ps3_tracking_enabled = self._options.get(OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING)
+        enabled_platforms = self._options.get(
+            OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS
+        )
+        ps3_tracking_enabled = self._options.get(
+            OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING
+        )
 
         if is_new:
             schema[vol.Required("player_name")] = str
 
-        def _get_filtered_selector(integration: str, suffix: str | tuple | None = None, current_val: str = "", domain: str = "sensor"):
+        def _get_filtered_selector(
+            integration: str,
+            suffix: str | tuple | None = None,
+            current_val: str = "",
+            domain: str = "sensor",
+        ):
             options = []
 
             try:
@@ -1452,7 +1892,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 for entry in registry.entities.values():
                     if entry.domain == domain and entry.platform == integration:
                         if suffix:
-                            if not entry.entity_id.endswith(suffix) and getattr(entry, "translation_key", None) != tk_match:
+                            if (
+                                not entry.entity_id.endswith(suffix)
+                                and getattr(entry, "translation_key", None) != tk_match
+                            ):
                                 continue
                         options.append(entry.entity_id)
 
@@ -1465,7 +1908,11 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             except Exception:
                 pass
 
-            if current_val and current_val not in options and current_val.lower() != "none":
+            if (
+                current_val
+                and current_val not in options
+                and current_val.lower() != "none"
+            ):
                 options.append(current_val)
 
             options = sorted(list(set(options)))
@@ -1476,7 +1923,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     selector.SelectSelectorConfig(
                         options=options,
                         mode=selector.SelectSelectorMode.DROPDOWN,
-                        custom_value=True
+                        custom_value=True,
                     )
                 )
 
@@ -1491,13 +1938,19 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             return vol.Optional(platform)
 
         if "steam" in enabled_platforms:
-            schema[_field("steam")] = _get_filtered_selector("steam_online", None, existing.get("steam", ""))
+            schema[_field("steam")] = _get_filtered_selector(
+                "steam_online", None, existing.get("steam", "")
+            )
 
         if "xbox" in enabled_platforms:
-            schema[_field("xbox")] = _get_filtered_selector("xbox", "_status", existing.get("xbox", ""))
+            schema[_field("xbox")] = _get_filtered_selector(
+                "xbox", "_status", existing.get("xbox", "")
+            )
 
         if "playstation" in enabled_platforms:
-            schema[_field("playstation")] = _get_filtered_selector("playstation_network", "_now_playing", existing.get("playstation", ""))
+            schema[_field("playstation")] = _get_filtered_selector(
+                "playstation_network", "_now_playing", existing.get("playstation", "")
+            )
 
         if "playstation" in enabled_platforms and ps3_tracking_enabled:
             # PS3 predates the modern PSN status API, so it has no equivalent
@@ -1505,25 +1958,45 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             # instead, feeding into this same PlayStation sensor as a secondary
             # source (see _get_platform_data's "playstation" branch).
             schema[_field("ps3")] = _get_filtered_selector(
-                "playstation_network", None, existing.get("ps3", ""), domain="media_player"
+                "playstation_network",
+                None,
+                existing.get("ps3", ""),
+                domain="media_player",
             )
 
         if "discord" in enabled_platforms:
             if self._discord_members:
-                dc_options = [selector.SelectOptionDict(value=m[0], label=f"{m[1]} ({m[0]})") for m in self._discord_members]
-                dc_options.insert(0, selector.SelectOptionDict(value="none", label="None"))
+                dc_options = [
+                    selector.SelectOptionDict(value=m[0], label=f"{m[1]} ({m[0]})")
+                    for m in self._discord_members
+                ]
+                dc_options.insert(
+                    0, selector.SelectOptionDict(value="none", label="None")
+                )
                 current_dc = existing.get("discord", "")
-                if current_dc and current_dc != "none" and not any(o["value"] == current_dc for o in dc_options):
-                    dc_options.append(selector.SelectOptionDict(value=current_dc, label=f"Unknown ID ({current_dc})"))
+                if (
+                    current_dc
+                    and current_dc != "none"
+                    and not any(o["value"] == current_dc for o in dc_options)
+                ):
+                    dc_options.append(
+                        selector.SelectOptionDict(
+                            value=current_dc, label=f"Unknown ID ({current_dc})"
+                        )
+                    )
                 schema[_field("discord")] = selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=dc_options, mode=selector.SelectSelectorMode.DROPDOWN)
+                    selector.SelectSelectorConfig(
+                        options=dc_options, mode=selector.SelectSelectorMode.DROPDOWN
+                    )
                 )
             else:
                 schema[_field("discord")] = str
 
         if "playnite" in enabled_platforms:
             schema[_field("playnite")] = selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="binary_sensor", integration="mqtt")
+                selector.EntitySelectorConfig(
+                    domain="binary_sensor", integration="mqtt"
+                )
             )
 
         if "custom" in enabled_platforms:
@@ -1562,19 +2035,27 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         services.sort()
         return services
 
-    def _endpoint_schema(self, existing: dict | None = None, include_delete: bool = False) -> vol.Schema:
+    def _endpoint_schema(
+        self, existing: dict | None = None, include_delete: bool = False
+    ) -> vol.Schema:
         existing = existing or {}
         schema = {}
 
         if not include_delete:
             schema[vol.Required("endpoint_name")] = str
         else:
-            schema[vol.Required("endpoint_name", default=existing.get("name", ""))] = str
+            schema[vol.Required("endpoint_name", default=existing.get("name", ""))] = (
+                str
+            )
 
-        schema[vol.Optional("notification_type", default=existing.get("type", "Mobile App"))] = selector.SelectSelector(
+        schema[
+            vol.Optional(
+                "notification_type", default=existing.get("type", "Mobile App")
+            )
+        ] = selector.SelectSelector(
             selector.SelectSelectorConfig(
                 options=["Mobile App", "Discord", "SMS"],
-                mode=selector.SelectSelectorMode.DROPDOWN
+                mode=selector.SelectSelectorMode.DROPDOWN,
             )
         )
 
@@ -1583,11 +2064,13 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         if current_notifier and current_notifier not in services:
             services.insert(0, current_notifier)
 
-        schema[vol.Optional("notifier", default=current_notifier)] = selector.SelectSelector(
-            selector.SelectSelectorConfig(
-                options=services,
-                mode=selector.SelectSelectorMode.DROPDOWN,
-                custom_value=True
+        schema[vol.Optional("notifier", default=current_notifier)] = (
+            selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=services,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    custom_value=True,
+                )
             )
         )
 
@@ -1618,7 +2101,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             report["destinations"] = dests
             self._options[OPT_WEEKLY_REPORT] = _dump_json(report)
 
-    async def _cleanup_player_entities(self, player_name: str, platforms: list | None = None):
+    async def _cleanup_player_entities(
+        self, player_name: str, platforms: list | None = None
+    ):
         """Forcefully remove entities from the registry when a player or platform is removed."""
         registry = er.async_get(self.hass)
         safe_owner = safe_owner_slug(player_name)
@@ -1630,16 +2115,29 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             # use their own naming and were previously left orphaned here).
             entity_ids = [
                 f"sensor.gaming_status_{safe_owner}_{p}"
-                for p in ("steam", "xbox", "playstation", "discord", "custom", "playnite", "master", "pc")
+                for p in (
+                    "steam",
+                    "xbox",
+                    "playstation",
+                    "discord",
+                    "custom",
+                    "playnite",
+                    "master",
+                    "pc",
+                )
             ]
-            entity_ids += [f"sensor.gaming_status_{safe_owner}_library_{p}" for p in ("steam", "xbox", "playstation")]
+            entity_ids += [
+                f"sensor.gaming_status_{safe_owner}_library_{p}"
+                for p in ("steam", "xbox", "playstation")
+            ]
             entity_ids.append(f"sensor.gaming_status_{safe_owner}_library_summary")
             entity_ids.append(f"button.gaming_status_{safe_owner}_library_refresh")
         else:
             entity_ids = [f"sensor.gaming_status_{safe_owner}_{p}" for p in platforms]
             entity_ids += [
                 f"sensor.gaming_status_{safe_owner}_library_{p}"
-                for p in platforms if p in ("steam", "xbox", "playstation")
+                for p in platforms
+                if p in ("steam", "xbox", "playstation")
             ]
 
         for entity_id in entity_ids:
@@ -1656,11 +2154,15 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             # right after upgrading before a reload has attached every
             # entity to its device for the first time).
             device_registry = dr.async_get(self.hass)
-            device = device_registry.async_get_device(identifiers={(DOMAIN, safe_owner)})
+            device = device_registry.async_get_device(
+                identifiers={(DOMAIN, safe_owner)}
+            )
             if device is not None:
                 device_registry.async_remove_device(device.id)
 
     async def _update_and_return(self):
         """Save the updated options to Home Assistant and return to the main menu."""
-        self.hass.config_entries.async_update_entry(self._config_entry, options=self._options)
+        self.hass.config_entries.async_update_entry(
+            self._config_entry, options=self._options
+        )
         return await self.async_step_init()

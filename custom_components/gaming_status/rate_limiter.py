@@ -7,6 +7,7 @@ same shared budget for that platform -- credentials are shared (reused from
 the official steam_online/playstation_network integration, or one manual
 override), not per-player, so the budget has to be too.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -23,7 +24,9 @@ class RateLimiterTimeout(RateLimitedError):
 
 
 class RateLimiter:
-    def __init__(self, capacity: float, refill_rate_per_sec: float, *, name: str = "") -> None:
+    def __init__(
+        self, capacity: float, refill_rate_per_sec: float, *, name: str = ""
+    ) -> None:
         self._capacity = capacity
         self._rate = refill_rate_per_sec
         self._tokens = capacity
@@ -34,7 +37,9 @@ class RateLimiter:
         # off until an authoritative deadline, overriding our own math.
         self._blocked_until: float | None = None
 
-    async def async_acquire(self, cost: float = 1.0, *, timeout: float | None = None) -> None:
+    async def async_acquire(
+        self, cost: float = 1.0, *, timeout: float | None = None
+    ) -> None:
         """Blocks (without holding the lock across the wait) until `cost`
         tokens are available, then deducts them."""
         start = time.monotonic()
@@ -49,7 +54,9 @@ class RateLimiter:
                         # normal refill accounting from this point on.
                         self._last = self._blocked_until
                         self._blocked_until = None
-                    self._tokens = min(self._capacity, self._tokens + (now - self._last) * self._rate)
+                    self._tokens = min(
+                        self._capacity, self._tokens + (now - self._last) * self._rate
+                    )
                     self._last = now
                     if self._tokens >= cost:
                         self._tokens -= cost
@@ -57,7 +64,9 @@ class RateLimiter:
                     wait = (cost - self._tokens) / self._rate
 
             if timeout is not None and (time.monotonic() - start + wait) > timeout:
-                raise RateLimiterTimeout(f"Rate limit budget exhausted for {self._name}")
+                raise RateLimiterTimeout(
+                    f"Rate limit budget exhausted for {self._name}"
+                )
             await asyncio.sleep(min(wait, 5.0))
 
     def notify_rate_limited(self, retry_after: float | None) -> None:
