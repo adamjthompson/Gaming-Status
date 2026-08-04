@@ -23,16 +23,16 @@ from __future__ import annotations
 from homeassistant.components.button import ButtonEntity
 
 from .const import (
-    DOMAIN,
-    OPT_PLAYERS,
-    OPT_ENABLED_PLATFORMS,
-    DEFAULT_ENABLED_PLATFORMS,
-    OPT_ENABLE_ACHIEVEMENT_TRACKING,
     DEFAULT_ENABLE_ACHIEVEMENT_TRACKING,
-    OPT_ENABLE_LIBRARY_SCAN,
     DEFAULT_ENABLE_LIBRARY_SCAN,
+    DEFAULT_ENABLED_PLATFORMS,
+    DOMAIN,
+    OPT_ENABLE_ACHIEVEMENT_TRACKING,
+    OPT_ENABLE_LIBRARY_SCAN,
+    OPT_ENABLED_PLATFORMS,
+    OPT_PLAYERS,
 )
-from .device import safe_owner_slug, player_device_info
+from .device import player_device_info, safe_owner_slug
 from .sensor import _load_opt_json
 
 

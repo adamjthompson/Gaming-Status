@@ -1,41 +1,42 @@
 """Gaming Status integration — setup and teardown."""
 from __future__ import annotations
 
-import os
+import asyncio
 import json
 import logging
-import asyncio
+import os
 from datetime import timedelta
+
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 
-from .device import safe_owner_slug
 from .const import (
-    DOMAIN,
-    OPT_RESET_HISTORY,
-    OPT_GRACE_PERIOD,
-    OPT_AWAY_GRACE_PERIOD,
-    OPT_TRANSITION_GRACE,
-    OPT_MIN_SESSION,
-    OPT_PLAYERS,
-    OPT_ENDPOINTS,
-    OPT_WEEKLY_REPORT,
-    OPT_PARENTAL,
-    OPT_TITLE_OVERRIDES,
-    OPT_TITLE_CLEANUPS,
-    OPT_GLOBAL_EXCLUSIONS,
     CONF_DISCORD_TOKEN,
-    OPT_ENABLED_PLATFORMS,
     DEFAULT_ENABLED_PLATFORMS,
-    PLAYER_PLATFORMS,
+    DOMAIN,
     LIBRARY_BACKFILL_INITIAL_DELAY_SECONDS,
-    LIBRARY_BACKFILL_TICK_INTERVAL_SECONDS,
     LIBRARY_BACKFILL_STAGGER_SECONDS,
+    LIBRARY_BACKFILL_TICK_INTERVAL_SECONDS,
+    OPT_AWAY_GRACE_PERIOD,
+    OPT_ENABLED_PLATFORMS,
+    OPT_ENDPOINTS,
+    OPT_GLOBAL_EXCLUSIONS,
+    OPT_GRACE_PERIOD,
+    OPT_MIN_SESSION,
+    OPT_PARENTAL,
+    OPT_PLAYERS,
+    OPT_RESET_HISTORY,
+    OPT_TITLE_CLEANUPS,
+    OPT_TITLE_OVERRIDES,
+    OPT_TRANSITION_GRACE,
+    OPT_WEEKLY_REPORT,
+    PLAYER_PLATFORMS,
 )
-from .notifier import GamingNotifier
+from .device import safe_owner_slug
 from .library_scan import has_pending_library_backfill
+from .notifier import GamingNotifier
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor", "binary_sensor", "button"]
@@ -51,7 +52,7 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry):
         if os.path.exists(file_path):
             def read_legacy_file():
                 try:
-                    with open(file_path, "r", encoding="utf-8") as f:
+                    with open(file_path, encoding="utf-8") as f:
                         return json.load(f)
                 except Exception:
                     return {}
@@ -60,7 +61,7 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry):
 
             # 1. Map Global Settings (Handling both old uppercase and newer lowercase formats)
             global_settings = old_data.get("global_settings", old_data.get("GLOBAL_SETTINGS", {}))
-            
+
             def _map_setting(old_keys, new_opt):
                 for k in old_keys:
                     if k in global_settings:
@@ -105,14 +106,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # --- Stale Entity Registry Cleanup ---
     from homeassistant.helpers import entity_registry as er
     entity_reg = er.async_get(hass)
-    
+
     stale_entities = [
         entry_id
         for entry_id, reg_entry in entity_reg.entities.items()
         if reg_entry.platform == DOMAIN
         and reg_entry.config_entry_id != entry.entry_id
     ]
-    
+
     for entity_entry_id in stale_entities:
         _LOGGER.debug("Gaming Status: Removing stale entity registry entry %s", entity_entry_id)
         entity_reg.async_remove(entity_entry_id)
@@ -124,16 +125,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # --- DISCORD WEBSOCKET MANAGER ---
     discord_token = entry.data.get(CONF_DISCORD_TOKEN)
     enabled_platforms = entry.options.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
-    
+
     if discord_token and "discord" in enabled_platforms:
         try:
             import nextcord
             intents = nextcord.Intents.default()
             intents.members = True
             intents.presences = True
-            
+
             bot = nextcord.Client(intents=intents)
-            
+
             def _dispatch(member):
                 activity_name = None
                 app_id = None
@@ -142,30 +143,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         activity_name = activity.name
                         app_id = str(activity.application_id) if getattr(activity, "application_id", None) else None
                         break
-                
+
                 data = {
                     "user_id": str(member.id),
-                    "state": activity_name if activity_name else ("Online" if str(member.status) != "offline" else "Offline"),
+                    "state": activity_name or ("Online" if str(member.status) != "offline" else "Offline"),
                     "app_id": app_id,
                     "avatar_url": str(member.display_avatar.with_size(1024).url) if member.display_avatar else None
                 }
                 hass.bus.async_fire(f"gaming_status_discord_{member.id}", data)
-                
+
             @bot.event
             async def on_presence_update(before, after):
                 _dispatch(after)
-                
+
             @bot.event
             async def on_member_update(before, after):
                 _dispatch(after)
-                
+
             @bot.event
             async def on_ready():
                 _LOGGER.info("Gaming Status Discord Bot Connected!")
                 for guild in bot.guilds:
                     for member in guild.members:
                         _dispatch(member)
-                        
+
             hass.loop.create_task(bot.start(discord_token))
             hass.data[DOMAIN]["discord_bot"] = bot
         except Exception as e:
@@ -311,7 +312,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await hass.data[DOMAIN]["notifier"].async_stop()
         except Exception as e:
             _LOGGER.error("Gaming Status failed to stop notifier cleanly: %s", e)
-        
+
     if "discord_bot" in hass.data.get(DOMAIN, {}):
         try:
             await hass.data[DOMAIN]["discord_bot"].close()

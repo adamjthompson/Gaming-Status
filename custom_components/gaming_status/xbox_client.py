@@ -17,10 +17,9 @@ from __future__ import annotations
 import logging
 
 from homeassistant.util.dt import utc_from_timestamp
-
+from pythonxbox.api.client import XboxLiveClient
 from pythonxbox.authentication.manager import AuthenticationManager
 from pythonxbox.authentication.models import OAuth2TokenResponse
-from pythonxbox.api.client import XboxLiveClient
 
 _LOGGER = logging.getLogger(__name__)
 

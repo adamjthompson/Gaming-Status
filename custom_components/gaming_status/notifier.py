@@ -9,18 +9,22 @@ from datetime import datetime, timedelta
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.event import async_track_state_change_event, async_track_time_change, async_track_time_interval
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_change,
+    async_track_time_interval,
+)
 from homeassistant.helpers.network import get_url
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    OPT_PLAYERS,
+    OPT_DISCORD_COLORS,
     OPT_ENDPOINTS,
-    OPT_WEEKLY_REPORT,
-    OPT_PARENTAL,
     OPT_GLOBAL_EXCLUSIONS,
     OPT_NOTIFY_ARTWORK,
-    OPT_DISCORD_COLORS,
+    OPT_PARENTAL,
+    OPT_PLAYERS,
+    OPT_WEEKLY_REPORT,
 )
 from .device import safe_owner_slug
 
@@ -82,7 +86,7 @@ class GamingNotifier:
     def _cached_notify_artwork(self) -> str: return self._entry.options.get(OPT_NOTIFY_ARTWORK, "game_cover_art")
     @property
     def _cached_exclusions(self) -> list: return [x.strip().lower() for x in _load_json(self._entry.options.get(OPT_GLOBAL_EXCLUSIONS), [])]
-    
+
     # Keep legacy getters functioning to support older function calls
     def _players(self) -> dict: return self._cached_players
     def _endpoints(self) -> dict: return self._cached_endpoints
@@ -183,10 +187,9 @@ class GamingNotifier:
         if mode == "custom":
             if event_type == "start":
                 return self._hex_to_int(colors_config.get("color_start", ""), DEFAULT_START)
-            elif event_type == "stop":
+            if event_type == "stop":
                 return self._hex_to_int(colors_config.get("color_end", ""), DEFAULT_STOP)
-            else:
-                return self._hex_to_int(colors_config.get("color_parental", ""), DEFAULT_INFO)
+            return self._hex_to_int(colors_config.get("color_parental", ""), DEFAULT_INFO)
 
         return default_for_type
 
@@ -195,7 +198,7 @@ class GamingNotifier:
             return f"{minutes} minute{'s' if minutes != 1 else ''}"
         hours = minutes // 60
         mins = minutes % 60
-        hour_str = f"1 hour" if hours == 1 else f"{hours} hours"
+        hour_str = "1 hour" if hours == 1 else f"{hours} hours"
         if mins == 0: return hour_str
         return f"{hour_str} and {mins} minute{'s' if mins != 1 else ''}"
 
@@ -240,10 +243,10 @@ class GamingNotifier:
             # Discord API strictly rejects relative local paths. If domain appending failed, strip the image to save the notification!
             if image_url and not image_url.startswith("http"):
                 image_url = None
-                
+
             color = self._resolve_discord_color(event_type, state_obj)
             embed = {"color": color}
-            
+
             # Placing text in "description" puts it INSIDE the colored bar
             if event_type == "info":
                 embed["title"] = "Gaming Status"
@@ -251,25 +254,25 @@ class GamingNotifier:
             else:
                 if game_title: embed["title"] = game_title
                 embed["description"] = message
-                
+
             if image_url: embed["image"] = {"url": image_url}
-            
-            service_data["message"] = "" 
+
+            service_data["message"] = ""
             service_data["data"] = {"embed": embed}
-                
+
         else: # Standard Mobile App / SMS
             service_data["message"] = message
-            
+
             if event_type == "start":
-                service_data["title"] = game_title if game_title else "Gaming Status"
+                service_data["title"] = game_title or "Gaming Status"
             elif event_type == "stop":
                 service_data["title"] = f"Finished {game_title}" if game_title else "Gaming Session Ended"
             elif event_type == "parental":
-                service_data["title"] = game_title if game_title else "Parental Controls"
+                service_data["title"] = game_title or "Parental Controls"
             else:
                 service_data["title"] = "Gaming Status"
-                
-            if image_url and ep_type != "SMS": 
+
+            if image_url and ep_type != "SMS":
                 service_data["data"] = {"image": image_url}
 
         try:
@@ -289,31 +292,31 @@ class GamingNotifier:
             return image_url
 
         try:
-            from urllib.parse import urlparse
             import ipaddress
             import socket
-            
+            from urllib.parse import urlparse
+
             base_url = get_url(self.hass, prefer_external=True)
             host = urlparse(base_url).hostname or ""
-            
+
             try:
                 resolved_ip = socket.gethostbyname(host)
                 is_local = ipaddress.ip_address(resolved_ip).is_private
             except Exception:
                 is_local = host.endswith((".local", ".lan", ".internal"))
-                
+
             if not base_url.startswith("https://") or is_local:
                 raise ValueError("No external domain available")
-                
+
             return f"{base_url.rstrip('/')}{image_url}"
-            
+
         except Exception:
             try:
                 from .utils import get_cached_remote_url
                 target_type = "hero" if "hero" in self._cached_notify_artwork else "logo" if "logo" in self._cached_notify_artwork else "grid"
                 remote_url = await self.hass.async_add_executor_job(get_cached_remote_url, game_name, target_type)
                 return remote_url or image_url
-            except Exception as e:
+            except Exception:
                 return image_url
 
     async def _resolve_cover_art(
@@ -342,17 +345,17 @@ class GamingNotifier:
                 pstate = self.hass.states.get(pid)
                 if not pstate:
                     continue
-                
+
                 if str(pstate.state).lower() in ("offline", "unavailable", "unknown", "idle"):
                     continue
 
                 # Grab the preferred art style
                 url = pstate.attributes.get(self._cached_notify_artwork)
-                
+
                 # Resilient fallback if the preferred art is missing for this specific game
                 if not url:
                     url = pstate.attributes.get("game_cover_art") or pstate.attributes.get("cached_game_cover")
-                
+
                 if not url:
                     continue
 
@@ -418,7 +421,7 @@ class GamingNotifier:
     async def _handle_state_change(self, event) -> None:
         if not self._enable_notifications:
             return
-            
+
         if self._startup_time and dt_util.now() - self._startup_time < timedelta(seconds=30):
             return
 
@@ -457,7 +460,7 @@ class GamingNotifier:
             # COOLDOWN: If a session just started less than 90 seconds ago, block the duplicate bounce!
             if last_start and (now - last_start).total_seconds() < 90:
                 return
-                
+
             self._last_start_time[target_player] = now
 
             # SMART POLLING DELAY: Give the API up to 15 seconds to fetch artwork, checking every 3 seconds
@@ -494,10 +497,10 @@ class GamingNotifier:
             if start_time_str:
                 try:
                     start_dt = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
-                    
+
                     # TRUE END TIME CALCULATION: Default to now, but override if a session cleanly ended
                     end_dt = datetime.now(start_dt.tzinfo) if start_dt.tzinfo else datetime.now()
-                    
+
                     if is_end:
                         last_online_str = old_state.attributes.get("last_online_valid_timestamp")
                         if last_online_str:
@@ -533,7 +536,7 @@ class GamingNotifier:
 
         elif is_end:
             msg = f"{target_player} played for {duration_str}" if duration_str else f"{target_player} finished playing"
-            
+
             if self._cached_notify_artwork == "none":
                 raw_url = None
             else:
@@ -542,7 +545,7 @@ class GamingNotifier:
                     raw_url = old_state.attributes.get("game_cover_art") or old_state.attributes.get("cached_game_cover")
 
             image_url = await self._make_external_url(raw_url, old_game)
-            
+
             for ep_id in end_dests:
                 # Pass the OLD state so the color is fully preserved!
                 await self._send_to_endpoint(ep_id, message=msg, image_url=image_url, game_title=old_game, event_type="stop", state_obj=old_state)
@@ -562,7 +565,7 @@ class GamingNotifier:
             master_entity = f"sensor.gaming_status_{safe_player}_master"
             master_state = self.hass.states.get(master_entity)
             if not master_state: continue
-            
+
             user_config = self._cached_players.get(player_name, {})
             fallback_dests = list(set(user_config.get("notify_start_destinations", []) + user_config.get("notify_end_destinations", [])))
 
@@ -579,7 +582,7 @@ class GamingNotifier:
                     if is_weekend
                     else st_rule.get("weekday_minutes", 120)
                 )
-                
+
                 try:
                     raw_hours = master_state.attributes.get("total_daily_hours", 0)
                     if raw_hours is None: raw_hours = 0
@@ -593,9 +596,7 @@ class GamingNotifier:
                         last_notified_overage = self._triggered_parental_events.get(st_key)
 
                         should_notify = False
-                        if last_notified_overage is None:
-                            should_notify = True
-                        elif st_repeat > 0 and (overage - last_notified_overage) >= st_repeat:
+                        if last_notified_overage is None or (st_repeat > 0 and (overage - last_notified_overage) >= st_repeat):
                             should_notify = True
 
                         if should_notify:
@@ -649,7 +650,7 @@ class GamingNotifier:
                                 msg = f"❗️ {player_name} has exceeded the {pretty_time} curfew by {overage_minutes} minutes."
                             else:
                                 msg = f"❗️ {player_name} has reached the {pretty_time} curfew."
-                                
+
                             current_game = master_state.state if is_playing else None
                             parental_image = None
                             if current_game and self._cached_notify_artwork != "none":

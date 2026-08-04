@@ -29,7 +29,7 @@ HUB_DEVICE_ID = "hub"
 
 
 def safe_owner_slug(player_name: str) -> str:
-    return re.sub(r'[^a-z0-9_]', '_', player_name.lower().replace(" ", "_"))
+    return re.sub(r"[^a-z0-9_]", "_", player_name.lower().replace(" ", "_"))
 
 
 def player_device_info(player_name: str, safe_owner: str, platforms: list[str]) -> DeviceInfo:

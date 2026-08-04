@@ -1,22 +1,21 @@
 """
 Utilities for Gaming Status
 """
-import logging
-import re
-import os
-import time
-import socket
 import ipaddress
-from urllib.parse import quote, urlparse
-from datetime import datetime, timezone, timedelta
-from dateutil import parser
+import logging
+import os
+import re
+import socket
+import time
 from collections import OrderedDict
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from PIL import Image
+from urllib.parse import quote, urlparse
 
-from homeassistant.util import dt as dt_util
+from dateutil import parser
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.network import get_url, NoURLAvailableError
+from homeassistant.helpers.network import NoURLAvailableError, get_url
+from homeassistant.util import dt as dt_util
 
 from .platform_exceptions import ApiError
 
@@ -88,13 +87,13 @@ def _clean_image_cache(cache_dir_path: Path):
     """Enforce user retention policies based on age and total file count."""
     if not cache_dir_path.exists():
         return
-        
+
     files = [f for f in cache_dir_path.iterdir() if f.is_file()]
     if not files:
         return
 
     now = time.time()
-    
+
     # 1. Prune by Age (if feature is enabled)
     if CACHE_MAX_DAYS > 0:
         max_age_seconds = CACHE_MAX_DAYS * 86400
@@ -112,7 +111,7 @@ def _clean_image_cache(cache_dir_path: Path):
         # Sort files by modification time, oldest first
         files.sort(key=lambda x: x.stat().st_mtime)
         files_to_delete = files[:-CACHE_MAX_FILES]
-        
+
         for f in files_to_delete:
             try:
                 f.unlink()
@@ -121,13 +120,13 @@ def _clean_image_cache(cache_dir_path: Path):
 
 async def fetch_game_assets(hass, game_name):
     """
-    Fetch Grid, Hero, Logo, and Icon. 
+    Fetch Grid, Hero, Logo, and Icon.
     Prioritizes local custom overrides, then Memory Cache, then SteamGridDB.
     Custom overrides are downloaded to the local cache if they are external URLs.
     """
     import asyncio
     global _MISSING_KEY_WARNED
-    
+
     assets = {"grid": None, "hero": None, "logo": None, "icon": None}
 
     if not game_name:
@@ -165,7 +164,7 @@ async def fetch_game_assets(hass, game_name):
         # 1. Setup Session and Cache Directory early
         session = async_get_clientsession(hass)
         cache_dir = Path(hass.config.path("www/gaming_status_cache"))
-        
+
         try:
             base_url = get_url(hass, prefer_external=True)
         except NoURLAvailableError:
@@ -184,8 +183,8 @@ async def fetch_game_assets(hass, game_name):
             "logo": CUSTOM_LOGO_MAP, "icon": CUSTOM_ICON_MAP
         }
 
-        safe_file_prefix = re.sub(r'[^a-z0-9]', '_', cache_key)
-        safe_file_prefix = re.sub(r'_+', '_', safe_file_prefix).strip('_')
+        safe_file_prefix = re.sub(r"[^a-z0-9]", "_", cache_key)
+        safe_file_prefix = re.sub(r"_+", "_", safe_file_prefix).strip("_")
 
         for asset_type, map_dict in override_maps.items():
             # Safety net: re-normalize keys in case older un-migrated data exists in the dictionary
@@ -194,7 +193,7 @@ async def fetch_game_assets(hass, game_name):
             if search_name in safe_map:
                 remote_url = safe_url(safe_map[search_name])
                 if not remote_url: continue
-                
+
                 # If the user provided a raw local path, map it directly without downloading!
                 if not remote_url.startswith("http"):
                     if remote_url.startswith("/local/"):
@@ -202,7 +201,7 @@ async def fetch_game_assets(hass, game_name):
                     else:
                         assets[asset_type] = remote_url
                     continue
-                
+
                 # With local caching disabled, hotlink the override's own
                 # remote URL directly rather than downloading a local copy --
                 # this is the toggle's actual point of control, not just the
@@ -236,20 +235,20 @@ async def fetch_game_assets(hass, game_name):
 
         def _update_cache(name, data_dict):
             final_dict = {k: assets[k] or data_dict.get(k) for k in assets}
-            
+
             # ONLY cache to RAM if we successfully retrieved at least one image
             if any(final_dict.values()):
                 ASSET_URL_CACHE[name] = final_dict
                 ASSET_URL_CACHE.move_to_end(name)
                 if len(ASSET_URL_CACHE) > MAX_CACHE_SIZE:
                     ASSET_URL_CACHE.popitem(last=False)
-                
+
                 # Fire off non-blocking cache cleanup whenever a NEW game enters RAM
                 if USE_LOCAL_CACHE:
                     async def _run_cleanup():
                         await hass.async_add_executor_job(_clean_image_cache, cache_dir)
                     hass.async_create_task(_run_cleanup())
-                
+
             return final_dict
 
         # If the user provided ALL 4 custom images manually, skip the API entirely!
@@ -267,15 +266,15 @@ async def fetch_game_assets(hass, game_name):
         headers = {"Authorization": f"Bearer {STEAMGRIDDB_API_KEY}"}
 
         try:
-            safe_title = quote(game_name, safe='')
+            safe_title = quote(game_name, safe="")
             search_url = f"https://www.steamgriddb.com/api/v2/search/autocomplete/{safe_title}"
-            
+
             async with session.get(search_url, headers=headers, timeout=10) as resp:
                 if resp.status != 200: return _update_cache(cache_key, fetched_assets)
                 search_data = await resp.json()
 
             if not search_data.get("data"): return _update_cache(cache_key, fetched_assets)
-                
+
             game_id = search_data["data"][0]["id"]
             endpoints = {
                 "grid": f"https://www.steamgriddb.com/api/v2/grids/game/{game_id}",
@@ -283,10 +282,10 @@ async def fetch_game_assets(hass, game_name):
                 "logo": f"https://www.steamgriddb.com/api/v2/logos/game/{game_id}",
                 "icon": f"https://www.steamgriddb.com/api/v2/icons/game/{game_id}"
             }
-            
+
             for asset_type, endpoint in endpoints.items():
                 if assets[asset_type]: continue # Already filled by override
-                    
+
                 async with session.get(endpoint, headers=headers, timeout=10) as resp:
                     if resp.status == 200:
                         asset_data = await resp.json()
@@ -297,7 +296,7 @@ async def fetch_game_assets(hass, game_name):
                                 if img.get("style") == "official": score += 10
                                 if img.get("mime") == "image/png": score += 5
                                 return score
-                                
+
                             best_art = sorted(asset_data["data"], key=get_score, reverse=True)[0]
                             remote_url = best_art["url"]
 
@@ -320,13 +319,13 @@ async def fetch_game_assets(hass, game_name):
                                         if img_resp.status == 200:
                                             img_bytes = await img_resp.read()
                                             await hass.async_add_executor_job(lambda: file_path.write_bytes(img_bytes))
-                            
+
                             try:
                                 mt = int(await hass.async_add_executor_job(os.path.getmtime, file_path))
                             except Exception:
                                 mt = int(time.time())
                             fetched_assets[asset_type] = f"{base_url}/local/gaming_status_cache/{file_name}?v={mt}"
-                                    
+
         except Exception as e:
             _LOGGER.error("Failed to fetch assets for %s: %s", game_name, e)
 
@@ -400,7 +399,7 @@ async def fetch_game_grid_urls_remote(hass, game_name):
         headers = {"Authorization": f"Bearer {STEAMGRIDDB_API_KEY}"}
 
         await limiter.async_acquire(timeout=RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS)
-        safe_title = quote(game_name, safe='')
+        safe_title = quote(game_name, safe="")
         async with session.get(
             f"https://www.steamgriddb.com/api/v2/search/autocomplete/{safe_title}", headers=headers, timeout=10
         ) as resp:
@@ -577,6 +576,7 @@ def resolve_steam_credentials(hass, source_entity_id):
        unique_id first, and only fall back to the owner's id if that
        fails (e.g. a genuinely unresolvable/legacy entity)."""
     from homeassistant.const import CONF_API_KEY
+
     from .const import HA_STEAM_ONLINE_DOMAIN
 
     try:
@@ -646,6 +646,7 @@ async def resolve_xbox_entry_and_session(hass, source_entity_id):
     which account's presence/achievements are being asked for, same
     reasoning as PSN's account_id. Never raises."""
     from homeassistant.helpers import config_entry_oauth2_flow
+
     from .const import HA_XBOX_DOMAIN
 
     try:
@@ -667,9 +668,12 @@ def _get_rate_limiter(hass, platform: str):
     integration, or one manual override) across every tracked player, not
     per-player -- the budget has to be shared too."""
     from .const import (
-        PSN_RATE_LIMIT_CAPACITY, PSN_RATE_LIMIT_PER_SECOND,
-        STEAM_RATE_LIMIT_CAPACITY, STEAM_RATE_LIMIT_PER_SECOND,
-        STEAMGRIDDB_RATE_LIMIT_CAPACITY, STEAMGRIDDB_RATE_LIMIT_PER_SECOND,
+        PSN_RATE_LIMIT_CAPACITY,
+        PSN_RATE_LIMIT_PER_SECOND,
+        STEAM_RATE_LIMIT_CAPACITY,
+        STEAM_RATE_LIMIT_PER_SECOND,
+        STEAMGRIDDB_RATE_LIMIT_CAPACITY,
+        STEAMGRIDDB_RATE_LIMIT_PER_SECOND,
     )
     from .rate_limiter import RateLimiter
 
@@ -833,7 +837,7 @@ async def fetch_steam_achievements(hass, steamid64, api_key, appid):
                 "name": display_names.get(a.get("apiname"), a.get("apiname")),
                 "description": None,
                 "unlocked_at": (
-                    datetime.fromtimestamp(a["unlocktime"], tz=timezone.utc).isoformat()
+                    datetime.fromtimestamp(a["unlocktime"], tz=UTC).isoformat()
                     if a.get("unlocktime") else None
                 ),
                 "icon_url": icons.get(a.get("apiname")),
@@ -847,7 +851,7 @@ async def fetch_steam_achievements(hass, steamid64, api_key, appid):
         # is free; None for a game with zero achievements earned yet, same
         # as a game with no achievements at all.
         last_achievement_at = (
-            datetime.fromtimestamp(earned_achievements[0]["unlocktime"], tz=timezone.utc).isoformat()
+            datetime.fromtimestamp(earned_achievements[0]["unlocktime"], tz=UTC).isoformat()
             if earned_achievements and earned_achievements[0].get("unlocktime") else None
         )
         return {
@@ -1070,27 +1074,27 @@ async def fetch_psn_full_library(hass, npsso, account_id):
 
 async def fetch_and_cache_image(hass, remote_url, file_name):
     """Generic helper to cache any remote image locally."""
-    from homeassistant.helpers.network import get_url, NoURLAvailableError
+    from homeassistant.helpers.network import NoURLAvailableError, get_url
     try:
         base_url = get_url(hass, prefer_external=True)
     except NoURLAvailableError:
         base_url = ""
-        
+
     cache_dir = Path(hass.config.path("www/gaming_status_cache"))
-    
+
     # 1. Safely wrap the mkdir command to avoid kwarg TypeErrors
     def _ensure_dir():
         if not cache_dir.exists():
             cache_dir.mkdir(parents=True, exist_ok=True)
-            
+
     await hass.async_add_executor_job(_ensure_dir)
-    
+
     file_path = cache_dir / file_name
-    
+
     # 2. Return immediately if already cached
     if file_path.exists():
         return f"{base_url}/local/gaming_status_cache/{file_name}"
-        
+
     # 3. Download and save
     try:
         if not await is_public_url(hass, remote_url):
@@ -1110,13 +1114,13 @@ async def fetch_and_cache_image(hass, remote_url, file_name):
                 return f"{base_url}/local/gaming_status_cache/{file_name}"
     except Exception as e:
         _LOGGER.error("Failed to cache avatar %s: %s", remote_url, e)
-        
+
     return remote_url # Fallback to remote if download fails
 
 def get_base_game_name(full_name):
     if not full_name: return full_name
     full_name_str = str(full_name)
-    if " - Playing" in full_name_str: full_name_str = full_name_str.split(" - Playing")[0]
+    if " - Playing" in full_name_str: full_name_str = full_name_str.split(" - Playing", maxsplit=1)[0]
     elif " – Playing" in full_name_str: full_name_str = full_name_str.split(" – Playing")[0]
     elif " Playing " in full_name_str: full_name_str = full_name_str.split(" Playing ")[0]
     elif " - In The Menus" in full_name_str: full_name_str = full_name_str.split(" - In The Menus")[0]
@@ -1124,7 +1128,7 @@ def get_base_game_name(full_name):
 
 def _get_gamertag_from_entity(source_entity_id, platform):
     try:
-        object_id = source_entity_id.split('.')[1]
+        object_id = source_entity_id.split(".")[1]
         if platform == "steam" and object_id.startswith("steam_"): return object_id[6:]
         if platform == "xbox" and "_status" in object_id: return object_id.split("_status")[0]
         if platform == "playstation":
@@ -1132,7 +1136,7 @@ def _get_gamertag_from_entity(source_entity_id, platform):
             if "_online_status" in object_id: return object_id.split("_online_status")[0]
             if "_onlinestatus" in object_id: return object_id.split("_onlinestatus")[0]
     except Exception: pass
-    try: return source_entity_id.split('.')[1]
+    try: return source_entity_id.split(".")[1]
     except Exception: return "unknown"
 
 def _format_time(seconds):
@@ -1155,13 +1159,13 @@ def _format_game_name_for_display(game_name):
     if not game_name: return game_name
     clean_name = " ".join(str(game_name).split())
     clean_name = GAME_TITLE_OVERRIDES.get(_normalize_game_name(clean_name), clean_name)
-    
+
     if " - " in clean_name: clean_name = clean_name.split(" - ")[0].strip()
-    clean_name = re.sub(r'[™®©]', '', clean_name).strip()
-    
+    clean_name = re.sub(r"[™®©]", "", clean_name).strip()
+
     for pattern in COMPILED_TITLE_CLEANUPS:
         clean_name = pattern.sub("", clean_name).strip()
-        
+
     clean_name = " ".join(clean_name.split())
     return clean_name
 
@@ -1174,7 +1178,7 @@ def _normalize_game_name(game_name):
     differences never cause a mismatch.
     """
     if not game_name: return ""
-    clean = re.sub(r'[,:\-™®©]', '', str(game_name).lower())
+    clean = re.sub(r"[,:\-™®©]", "", str(game_name).lower())
     return " ".join(clean.split())
 
 def _is_same_base_game(name_a, name_b, prefix_words):
@@ -1188,8 +1192,8 @@ def _safe_parse_datetime(value):
     if not value: return None
     try:
         dt_obj = value if isinstance(value, datetime) else parser.isoparse(str(value))
-        if dt_obj.tzinfo is None: dt_obj = dt_obj.replace(tzinfo=timezone.utc)
-        else: dt_obj = dt_obj.astimezone(timezone.utc)
+        if dt_obj.tzinfo is None: dt_obj = dt_obj.replace(tzinfo=UTC)
+        else: dt_obj = dt_obj.astimezone(UTC)
         return dt_obj
     except Exception: return None
 
@@ -1208,12 +1212,12 @@ def _parse_relative_time_from_status(status_text):
                 elif "d" in unit: delta = timedelta(days=val)
                 elif "s" in unit: delta = timedelta(seconds=val)
                 if delta: return (now - delta).isoformat()
-            if part[-1] in ['d', 'h', 'm', 's'] and part[:-1].isdigit():
+            if part[-1] in ["d", "h", "m", "s"] and part[:-1].isdigit():
                 val, unit, delta = int(part[:-1]), part[-1], None
-                if unit == 'd': delta = timedelta(days=val)
-                elif unit == 'h': delta = timedelta(hours=val)
-                elif unit == 'm': delta = timedelta(minutes=val)
-                elif unit == 's': delta = timedelta(seconds=val)
+                if unit == "d": delta = timedelta(days=val)
+                elif unit == "h": delta = timedelta(hours=val)
+                elif unit == "m": delta = timedelta(minutes=val)
+                elif unit == "s": delta = timedelta(seconds=val)
                 if delta: return (now - delta).isoformat()
     except Exception: return None
     return None
@@ -1226,15 +1230,15 @@ def _calculate_time_ago_v2(timestamp_val):
         now = dt_util.now()
         if ts.tzinfo is None: ts = ts.replace(tzinfo=now.tzinfo)
         else: ts = ts.astimezone(now.tzinfo)
-        
+
         seconds = int((now - ts).total_seconds())
         debug = f"Now:{int(now.timestamp())} - TS:{int(ts.timestamp())} = {seconds}s"
-        
+
         if seconds < 0: return ("just now" if seconds > -60 else "in future"), debug
         if seconds < 60: return "just now", debug
-        elif seconds < 3600: return f"{seconds // 60}m ago", debug
-        elif seconds < 86400: return f"{seconds // 3600}h ago", debug
-        else: return f"{seconds // 86400}d ago", debug
+        if seconds < 3600: return f"{seconds // 60}m ago", debug
+        if seconds < 86400: return f"{seconds // 3600}h ago", debug
+        return f"{seconds // 86400}d ago", debug
     except Exception as e: return None, f"Err: {e}"
 
 def safe_url(url):
@@ -1289,30 +1293,30 @@ def extract_vibrant_color(image_path):
     """Extracts the most dominant vibrant color from an image, with a safe fallback."""
     try:
         from PIL import Image
-        img = Image.open(image_path).convert('RGB')
+        img = Image.open(image_path).convert("RGB")
         img = img.resize((50, 50))
         pixels = img.getdata()
-        
+
         color_counts = {}
         fallback_r, fallback_g, fallback_b = 0, 0, 0
         total_pixels = 0
-        
+
         for r, g, b in pixels:
             # Keep a running total for the fallback average
             fallback_r += r
             fallback_g += g
             fallback_b += b
             total_pixels += 1
-            
+
             # Masking: Ignore pixels that are too dark, white, or grayscale
             max_val, min_val = max(r, g, b), min(r, g, b)
             saturation = max_val - min_val
-            
+
             # Require minimum brightness and color saturation to be considered "vibrant"
             if max_val > 50 and min_val < 200 and saturation > 20:
                 color = (min(round(r/15)*15, 255), min(round(g/15)*15, 255), min(round(b/15)*15, 255))
                 color_counts[color] = color_counts.get(color, 0) + 1
-                
+
         if not color_counts:
             # Fallback: If all pixels were filtered out, calculate the true average
             if total_pixels > 0:
@@ -1321,11 +1325,11 @@ def extract_vibrant_color(image_path):
                 avg_b = int(fallback_b / total_pixels)
                 return f"#{avg_r:02x}{avg_g:02x}{avg_b:02x}"
             return "#333333" # Absolute fallback for completely broken images
-            
+
         dominant_rgb = max(color_counts, key=color_counts.get)
         r, g, b = [min(c, 255) for c in dominant_rgb]
         return f"#{r:02x}{g:02x}{b:02x}"
-        
+
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning("Failed to extract vibrant color from %s: %s", image_path, e)
@@ -1339,13 +1343,13 @@ def get_cached_remote_url(game_name, asset_type="grid"):
     """
     if not game_name:
         return None
-        
+
     cache_entry = ASSET_URL_CACHE.get(game_name)
     if not cache_entry:
         return None
-        
+
     url = cache_entry.get(asset_type)
     if url and url_host_matches(url, "steamgriddb.com"):
         return url
-        
+
     return None

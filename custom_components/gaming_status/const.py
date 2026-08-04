@@ -77,18 +77,18 @@ ZOMBIE_ATTRIBUTES = ["grace_period_active", "xbox_last_seen_game", "debug_sync"]
 
 PLATFORM_CONFIG = {
     "playnite": {
-        "icon": "mdi:controller", 
-        "name_suffix": "Playnite", 
+        "icon": "mdi:controller",
+        "name_suffix": "Playnite",
         "group": "PC"
     },
     "custom": {
-        "icon": "mdi:gamepad-square", 
-        "name_suffix": "Custom", 
+        "icon": "mdi:gamepad-square",
+        "name_suffix": "Custom",
         "group": "PC"
     },
     "steam": {
-        "icon": "mdi:steam", 
-        "name_suffix": "Steam", 
+        "icon": "mdi:steam",
+        "name_suffix": "Steam",
         "group": "PC"
     },
     "xbox": {
@@ -98,13 +98,13 @@ PLATFORM_CONFIG = {
         "group": "Xbox"
     },
     "playstation": {
-        "icon": "mdi:sony-playstation", 
-        "name_suffix": "PlayStation", 
+        "icon": "mdi:sony-playstation",
+        "name_suffix": "PlayStation",
         "group": "PlayStation"
     },
     "discord": {
-        "icon": "mdi:gamepad-variant", 
-        "name_suffix": "Discord", 
+        "icon": "mdi:gamepad-variant",
+        "name_suffix": "Discord",
         "group": "PC"
     },
 }

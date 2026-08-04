@@ -4,85 +4,82 @@ from __future__ import annotations
 import json
 import logging
 import re
+
 import aiohttp
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.helpers import selector
-from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.network import get_url, NoURLAvailableError
-
-from .utils import _normalize_game_name
-from .device import safe_owner_slug
+from homeassistant.helpers import device_registry as dr, entity_registry as er, selector
+from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 from .const import (
-    DOMAIN,
-    CONF_STEAMGRIDDB_API_KEY,
-    RATING_THRESHOLD_OPTIONS,
-    OPT_RATING_OVERRIDES,
-    RATING_OVERRIDE_CODES,
-    CONF_DISCORD_TOKEN,
     CONF_DISCORD_SERVER,
-    OPT_RESET_HISTORY,
-    OPT_GRACE_PERIOD,
-    OPT_AWAY_GRACE_PERIOD,
-    OPT_TRANSITION_GRACE,
-    OPT_MIN_SESSION,
-    OPT_SAME_GAME_PREFIX_WORDS,
-    DEFAULT_SAME_GAME_PREFIX_WORDS,
-    OPT_PLAYERS,
-    OPT_ENDPOINTS,
-    OPT_WEEKLY_REPORT,
-    OPT_PARENTAL,
-    OPT_TITLE_OVERRIDES,
-    OPT_CUSTOM_GRID,
-    OPT_CUSTOM_HERO,
-    OPT_CUSTOM_LOGO,
-    OPT_CUSTOM_ICON,
-    MENU_CUSTOM_ARTWORK,
-    OPT_NOTIFY_ARTWORK,
-    OPT_TITLE_CLEANUPS,
-    OPT_GLOBAL_EXCLUSIONS,
-    OPT_CUSTOM_COLORS,
-    OPT_DISCORD_COLORS,
-    DEFAULT_RESET_HISTORY,
-    DEFAULT_GRACE_PERIOD_SECONDS,
+    CONF_DISCORD_TOKEN,
+    CONF_PSN_NPSSO_OVERRIDE,
+    CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE,
+    CONF_STEAMGRIDDB_API_KEY,
+    DEFAULT_ACHIEVEMENT_RECHECK_SECONDS,
     DEFAULT_AWAY_GRACE_PERIOD_SECONDS,
+    DEFAULT_CACHE_MAX_DAYS,
+    DEFAULT_CACHE_MAX_FILES,
+    DEFAULT_ENABLE_ACHIEVEMENT_TRACKING,
+    DEFAULT_ENABLE_LIBRARY_SCAN,
+    DEFAULT_ENABLE_NATIVE_RATINGS,
+    DEFAULT_EXTRACT_COLOR,
     DEFAULT_GAME_TRANSITION_GRACE_SECONDS,
+    DEFAULT_GRACE_PERIOD_SECONDS,
+    DEFAULT_LIBRARY_SCAN_INTERVAL_HOURS,
     DEFAULT_MIN_SESSION_DURATION,
+    DEFAULT_RESET_HISTORY,
+    DEFAULT_SAME_GAME_PREFIX_WORDS,
+    DEFAULT_USE_CACHE,
+    DOMAIN,
+    MAX_LIBRARY_SCAN_INTERVAL_HOURS,
+    MENU_ACHIEVEMENTS_RATINGS,
+    MENU_ADVANCED,
+    MENU_CUSTOM_ARTWORK,
     MENU_GLOBAL_SETTINGS,
     MENU_MANAGE_PLAYERS,
     MENU_NOTIFICATIONS,
-    MENU_PARENTAL,
     MENU_OVERRIDES,
-    MENU_ACHIEVEMENTS_RATINGS,
-    MENU_ADVANCED,
-    PLAYER_PLATFORMS,
-    OPT_USE_CACHE,
-    DEFAULT_USE_CACHE,
-    OPT_EXTRACT_COLOR,
-    DEFAULT_EXTRACT_COLOR,
-    OPT_CACHE_MAX_FILES,
-    DEFAULT_CACHE_MAX_FILES,
-    OPT_CACHE_MAX_DAYS,
-    DEFAULT_CACHE_MAX_DAYS,
-    OPT_ENABLE_NATIVE_RATINGS,
-    DEFAULT_ENABLE_NATIVE_RATINGS,
-    OPT_ENABLE_ACHIEVEMENT_TRACKING,
-    DEFAULT_ENABLE_ACHIEVEMENT_TRACKING,
-    CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE,
-    CONF_PSN_NPSSO_OVERRIDE,
-    OPT_ACHIEVEMENT_RECHECK_SECONDS,
-    DEFAULT_ACHIEVEMENT_RECHECK_SECONDS,
+    MENU_PARENTAL,
     MIN_ACHIEVEMENT_RECHECK_SECONDS,
-    OPT_ENABLE_LIBRARY_SCAN,
-    DEFAULT_ENABLE_LIBRARY_SCAN,
-    OPT_LIBRARY_SCAN_INTERVAL_HOURS,
-    DEFAULT_LIBRARY_SCAN_INTERVAL_HOURS,
     MIN_LIBRARY_SCAN_INTERVAL_HOURS,
-    MAX_LIBRARY_SCAN_INTERVAL_HOURS,
+    OPT_ACHIEVEMENT_RECHECK_SECONDS,
+    OPT_AWAY_GRACE_PERIOD,
+    OPT_CACHE_MAX_DAYS,
+    OPT_CACHE_MAX_FILES,
+    OPT_CUSTOM_COLORS,
+    OPT_CUSTOM_GRID,
+    OPT_CUSTOM_HERO,
+    OPT_CUSTOM_ICON,
+    OPT_CUSTOM_LOGO,
+    OPT_DISCORD_COLORS,
+    OPT_ENABLE_ACHIEVEMENT_TRACKING,
+    OPT_ENABLE_LIBRARY_SCAN,
+    OPT_ENABLE_NATIVE_RATINGS,
+    OPT_ENDPOINTS,
+    OPT_EXTRACT_COLOR,
+    OPT_GLOBAL_EXCLUSIONS,
+    OPT_GRACE_PERIOD,
+    OPT_LIBRARY_SCAN_INTERVAL_HOURS,
+    OPT_MIN_SESSION,
+    OPT_NOTIFY_ARTWORK,
+    OPT_PARENTAL,
+    OPT_PLAYERS,
+    OPT_RATING_OVERRIDES,
+    OPT_RESET_HISTORY,
+    OPT_SAME_GAME_PREFIX_WORDS,
+    OPT_TITLE_CLEANUPS,
+    OPT_TITLE_OVERRIDES,
+    OPT_TRANSITION_GRACE,
+    OPT_USE_CACHE,
+    OPT_WEEKLY_REPORT,
+    PLAYER_PLATFORMS,
+    RATING_OVERRIDE_CODES,
+    RATING_THRESHOLD_OPTIONS,
 )
+from .device import safe_owner_slug
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -170,16 +167,20 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             self._temp_user_input = user_input
-            
+
             # If they checked Discord, route them to the dedicated Discord Setup Screen
             from .const import OPT_ENABLED_PLATFORMS
             if "discord" in user_input.get(OPT_ENABLED_PLATFORMS, []):
                 return await self.async_step_discord_setup()
-                
+
             # If no Discord, proceed to First Player setup
             return await self.async_step_first_player()
 
-        from .const import OPT_ENABLED_PLATFORMS, OPT_ENABLE_NOTIFICATIONS, OPT_ENABLE_PARENTAL
+        from .const import (
+            OPT_ENABLE_NOTIFICATIONS,
+            OPT_ENABLE_PARENTAL,
+            OPT_ENABLED_PLATFORMS,
+        )
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
@@ -237,7 +238,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         val = str(val).strip()
                         if val and val.lower() != "none":
                             player_data[platform] = val
-                
+
                 from .const import OPT_PLAYERS
                 self._temp_user_input[OPT_PLAYERS] = json.dumps({name: player_data})
                 return self._create_entry_from_temp()
@@ -285,7 +286,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 members = await _fetch_discord_members(token, server_id)
                 for m in members:
                     dc_options.append(selector.SelectOptionDict(value=m[0], label=f"{m[1]} ({m[0]})"))
-            
+
             schema[vol.Optional("discord")] = selector.SelectSelector(
                 selector.SelectSelectorConfig(options=dc_options, mode=selector.SelectSelectorMode.DROPDOWN, custom_value=True)
             )
@@ -302,12 +303,17 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def _create_entry_from_temp(self):
         user_input = getattr(self, "_temp_user_input", {})
-        
+
         api_key = user_input.get(CONF_STEAMGRIDDB_API_KEY, "").strip()
         dc_token = user_input.get(CONF_DISCORD_TOKEN, "").strip()
         dc_server = user_input.get(CONF_DISCORD_SERVER, "").strip()
 
-        from .const import OPT_ENABLED_PLATFORMS, OPT_ENABLE_NOTIFICATIONS, OPT_ENABLE_PARENTAL, OPT_PLAYERS
+        from .const import (
+            OPT_ENABLE_NOTIFICATIONS,
+            OPT_ENABLE_PARENTAL,
+            OPT_ENABLED_PLATFORMS,
+            OPT_PLAYERS,
+        )
         use_cache = user_input.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
         enabled_platforms = user_input.get(OPT_ENABLED_PLATFORMS, [])
         enable_notifications = user_input.get(OPT_ENABLE_NOTIFICATIONS, False)
@@ -329,7 +335,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 OPT_PLAYERS: players
             },
         )
-    
+
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
@@ -351,17 +357,17 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         server_id = self._config_entry.data.get(CONF_DISCORD_SERVER)
         if token and server_id and not self._discord_members:
             self._discord_members = await _fetch_discord_members(token, server_id)
-            
+
         from .const import OPT_ENABLE_NOTIFICATIONS, OPT_ENABLE_PARENTAL
-        
+
         menu_options = [MENU_MANAGE_PLAYERS]
-        
+
         if self._options.get(OPT_ENABLE_NOTIFICATIONS, False):
             menu_options.append(MENU_NOTIFICATIONS)
-            
+
         if self._options.get(OPT_ENABLE_PARENTAL, False):
             menu_options.append(MENU_PARENTAL)
-            
+
         menu_options.extend([
             MENU_CUSTOM_ARTWORK,
             MENU_OVERRIDES,
@@ -369,7 +375,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             MENU_ADVANCED,
             MENU_GLOBAL_SETTINGS,
         ])
-            
+
         return self.async_show_menu(
             step_id="init",
             menu_options=menu_options,
@@ -381,21 +387,20 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_global_settings(self, user_input=None):
         from .const import (
-            OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS,
-            OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS,
-            OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL,
-            OPT_USE_CACHE, DEFAULT_USE_CACHE,
-            OPT_EXTRACT_COLOR, DEFAULT_EXTRACT_COLOR,
-            OPT_CACHE_MAX_FILES, DEFAULT_CACHE_MAX_FILES,
-            OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS,
-            OPT_GRACE_PERIOD, DEFAULT_GRACE_PERIOD_SECONDS,
-            OPT_AWAY_GRACE_PERIOD, DEFAULT_AWAY_GRACE_PERIOD_SECONDS,
-            OPT_TRANSITION_GRACE, DEFAULT_GAME_TRANSITION_GRACE_SECONDS,
-            OPT_MIN_SESSION, DEFAULT_MIN_SESSION_DURATION,
-            OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS,
-            OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY,
-            OPT_REMOVE_DISABLED_SENSORS, DEFAULT_REMOVE_DISABLED_SENSORS,
-            OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING
+            DEFAULT_ENABLE_NOTIFICATIONS,
+            DEFAULT_ENABLE_PARENTAL,
+            DEFAULT_ENABLE_PS3_TRACKING,
+            DEFAULT_ENABLED_PLATFORMS,
+            DEFAULT_MASTER_HANDOFF_GRACE_SECONDS,
+            DEFAULT_REMOVE_DISABLED_SENSORS,
+            DEFAULT_USE_CACHE,
+            OPT_ENABLE_NOTIFICATIONS,
+            OPT_ENABLE_PARENTAL,
+            OPT_ENABLE_PS3_TRACKING,
+            OPT_ENABLED_PLATFORMS,
+            OPT_MASTER_HANDOFF_GRACE,
+            OPT_REMOVE_DISABLED_SENSORS,
+            OPT_USE_CACHE,
         )
 
         opts = self._options
@@ -429,13 +434,13 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         # --- HARDWARE SAFETY NET ---
         def _check_is_pi():
             try:
-                with open("/sys/firmware/devicetree/base/model", "r") as f:
+                with open("/sys/firmware/devicetree/base/model") as f:
                     return "Raspberry Pi" in f.read()
             except Exception:
                 return False
 
         is_pi = await self.hass.async_add_executor_job(_check_is_pi)
-            
+
         dynamic_color_default = False if is_pi else DEFAULT_EXTRACT_COLOR
 
         global_schema = {
@@ -501,7 +506,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             if selection == "__add_new__":
                 self._editing_player = None
                 return await self.async_step_add_player()
-            elif selection in players:
+            if selection in players:
                 self._editing_player = selection
                 return await self.async_step_edit_player()
             return await self.async_step_init()
@@ -558,46 +563,47 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             if user_input.get("delete_player"):
                 # Trigger the purge BEFORE deleting the player data
                 await self._cleanup_player_entities(name)
-                
+
                 players.pop(name, None)
                 self._options[OPT_PLAYERS] = _dump_json(players)
-                
+
                 parental = _parental(self._options)
                 parental.pop(name, None)
                 self._options[OPT_PARENTAL] = _dump_json(parental)
                 return await self._update_and_return()
-            else:
-                from .const import (
-                    OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS,
-                    OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING,
-                )
-                updated_platforms = self._player_data_from_input(user_input)
-                enabled_platforms = self._options.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
+            from .const import (
+                DEFAULT_ENABLE_PS3_TRACKING,
+                DEFAULT_ENABLED_PLATFORMS,
+                OPT_ENABLE_PS3_TRACKING,
+                OPT_ENABLED_PLATFORMS,
+            )
+            updated_platforms = self._player_data_from_input(user_input)
+            enabled_platforms = self._options.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
 
-                for p in enabled_platforms:
-                    if p in updated_platforms:
-                        existing[p] = updated_platforms[p]
-                    elif p in existing:
-                        # Platform was removed! Purge it from the registry.
-                        await self._cleanup_player_entities(name, [p])
-                        del existing[p]
+            for p in enabled_platforms:
+                if p in updated_platforms:
+                    existing[p] = updated_platforms[p]
+                elif p in existing:
+                    # Platform was removed! Purge it from the registry.
+                    await self._cleanup_player_entities(name, [p])
+                    del existing[p]
 
-                # PS3 isn't in enabled_platforms (it's a secondary source that
-                # feeds into the "playstation" sensor, not its own platform, so
-                # it has no sensor entity of its own to purge). Only touch it
-                # while its field is actually visible (playstation + PS3
-                # tracking both on), so toggling PS3 tracking off elsewhere
-                # doesn't silently wipe a saved selection.
-                ps3_tracking_enabled = self._options.get(OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING)
-                if "playstation" in enabled_platforms and ps3_tracking_enabled:
-                    if "ps3" in updated_platforms:
-                        existing["ps3"] = updated_platforms["ps3"]
-                    elif "ps3" in existing:
-                        del existing["ps3"]
+            # PS3 isn't in enabled_platforms (it's a secondary source that
+            # feeds into the "playstation" sensor, not its own platform, so
+            # it has no sensor entity of its own to purge). Only touch it
+            # while its field is actually visible (playstation + PS3
+            # tracking both on), so toggling PS3 tracking off elsewhere
+            # doesn't silently wipe a saved selection.
+            ps3_tracking_enabled = self._options.get(OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING)
+            if "playstation" in enabled_platforms and ps3_tracking_enabled:
+                if "ps3" in updated_platforms:
+                    existing["ps3"] = updated_platforms["ps3"]
+                elif "ps3" in existing:
+                    del existing["ps3"]
 
-                players[name] = existing
-                self._options[OPT_PLAYERS] = _dump_json(players)
-                return await self.async_step_player_details()
+            players[name] = existing
+            self._options[OPT_PLAYERS] = _dump_json(players)
+            return await self.async_step_player_details()
 
         return self.async_show_form(
             step_id="edit_player",
@@ -608,7 +614,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_player_details(self, user_input=None):
         from .const import OPT_ENABLE_NOTIFICATIONS
-        
+
         players = _players(self._options)
         name = self._editing_player or ""
         existing = players.get(name, {})
@@ -633,12 +639,12 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             existing["exclude_games"] = [
                 e.strip() for e in exclude_raw.splitlines() if e.strip()
             ]
-            
+
             # Only update destinations if the UI actually displayed them
             if notifications_enabled:
                 existing["notify_start_destinations"] = user_input.get("notify_start_destinations", [])
                 existing["notify_end_destinations"] = user_input.get("notify_end_destinations", [])
-            
+
             players[name] = existing
             self._options[OPT_PLAYERS] = _dump_json(players)
             return await self._update_and_return()
@@ -651,8 +657,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             schema_dict[vol.Optional("notify_start_destinations", default=existing.get("notify_start_destinations", []))] = (
                 selector.SelectSelector(
                     selector.SelectSelectorConfig(
-                        options=endpoint_options, 
-                        multiple=True, 
+                        options=endpoint_options,
+                        multiple=True,
                         mode=selector.SelectSelectorMode.DROPDOWN
                     )
                 )
@@ -660,8 +666,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             schema_dict[vol.Optional("notify_end_destinations", default=existing.get("notify_end_destinations", []))] = (
                 selector.SelectSelector(
                     selector.SelectSelectorConfig(
-                        options=endpoint_options, 
-                        multiple=True, 
+                        options=endpoint_options,
+                        multiple=True,
                         mode=selector.SelectSelectorMode.DROPDOWN
                     )
                 )
@@ -696,7 +702,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     async def async_step_notifications(self, user_input=None):
         opts = self._options
         endpoints = _endpoints(opts)
-        
+
         if user_input is not None:
             # 1. Save the new artwork selection FIRST
             opts[OPT_NOTIFY_ARTWORK] = user_input.get(OPT_NOTIFY_ARTWORK, "game_cover_art")
@@ -706,17 +712,17 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             selection = user_input.get("endpoint_choice")
             if selection == "__save_settings__":
                 return await self._update_and_return()
-            elif selection == "__add_new__":
+            if selection == "__add_new__":
                 self._editing_endpoint = None
                 return await self.async_step_add_endpoint()
-            elif selection == "__discord_colors__":
+            if selection == "__discord_colors__":
                 return await self.async_step_discord_colors()
-            elif selection == "__weekly_report__":
+            if selection == "__weekly_report__":
                 return await self.async_step_weekly_report()
-            elif selection in endpoints:
+            if selection in endpoints:
                 self._editing_endpoint = selection
                 return await self.async_step_edit_endpoint()
-            
+
             return await self._update_and_return()
 
         # Build the new dropdown choices with a dedicated Save option
@@ -726,7 +732,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             selector.SelectOptionDict(value="__discord_colors__", label="Discord Notification Colors"),
             selector.SelectOptionDict(value="__weekly_report__", label="Weekly Report Settings"),
         ]
-        
+
         for k, v in endpoints.items():
             choices.append(selector.SelectOptionDict(value=k, label=f"Edit: {v['name']}"))
 
@@ -738,7 +744,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                         selector.SelectSelectorConfig(options=choices, mode=selector.SelectSelectorMode.DROPDOWN)
                     ),
                     vol.Optional(
-                        OPT_NOTIFY_ARTWORK, 
+                        OPT_NOTIFY_ARTWORK,
                         default=opts.get(OPT_NOTIFY_ARTWORK, "game_cover_art")
                     ): vol.In({
                         "game_cover_art": "Cover/Grid (Vertical)",
@@ -811,7 +817,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         colors = _load_json(self._options.get(OPT_DISCORD_COLORS, ""), {})
         errors = {}
 
-        _HEX_RE = re.compile(r'^#[0-9A-Fa-f]{6}$')
+        _HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
         if user_input is not None:
             for field in ("color_start", "color_end", "color_parental"):
@@ -852,7 +858,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     async def async_step_weekly_report(self, user_input=None):
         report = _weekly_report(self._options)
         endpoints = _endpoints(self._options)
-        
+
         endpoint_options = [
             selector.SelectOptionDict(value=k, label=v["name"]) for k, v in endpoints.items()
         ]
@@ -880,8 +886,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             schema_dict[vol.Optional("destinations", default=report.get("destinations", []))] = (
                 selector.SelectSelector(
                     selector.SelectSelectorConfig(
-                        options=endpoint_options, 
-                        multiple=True, 
+                        options=endpoint_options,
+                        multiple=True,
                         mode=selector.SelectSelectorMode.DROPDOWN
                     )
                 )
@@ -936,7 +942,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     async def async_step_parental_player(self, user_input=None):
         from .const import OPT_ENABLE_NOTIFICATIONS
         notifications_enabled = self._options.get(OPT_ENABLE_NOTIFICATIONS, False)
-        
+
         name = self._editing_player or ""
         parental = _parental(self._options)
         rules = parental.get(name, {})
@@ -1032,8 +1038,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         if endpoint_options and notifications_enabled:
             schema_dict[vol.Optional("st_action_targets", default=st_action)] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=endpoint_options, 
-                    multiple=True, 
+                    options=endpoint_options,
+                    multiple=True,
                     mode=selector.SelectSelectorMode.DROPDOWN
                 )
             )
@@ -1121,8 +1127,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 raw = user_input.get(field, "")
                 parsed_dict = {}
                 for item in raw.splitlines():
-                    if '=' in item:
-                        k, v = item.split('=', 1)
+                    if "=" in item:
+                        k, v = item.split("=", 1)
                         parsed_dict[k.strip()] = v.strip()
                 opts[key] = _dump_json(parsed_dict)
 
@@ -1157,7 +1163,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     # -----------------------------------------------------------------------
     # Advanced
     # -----------------------------------------------------------------------
-    
+
     async def async_step_overrides_exclusions(self, user_input=None):
         from .const import OPT_ENABLE_PARENTAL
         opts = self._options
@@ -1171,8 +1177,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 raw = user_input.get(field, "")
                 parsed_dict = {}
                 for item in raw.splitlines():
-                    if '=' in item:
-                        k, v = item.split('=', 1)
+                    if "=" in item:
+                        k, v = item.split("=", 1)
                         parsed_dict[k.strip()] = v.strip()
                 opts[key] = _dump_json(parsed_dict)
 
@@ -1180,9 +1186,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 raw = user_input.get("rating_overrides", "")
                 parsed_ratings = {}
                 for item in raw.splitlines():
-                    if '=' not in item:
+                    if "=" not in item:
                         continue
-                    k, v = item.split('=', 1)
+                    k, v = item.split("=", 1)
                     code = v.strip().upper()
                     if code in RATING_OVERRIDE_CODES:
                         parsed_ratings[k.strip()] = RATING_OVERRIDE_CODES[code]
@@ -1380,7 +1386,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 self._options = opts
                 return await self._update_and_return()
 
-        from .const import OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS
+        from .const import DEFAULT_ENABLED_PLATFORMS, OPT_ENABLED_PLATFORMS
         enabled_platforms = opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
 
         schema_dict = {
@@ -1421,15 +1427,17 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
     def _player_schema(self, existing: dict | None = None, is_new: bool = False) -> vol.Schema:
         from .const import (
-            OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS,
-            OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING,
+            DEFAULT_ENABLE_PS3_TRACKING,
+            DEFAULT_ENABLED_PLATFORMS,
+            OPT_ENABLE_PS3_TRACKING,
+            OPT_ENABLED_PLATFORMS,
         )
 
         existing = existing or {}
         schema = {}
         enabled_platforms = self._options.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
         ps3_tracking_enabled = self._options.get(OPT_ENABLE_PS3_TRACKING, DEFAULT_ENABLE_PS3_TRACKING)
-        
+
         if is_new:
             schema[vol.Required("player_name")] = str
 
@@ -1484,10 +1492,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
         if "steam" in enabled_platforms:
             schema[_field("steam")] = _get_filtered_selector("steam_online", None, existing.get("steam", ""))
-            
+
         if "xbox" in enabled_platforms:
             schema[_field("xbox")] = _get_filtered_selector("xbox", "_status", existing.get("xbox", ""))
-            
+
         if "playstation" in enabled_platforms:
             schema[_field("playstation")] = _get_filtered_selector("playstation_network", "_now_playing", existing.get("playstation", ""))
 
@@ -1512,12 +1520,12 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 )
             else:
                 schema[_field("discord")] = str
-                
+
         if "playnite" in enabled_platforms:
             schema[_field("playnite")] = selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", integration="mqtt")
             )
-            
+
         if "custom" in enabled_platforms:
             schema[_field("custom")] = selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
@@ -1557,7 +1565,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     def _endpoint_schema(self, existing: dict | None = None, include_delete: bool = False) -> vol.Schema:
         existing = existing or {}
         schema = {}
-        
+
         if not include_delete:
             schema[vol.Required("endpoint_name")] = str
         else:
@@ -1565,16 +1573,16 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
         schema[vol.Optional("notification_type", default=existing.get("type", "Mobile App"))] = selector.SelectSelector(
             selector.SelectSelectorConfig(
-                options=["Mobile App", "Discord", "SMS"], 
+                options=["Mobile App", "Discord", "SMS"],
                 mode=selector.SelectSelectorMode.DROPDOWN
             )
         )
-        
+
         services = self._get_notify_services()
         current_notifier = existing.get("notifier", "")
         if current_notifier and current_notifier not in services:
             services.insert(0, current_notifier)
-            
+
         schema[vol.Optional("notifier", default=current_notifier)] = selector.SelectSelector(
             selector.SelectSelectorConfig(
                 options=services,
@@ -1582,7 +1590,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 custom_value=True
             )
         )
-        
+
         schema[vol.Optional("target_id", default=existing.get("target_id", ""))] = str
 
         if include_delete:
@@ -1651,7 +1659,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             device = device_registry.async_get_device(identifiers={(DOMAIN, safe_owner)})
             if device is not None:
                 device_registry.async_remove_device(device.id)
-    
+
     async def _update_and_return(self):
         """Save the updated options to Home Assistant and return to the main menu."""
         self.hass.config_entries.async_update_entry(self._config_entry, options=self._options)
