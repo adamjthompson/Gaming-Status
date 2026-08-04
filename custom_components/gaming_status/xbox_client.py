@@ -15,12 +15,20 @@ same venv once that integration is installed.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
+
+import httpx
+from pydantic import ValidationError
 
 from homeassistant.util.dt import utc_from_timestamp
 
 from pythonxbox.authentication.manager import AuthenticationManager
 from pythonxbox.authentication.models import OAuth2TokenResponse
 from pythonxbox.api.client import XboxLiveClient
+from pythonxbox.common.exceptions import AuthenticationException, RateLimitExceededException
+
+from .const import RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS
+from .platform_exceptions import ApiError, AuthError, MalformedResponseError, NetworkError, RateLimitedError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,13 +83,46 @@ def get_xbox_client(hass, entry, oauth_session):
     call it only here, once per config entry, and let the existing
     per-entry singleton cache below reuse it."""
     from homeassistant.helpers.httpx_client import create_async_httpx_client
+    from .utils import _get_rate_limiter
 
     clients = hass.data.setdefault("gaming_status_xbox_clients", {})
     if entry.entry_id not in clients:
         xbox_http_client = create_async_httpx_client(hass, timeout=30.0)
         auth = AsyncConfigEntryAuth(xbox_http_client, oauth_session)
-        clients[entry.entry_id] = XboxLiveClient(auth)
+        client = XboxLiveClient(auth)
+        client.gaming_status_rate_limiter = _get_rate_limiter(hass, "xbox")
+        clients[entry.entry_id] = client
     return clients[entry.entry_id]
+
+
+async def _xbox_request(client, label, coro):
+    """Runs one pythonxbox provider call through the shared per-platform
+    token bucket (rate_limiter.py) and maps the underlying httpx/pythonxbox
+    exceptions onto the shared platform_exceptions.py hierarchy, the same
+    way steam_client.py/psn_client.py's own _get/_request helpers do."""
+    await client.gaming_status_rate_limiter.async_acquire(timeout=RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS)
+    try:
+        return await coro
+    except httpx.HTTPStatusError as err:
+        status = err.response.status_code
+        if status == 429:
+            retry_after_header = err.response.headers.get("Retry-After")
+            retry_after = float(retry_after_header) if retry_after_header else None
+            client.gaming_status_rate_limiter.notify_rate_limited(retry_after)
+            raise RateLimitedError(f"Xbox rate-limited {label}", retry_after=retry_after) from err
+        if status in (401, 403):
+            raise AuthError(f"Xbox rejected the request calling {label} (HTTP {status})") from err
+        raise NetworkError(f"Xbox returned HTTP {status} for {label}") from err
+    except RateLimitExceededException as err:
+        retry_after = (err.try_again_in - datetime.now()).total_seconds() if err.try_again_in else None
+        client.gaming_status_rate_limiter.notify_rate_limited(retry_after)
+        raise RateLimitedError(f"Xbox client-side rate limit exceeded calling {label}: {err.message}") from err
+    except AuthenticationException as err:
+        raise AuthError(f"Xbox authentication failed calling {label}: {err}") from err
+    except httpx.HTTPError as err:
+        raise NetworkError(f"Error communicating with Xbox ({label}): {err}") from err
+    except ValidationError as err:
+        raise MalformedResponseError(f"Unexpected response body from Xbox {label}: {err}") from err
 
 
 async def async_get_current_title_id(client, xuid):
@@ -90,33 +131,35 @@ async def async_get_current_title_id(client, xuid):
     (calling it with their own xuid) or any tracked friend -- the same call
     HA's own xbox coordinator makes for both, just never exposed as a sensor
     attribute. Returns None if nothing is currently
-    Active+is_game+is_primary (not playing, or presence not visible). Never
-    raises."""
-    try:
-        response = await client.people.get_friend_by_xuid(xuid)
-        person = (response.people or [None])[0]
-        if not person:
-            return None
-        detail = next(
-            (d for d in person.presence_details or []
-             if d.state == "Active" and d.title_id and d.is_game and d.is_primary),
-            None,
-        )
-        return detail.title_id if detail else None
-    except Exception as e:
-        _LOGGER.debug("[Gaming Status] Xbox title_id resolution failed for xuid %s: %s", xuid, e)
+    Active+is_game+is_primary (not playing, or presence not visible). Raises
+    AuthError/RateLimitedError/NetworkError/MalformedResponseError (see
+    platform_exceptions.py) on a genuine API failure."""
+    response = await _xbox_request(client, "people.get_friend_by_xuid", client.people.get_friend_by_xuid(xuid))
+    person = (response.people or [None])[0]
+    if not person:
         return None
+    detail = next(
+        (d for d in person.presence_details or []
+         if d.state == "Active" and d.title_id and d.is_game and d.is_primary),
+        None,
+    )
+    return detail.title_id if detail else None
 
 
 async def async_get_achievements(client, xuid, title_id, recent_limit=10):
     """Individual achievement detail for one title -- earned/total counts
     plus a bounded, newest-first recent-unlocks list (name/description/
-    unlocked_at). Rate-limited client-side by pythonxbox itself
-    (AchievementsProvider.RATE_LIMITS: ~100/15s burst, 300/300s sustained) --
-    no separate token-bucket limiter needed here. Never raises; returns None
-    on failure (after also trying the legacy Xbox 360 endpoint below)."""
+    unlocked_at). Rate-limited both client-side by pythonxbox itself
+    (AchievementsProvider.RATE_LIMITS: ~100/15s burst, 300/300s sustained)
+    and by the shared per-platform rate_limiter.py budget (see
+    _xbox_request). Falls back to the legacy Xbox 360 endpoint below on any
+    known API failure (see platform_exceptions.py); a genuine programming
+    error still propagates."""
     try:
-        response = await client.achievements.get_achievements_xboxone_gameprogress(xuid, title_id)
+        response = await _xbox_request(
+            client, "achievements.get_achievements_xboxone_gameprogress",
+            client.achievements.get_achievements_xboxone_gameprogress(xuid, title_id),
+        )
         achievements = response.achievements or []
         # progress_state ("Achieved" vs "NotStarted"/"InProgress") is the
         # correct earned/locked signal -- progression.time_unlocked is a
@@ -147,7 +190,7 @@ async def async_get_achievements(client, xuid, title_id, recent_limit=10):
                 for a in earned[:recent_limit]
             ],
         }
-    except Exception as e:
+    except ApiError as e:
         _LOGGER.debug(
             "[Gaming Status] Xbox modern achievement fetch failed for xuid %s title %s (%s) -- "
             "trying the legacy Xbox 360 endpoint next",
@@ -161,35 +204,32 @@ async def _async_get_achievements_legacy_360(client, xuid, title_id, recent_limi
     resolve -- Xbox 360 (including backward-compatible) titles predate that
     schema entirely and 404 against it. Achievement360's own `unlocked` bool
     is the earned signal here, unlike the modern schema's progress_state --
-    no placeholder-timestamp ambiguity to work around. Never raises; returns
-    None on failure."""
-    try:
-        response = await client.achievements.get_achievements_xbox360_all(xuid, title_id)
-        achievements = response.achievements or []
-        earned = [a for a in achievements if a.unlocked]
-        earned.sort(key=lambda a: a.time_unlocked, reverse=True)
+    no placeholder-timestamp ambiguity to work around. Raises
+    AuthError/RateLimitedError/NetworkError/MalformedResponseError (see
+    platform_exceptions.py) on a genuine API failure."""
+    response = await _xbox_request(
+        client, "achievements.get_achievements_xbox360_all",
+        client.achievements.get_achievements_xbox360_all(xuid, title_id),
+    )
+    achievements = response.achievements or []
+    earned = [a for a in achievements if a.unlocked]
+    earned.sort(key=lambda a: a.time_unlocked, reverse=True)
 
-        return {
-            "earned": len(earned),
-            "total": len(achievements),
-            "recent_unlocks": [
-                {
-                    "name": a.name,
-                    "description": a.description,
-                    "unlocked_at": a.time_unlocked.isoformat(),
-                    # Achievement360 has no media_assets list to source an
-                    # icon URL from (unlike the modern Achievement model).
-                    "icon_url": None,
-                }
-                for a in earned[:recent_limit]
-            ],
-        }
-    except Exception as e:
-        _LOGGER.debug(
-            "[Gaming Status] Xbox legacy 360 achievement fetch also failed for xuid %s title %s: %s",
-            xuid, title_id, e,
-        )
-        return None
+    return {
+        "earned": len(earned),
+        "total": len(achievements),
+        "recent_unlocks": [
+            {
+                "name": a.name,
+                "description": a.description,
+                "unlocked_at": a.time_unlocked.isoformat(),
+                # Achievement360 has no media_assets list to source an
+                # icon URL from (unlike the modern Achievement model).
+                "icon_url": None,
+            }
+            for a in earned[:recent_limit]
+        ],
+    }
 
 
 async def async_get_title_history(client, xuid, max_items=1000):
@@ -202,5 +242,7 @@ async def async_get_title_history(client, xuid, max_items=1000):
     failures propagate (unlike this module's other fetch helpers) so
     utils.fetch_xbox_title_history can tell a genuine API failure apart from
     an account with a legitimately empty library."""
-    response = await client.titlehub.get_title_history(xuid, max_items=max_items)
+    response = await _xbox_request(
+        client, "titlehub.get_title_history", client.titlehub.get_title_history(xuid, max_items=max_items)
+    )
     return response.titles or []

@@ -292,6 +292,8 @@ STEAM_RATE_LIMIT_CAPACITY = 20
 STEAM_RATE_LIMIT_PER_SECOND = 4
 PSN_RATE_LIMIT_CAPACITY = 15
 PSN_RATE_LIMIT_PER_SECOND = 250 / 900  # ~250/15min effective ceiling
+XBOX_RATE_LIMIT_CAPACITY = 10
+XBOX_RATE_LIMIT_PER_SECOND = 1
 
 # SteamGridDB pacing for the full-library scan's remote-URL-only art lookup
 # (utils.fetch_game_grid_urls_remote), since a library scan can mean

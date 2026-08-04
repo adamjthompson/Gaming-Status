@@ -670,6 +670,7 @@ def _get_rate_limiter(hass, platform: str):
         PSN_RATE_LIMIT_CAPACITY, PSN_RATE_LIMIT_PER_SECOND,
         STEAM_RATE_LIMIT_CAPACITY, STEAM_RATE_LIMIT_PER_SECOND,
         STEAMGRIDDB_RATE_LIMIT_CAPACITY, STEAMGRIDDB_RATE_LIMIT_PER_SECOND,
+        XBOX_RATE_LIMIT_CAPACITY, XBOX_RATE_LIMIT_PER_SECOND,
     )
     from .rate_limiter import RateLimiter
 
@@ -679,6 +680,8 @@ def _get_rate_limiter(hass, platform: str):
             limiters[platform] = RateLimiter(STEAM_RATE_LIMIT_CAPACITY, STEAM_RATE_LIMIT_PER_SECOND, name="steam")
         elif platform == "psn":
             limiters[platform] = RateLimiter(PSN_RATE_LIMIT_CAPACITY, PSN_RATE_LIMIT_PER_SECOND, name="psn")
+        elif platform == "xbox":
+            limiters[platform] = RateLimiter(XBOX_RATE_LIMIT_CAPACITY, XBOX_RATE_LIMIT_PER_SECOND, name="xbox")
         elif platform == "steamgriddb":
             limiters[platform] = RateLimiter(STEAMGRIDDB_RATE_LIMIT_CAPACITY, STEAMGRIDDB_RATE_LIMIT_PER_SECOND, name="steamgriddb")
         else:
