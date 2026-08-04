@@ -2344,16 +2344,18 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     self._cover_fetch_attempted = True
                     try:
                         fetched = await utils.fetch_game_assets(self.hass, game_name_display)
-                        if fetched and any(fetched.values()):
-                            self._cached_game_cover = fetched.get("grid") or platform_data.get("game_cover_url")
-                            self._cached_game_hero = fetched.get("hero")
-                            self._cached_game_logo = fetched.get("logo")
-                            self._cached_game_icon = fetched.get("icon")
-                        else: 
-                            self._cached_game_cover = platform_data.get("game_cover_url")
+                        if self._current_game == game_name_display:
+                            if fetched and any(fetched.values()):
+                                self._cached_game_cover = fetched.get("grid") or platform_data.get("game_cover_url")
+                                self._cached_game_hero = fetched.get("hero")
+                                self._cached_game_logo = fetched.get("logo")
+                                self._cached_game_icon = fetched.get("icon")
+                            else:
+                                self._cached_game_cover = platform_data.get("game_cover_url")
                     except Exception as e:
                         _LOGGER.error("Artwork fetch failed for %s: %s", game_name_display, e)
-                        self._cached_game_cover = platform_data.get("game_cover_url")
+                        if self._current_game == game_name_display:
+                            self._cached_game_cover = platform_data.get("game_cover_url")
 
                 # Resolved once here (if applicable) and reused for both the
                 # native-rating lookup below and the trophy fetch further
@@ -2384,12 +2386,15 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                                 native_platform, native_context = "steam", {"appid": platform_data["steam_appid"]}
                             elif self._gaming_type == "playstation" and self._psn_npsso and _psn_title_id:
                                 native_platform, native_context = "psn", {"npsso": self._psn_npsso, "title_id": _psn_title_id}
-                        self._cached_game_rating = await utils.fetch_game_rating(
+                        fetched_rating = await utils.fetch_game_rating(
                             self.hass, game_name_display, platform=native_platform, platform_context=native_context
                         )
+                        if self._current_game == game_name_display:
+                            self._cached_game_rating = fetched_rating
                     except Exception as e:
                         _LOGGER.error("Rating fetch failed for %s: %s", game_name_display, e)
-                        self._cached_game_rating = None
+                        if self._current_game == game_name_display:
+                            self._cached_game_rating = None
 
                 # Xbox gamerscore: cheap local-attribute read (no HTTP call),
                 # refreshed every update rather than gated by
@@ -2414,7 +2419,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             result = await utils.fetch_steam_achievements(
                                 self.hass, self._steam_id64, self._steam_api_key, platform_data["steam_appid"]
                             )
-                            if result:
+                            if result and self._current_game == game_name_display:
                                 self._cached_achievements_earned = result.get("earned")
                                 self._cached_achievements_total = result.get("total")
                                 self._cached_achievements_source = "steam"
@@ -2424,7 +2429,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             result = await utils.fetch_xbox_achievements(
                                 self.hass, self._xbox_config_entry, self._xbox_oauth_session, self._xbox_xuid
                             )
-                            if result:
+                            if result and self._current_game == game_name_display:
                                 self._cached_achievements_earned = result.get("earned")
                                 self._cached_achievements_total = result.get("total")
                                 self._cached_achievements_source = "xbox"
@@ -2435,7 +2440,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                                 self.hass, self._psn_npsso, self._psn_account_id, game_name_display,
                                 title_id=_psn_title_id, include_recent_unlocks=True,
                             )
-                            if result:
+                            if result and self._current_game == game_name_display:
                                 self._cached_trophies_earned = result.get("earned")
                                 self._cached_trophies_total = result.get("total")
                                 self._cached_achievements_source = "psn"
