@@ -215,7 +215,9 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="discord_setup",
             data_schema=vol.Schema({
-                vol.Optional(CONF_DISCORD_TOKEN, default=""): str,
+                vol.Optional(CONF_DISCORD_TOKEN, default=""): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
                 vol.Optional(CONF_DISCORD_SERVER, default=""): str,
             }),
         )
@@ -1397,7 +1399,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional(
                     CONF_DISCORD_TOKEN,
                     description={"suggested_value": self._config_entry.data.get(CONF_DISCORD_TOKEN, "")},
-                ): str,
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
                 vol.Optional(
                     CONF_DISCORD_SERVER,
                     description={"suggested_value": self._config_entry.data.get(CONF_DISCORD_SERVER, "")},
