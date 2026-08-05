@@ -385,20 +385,25 @@ class GamingNotifier:
     # State change handler
     # ------------------------------------------------------------------
 
-    async def _wait_for_enriched_state(self, entity_id):
+    async def _wait_for_enriched_state(self, entity_id, expected_game):
         """Poll up to 15s (every 3s) for artwork/color to populate after a
         transition, so a notification doesn't fire off the early,
         pre-enrichment state write a sensor publishes immediately on
         detecting a new game (before the slower artwork/color pipeline
         runs). Returns the refreshed state once real artwork (and color,
         if Discord's color mode is "game") has appeared, or None if the
-        game closed/went offline/excluded during the wait, in which case
-        the caller should abort the notification."""
+        game closed/went offline/excluded/changed to a different game
+        during the wait, in which case the caller should abort the
+        notification."""
         refreshed_state = None
+        expected_clean = expected_game.lower().strip()
         for _ in range(5):
             await asyncio.sleep(3)
             temp_state = self.hass.states.get(entity_id)
             if temp_state and temp_state.state.lower() not in (["offline", "unknown", "unavailable"] + self._cached_exclusions):
+                if " ".join(str(temp_state.state).split()).lower().strip() != expected_clean:
+                    return None  # Player switched to a different game during the wait, abort notification
+
                 refreshed_state = temp_state
 
                 # If the API successfully populated custom art (not just the fallback Akamai link), stop waiting!
@@ -461,7 +466,7 @@ class GamingNotifier:
             self._last_start_time[target_player] = now
 
             # SMART POLLING DELAY: Give the API up to 15 seconds to fetch artwork, checking every 3 seconds
-            refreshed_state = await self._wait_for_enriched_state(entity_id)
+            refreshed_state = await self._wait_for_enriched_state(entity_id, new_game)
             if refreshed_state is None:
                 return  # The game was closed instantly, abort notification
             new_state = refreshed_state
@@ -477,7 +482,7 @@ class GamingNotifier:
             # immediately on detection, before artwork/color extraction runs,
             # so acting on it right away would always fall back to the
             # default embed color instead of the real game's color.
-            refreshed_state = await self._wait_for_enriched_state(entity_id)
+            refreshed_state = await self._wait_for_enriched_state(entity_id, new_game)
             if refreshed_state is None:
                 return
             new_state = refreshed_state
