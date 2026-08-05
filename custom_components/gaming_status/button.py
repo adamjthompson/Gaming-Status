@@ -18,21 +18,22 @@ coordinator *lazily inside async_press()* -- by the time a user can press a
 button in the UI, every platform has long since finished loading, so the
 dict is guaranteed to be complete there.
 """
+
 from __future__ import annotations
 
 from homeassistant.components.button import ButtonEntity
 
 from .const import (
-    DOMAIN,
-    OPT_PLAYERS,
-    OPT_ENABLED_PLATFORMS,
-    DEFAULT_ENABLED_PLATFORMS,
-    OPT_ENABLE_ACHIEVEMENT_TRACKING,
     DEFAULT_ENABLE_ACHIEVEMENT_TRACKING,
-    OPT_ENABLE_LIBRARY_SCAN,
     DEFAULT_ENABLE_LIBRARY_SCAN,
+    DEFAULT_ENABLED_PLATFORMS,
+    DOMAIN,
+    OPT_ENABLE_ACHIEVEMENT_TRACKING,
+    OPT_ENABLE_LIBRARY_SCAN,
+    OPT_ENABLED_PLATFORMS,
+    OPT_PLAYERS,
 )
-from .device import safe_owner_slug, player_device_info
+from .device import player_device_info, safe_owner_slug
 from .sensor import _load_opt_json
 
 
@@ -59,7 +60,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         safe_owner = safe_owner_slug(player_name)
         platforms = [p for p in enabled_platforms if player_data.get(p)]
         device_info = player_device_info(player_name, safe_owner, platforms)
-        entities.append(LibraryScanRefreshButton(hass, safe_owner, player_name, device_info))
+        entities.append(
+            LibraryScanRefreshButton(hass, safe_owner, player_name, device_info)
+        )
 
     async_add_entities(entities)
 
@@ -84,6 +87,10 @@ class LibraryScanRefreshButton(ButtonEntity):
         # rescanning if the data is still fresh. Debounced (not
         # async_refresh()) so an accidental double-press doesn't fire two
         # scans back to back.
-        coordinator = self.hass.data.get(DOMAIN, {}).get("library_coordinators", {}).get(self._safe_owner)
+        coordinator = (
+            self.hass.data.get(DOMAIN, {})
+            .get("library_coordinators", {})
+            .get(self._safe_owner)
+        )
         if coordinator:
             await coordinator.async_request_refresh()

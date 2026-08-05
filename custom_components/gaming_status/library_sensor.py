@@ -6,6 +6,7 @@ sensor.py's async_setup_entry) when OPT_ENABLE_LIBRARY_SCAN is on and the
 player already has a matching platform PersistentStatusSensor -- no
 per-game entities, to avoid entity explosion for large libraries.
 """
+
 from __future__ import annotations
 
 from homeassistant.components.sensor import SensorEntity
@@ -60,7 +61,10 @@ class TrophyLibrarySummarySensor(CoordinatorEntity, SensorEntity):
             # Xbox's is what's actually still pending," which otherwise
             # requires reading the coordinator's private state directly to
             # answer.
-            backfill_by_platform[platform] = {"pending": platform_pending, "total": len(games)}
+            backfill_by_platform[platform] = {
+                "pending": platform_pending,
+                "total": len(games),
+            }
             backfill_total += len(games)
             backfill_pending += platform_pending
         return {
