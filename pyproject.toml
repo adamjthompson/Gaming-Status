@@ -1,0 +1,86 @@
+[project]
+name = "gaming-status"
+version = "0.0.0"
+requires-python = ">=3.12"
+
+[tool.uv]
+package = false  # not a distributable package
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+  "E", "W", "F", "I", "C4", "B", "UP", "T10", "S", "PT", "SIM", "RET",
+  "RSE", "Q", "SLOT", "ARG", "PTH", "FLY", "PERF", "RUF", "PL", "N", "A",
+  "TRY", "T20", "ISC", "ERA", "FURB", "ASYNC", "TID", "C",
+]
+# D/DOC (docstrings) dropped: this codebase intentionally keeps comments sparse.
+ignore = [
+  "E501", "E701", "B008", "C901", "B905", "C408",
+  "RUF001", "RUF002", "RUF003",
+  "PLR2004", "PLR0911", "PLR0912", "PLR0913", "PLR0914", "PLR0915", "PLR0916", "PLR0917",
+  "PLC2401", "PLC2403", "N806", "N803", "N816",
+  "ERA001", "TRY003", "A004", "PLC2701", "PLR6104",
+  "S404", "S607", "PLW1510", "PLC0415",
+]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
+[tool.ruff.lint.per-file-ignores]
+# Pre-existing issues, called out per-file instead of fixed blind.
+"custom_components/gaming_status/sensor.py" = [
+  "E402", "E722", "ARG001", "ARG002", "PERF401", "PTH110", "PTH123", "PTH204",
+  "RET504", "RUF059", "SIM102", "SIM105", "SIM108", "SIM118", "TRY301", "TRY400", "S110",
+]
+"custom_components/gaming_status/config_flow.py" = [
+  "ARG002", "C414", "PERF401", "PTH123", "S110", "SIM102", "SIM117", "TRY400",
+]
+"custom_components/gaming_status/notifier.py" = [
+  "ARG002", "FURB162", "PERF401", "PLC0206", "PLW2901", "RUF005", "RUF013", "S110", "TRY300", "TRY301",
+]
+"custom_components/gaming_status/utils.py" = [
+  "ARG001", "B023", "FURB192", "PLW0603", "RET504", "S110", "TRY300", "TRY400",
+]
+"custom_components/gaming_status/__init__.py" = [
+  "ARG001", "ASYNC240", "PTH110", "PTH123", "SIM105", "TRY400",
+]
+"custom_components/gaming_status/binary_sensor.py" = ["ARG002", "SIM118"]
+"custom_components/gaming_status/const.py" = ["S105"]
+"custom_components/gaming_status/psn_client.py" = ["TRY300"]
+"custom_components/gaming_status/rate_limiter.py" = ["ASYNC109", "N818"]
+"custom_components/gaming_status/xbox_client.py" = ["TRY300"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true  # homeassistant/voluptuous/etc. aren't installed here, no stubs
+implicit_optional = true  # codebase predates type checking, not worth a mass edit
+disable_error_code = ["var-annotated"]
+
+# Pre-existing type inconsistencies isolated per-module rather than relaxed globally.
+[[tool.mypy.overrides]]
+module = "gaming_status.notifier"
+disable_error_code = ["assignment", "arg-type"]
+
+[[tool.mypy.overrides]]
+module = "gaming_status.sensor"
+disable_error_code = ["index"]
+
+[[tool.mypy.overrides]]
+module = "gaming_status.device"
+disable_error_code = ["index"]
+
+[[tool.mypy.overrides]]
+module = "gaming_status.config_flow"
+disable_error_code = ["call-arg", "union-attr", "assignment"]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.0",
+    "ruff>=0.16.1",
+    "types-python-dateutil>=2.9.0.20260716",
+]
