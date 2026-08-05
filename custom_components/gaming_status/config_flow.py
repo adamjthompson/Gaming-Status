@@ -534,7 +534,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 errors["player_name"] = "name_required"
             else:
                 players = _players(self._options)
-                if name in players:
+                slug = safe_owner_slug(name)
+                if name in players or any(safe_owner_slug(p) == slug for p in players):
                     errors["player_name"] = "name_exists"
                 else:
                     players[name] = self._player_data_from_input(user_input)
