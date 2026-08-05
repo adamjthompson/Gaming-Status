@@ -763,9 +763,12 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 errors["endpoint_name"] = "name_required"
             else:
                 endpoints = _endpoints(self._options)
-                ep_id = _safe_id(ep_name)
-                if ep_id in endpoints:
-                    ep_id = ep_id + "_2"
+                base_id = _safe_id(ep_name)
+                ep_id = base_id
+                suffix = 2
+                while ep_id in endpoints:
+                    ep_id = f"{base_id}_{suffix}"
+                    suffix += 1
                 endpoints[ep_id] = {
                     "name": ep_name,
                     "type": user_input.get("notification_type", "Mobile App"),
