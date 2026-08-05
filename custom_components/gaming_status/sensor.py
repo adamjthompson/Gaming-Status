@@ -2218,10 +2218,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
     def _update_play_time(self, now=None):
         try:
             # --- PREVENT CRASHES: Ensure restored JSON cache objects are dicts, not NoneTypes ---
-            if not isinstance(self._weekly_game_breakdown, dict): self._weekly_game_breakdown = {}
-            if not isinstance(self._longest_session_details, dict): self._longest_session_details = {"game": None, "duration": 0}
-            if not isinstance(self._play_history, dict): self._play_history = {}
-            if not isinstance(getattr(self, "_all_time_game_seconds", None), dict): self._all_time_game_seconds = {}
+            if not isinstance(self._weekly_game_breakdown, dict): self._weekly_game_breakdown = {}; self._mark_history_changed()
+            if not isinstance(self._longest_session_details, dict): self._longest_session_details = {"game": None, "duration": 0}; self._mark_history_changed()
+            if not isinstance(self._play_history, dict): self._play_history = {}; self._mark_history_changed()
+            if not isinstance(getattr(self, "_all_time_game_seconds", None), dict): self._all_time_game_seconds = {}; self._mark_history_changed()
             
             was_offline = (self._attr_native_value.lower() == "offline")
             old_daily = self._daily_play_time
