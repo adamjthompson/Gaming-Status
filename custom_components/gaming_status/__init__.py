@@ -133,7 +133,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             intents.presences = True
             
             bot = nextcord.Client(intents=intents)
-            
+            bot._gaming_status_first_ready = True
+
             def _dispatch(member):
                 activity_name = None
                 app_id = None
@@ -162,12 +163,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             @bot.event
             async def on_ready():
                 _LOGGER.info("Gaming Status Discord Bot Connected!")
+                if not bot._gaming_status_first_ready:
+                    return
+                bot._gaming_status_first_ready = False
                 for guild in bot.guilds:
                     for member in guild.members:
                         _dispatch(member)
-                        
-            hass.loop.create_task(bot.start(discord_token))
+
+            def _discord_start_done(task):
+                if task.cancelled():
+                    return
+                exc = task.exception()
+                if exc is not None:
+                    _LOGGER.error("Gaming Status Discord Bot stopped unexpectedly: %s", exc)
+
+            discord_start_task = hass.loop.create_task(bot.start(discord_token))
+            discord_start_task.add_done_callback(_discord_start_done)
             hass.data[DOMAIN]["discord_bot"] = bot
+            hass.data[DOMAIN]["discord_bot_task"] = discord_start_task
         except Exception as e:
             _LOGGER.error("Failed to setup Discord Bot: %s", e)
 
@@ -317,5 +330,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await hass.data[DOMAIN]["discord_bot"].close()
         except Exception as e:
             _LOGGER.error("Gaming Status failed to close Discord bot cleanly: %s", e)
+
+    discord_bot_task = hass.data.get(DOMAIN, {}).pop("discord_bot_task", None)
+    if discord_bot_task is not None and not discord_bot_task.done():
+        discord_bot_task.cancel()
+        try:
+            await discord_bot_task
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            _LOGGER.error("Gaming Status Discord Bot task failed during shutdown: %s", e)
 
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
