@@ -312,7 +312,7 @@ async def fetch_game_assets(hass, game_name):
                             file_name = f"{safe_file_prefix}_{asset_type}.{ext}"
                             file_path = cache_dir / file_name
 
-                            if not file_path.exists():
+                            if not await hass.async_add_executor_job(file_path.exists):
                                 if not await is_public_url(hass, remote_url):
                                     _LOGGER.warning("Refusing to fetch %s art for %s: URL does not resolve to a public host", asset_type, game_name)
                                 else:
@@ -1088,7 +1088,7 @@ async def fetch_and_cache_image(hass, remote_url, file_name):
     file_path = cache_dir / file_name
     
     # 2. Return immediately if already cached
-    if file_path.exists():
+    if await hass.async_add_executor_job(file_path.exists):
         return f"{base_url}/local/gaming_status_cache/{file_name}"
         
     # 3. Download and save

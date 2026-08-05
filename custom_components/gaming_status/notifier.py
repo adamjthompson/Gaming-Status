@@ -297,7 +297,7 @@ class GamingNotifier:
             host = urlparse(base_url).hostname or ""
             
             try:
-                resolved_ip = socket.gethostbyname(host)
+                resolved_ip = await self.hass.async_add_executor_job(socket.gethostbyname, host)
                 is_local = ipaddress.ip_address(resolved_ip).is_private
             except Exception:
                 is_local = host.endswith((".local", ".lan", ".internal"))
