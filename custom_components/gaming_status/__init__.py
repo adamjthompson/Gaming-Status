@@ -133,7 +133,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             intents.presences = True
             
             bot = nextcord.Client(intents=intents)
-            bot._gaming_status_first_ready = True
 
             def _dispatch(member):
                 activity_name = None
@@ -162,10 +161,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 
             @bot.event
             async def on_ready():
+                # Re-fires on every gateway reconnect, not just the first
+                # connection -- this full sweep is how presence state gets
+                # resynced after any outage, so it has to run every time,
+                # not just once per HA start.
                 _LOGGER.info("Gaming Status Discord Bot Connected!")
-                if not bot._gaming_status_first_ready:
-                    return
-                bot._gaming_status_first_ready = False
                 for guild in bot.guilds:
                     for member in guild.members:
                         _dispatch(member)
