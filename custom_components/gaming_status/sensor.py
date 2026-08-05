@@ -2592,6 +2592,48 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 # 2. MASTER SENSOR CLASS
 # ------------------------------------------------------------------
 
+def _candidate_wins_handoff(candidate_state, active_state, same_game_prefix_words, handoff_grace_seconds):
+    """Decides whether `candidate_state` should take over from `active_state`
+    as the active platform. Shared hand-off tiebreak between MasterGamingSensor
+    and PCGamingSensor.
+
+    Rule 1 (glitch correction): a "Running" game ALWAYS beats a
+    "Paused/Grace Period" one, even for the same base game -- this recovers
+    from a platform-specific hiccup regardless of priority order or which
+    platform is currently active.
+
+    Rule 2 (tiebreak): only decides between two genuinely different games,
+    and only once the incumbent has been genuinely stale for a sustained
+    period (not just this one tick) -- otherwise a platform with a brief
+    connectivity blip can repeatedly steal and relinquish control from an
+    incumbent that's continuously, legitimately still active (two truly
+    simultaneous sessions on different platforms should settle on one and
+    stop flapping, not re-litigate the "winner" on every tick).
+    """
+    candidate_t_status = candidate_state.attributes.get("timer_status", "")
+    active_t_status = active_state.attributes.get("timer_status", "")
+    same_game = _is_same_base_game(
+        active_state.attributes.get("current_game"),
+        candidate_state.attributes.get("current_game"),
+        same_game_prefix_words,
+    )
+
+    if "Running" in candidate_t_status and "Paused" in active_t_status:
+        return True
+
+    if not same_game and (("Running" in candidate_t_status and "Running" in active_t_status) or ("Paused" in candidate_t_status and "Paused" in active_t_status)):
+        new_start = _safe_parse_datetime(candidate_state.attributes.get("play_start_time"))
+        curr_start = _safe_parse_datetime(active_state.attributes.get("play_start_time"))
+        incumbent_last_valid = _safe_parse_datetime(active_state.attributes.get("last_online_valid_timestamp"))
+        incumbent_stale = (
+            incumbent_last_valid is None
+            or (dt_util.now() - incumbent_last_valid).total_seconds() >= handoff_grace_seconds
+        )
+        return bool(new_start and curr_start and new_start > curr_start and incumbent_stale)
+
+    return False
+
+
 class MasterGamingSensor(RestoreSensor):
     _attr_should_poll = False
     
@@ -2776,41 +2818,9 @@ class MasterGamingSensor(RestoreSensor):
                     if not active_state:
                         active_sensor_id = platform_sensor_id
                         active_state = platform_state
-                    else:
-                        active_t_status = active_state.attributes.get("timer_status", "")
-                        same_game = _is_same_base_game(
-                            active_state.attributes.get("current_game"),
-                            platform_state.attributes.get("current_game"),
-                            self._same_game_prefix_words,
-                        )
-
-                        # Rule 1 (glitch correction): a "Running" game ALWAYS beats a
-                        # "Paused/Grace Period" one, even for the same base game — this
-                        # recovers from a platform-specific hiccup regardless of priority
-                        # order or which platform is currently active.
-                        if "Running" in t_status and "Paused" in active_t_status:
-                            active_sensor_id = platform_sensor_id
-                            active_state = platform_state
-
-                        # Rule 2 (tiebreak): only decides between two genuinely different
-                        # games, and only once the incumbent has been genuinely stale for
-                        # a sustained period (not just this one tick) -- otherwise a
-                        # platform with a brief connectivity blip can repeatedly steal and
-                        # relinquish control from an incumbent that's continuously,
-                        # legitimately still active (two truly simultaneous sessions on
-                        # different platforms should settle on one and stop flapping, not
-                        # re-litigate the "winner" on every tick).
-                        elif not same_game and (("Running" in t_status and "Running" in active_t_status) or ("Paused" in t_status and "Paused" in active_t_status)):
-                            new_start = _safe_parse_datetime(platform_state.attributes.get("play_start_time"))
-                            curr_start = _safe_parse_datetime(active_state.attributes.get("play_start_time"))
-                            incumbent_last_valid = _safe_parse_datetime(active_state.attributes.get("last_online_valid_timestamp"))
-                            incumbent_stale = (
-                                incumbent_last_valid is None
-                                or (dt_util.now() - incumbent_last_valid).total_seconds() >= self._handoff_grace_seconds
-                            )
-                            if new_start and curr_start and new_start > curr_start and incumbent_stale:
-                                active_sensor_id = platform_sensor_id
-                                active_state = platform_state
+                    elif _candidate_wins_handoff(platform_state, active_state, self._same_game_prefix_words, self._handoff_grace_seconds):
+                        active_sensor_id = platform_sensor_id
+                        active_state = platform_state
         
         # Compute rolling_weekly_hours directly from master_history (play_history aggregated
         # from all platform sensors, including today's live _weekly_game_breakdown).
@@ -3186,35 +3196,8 @@ class PCGamingSensor(RestoreSensor):
                 if "Active Elsewhere" not in t_status:
                     if not active_state:
                         active_state = state
-                    else:
-                        active_t_status = active_state.attributes.get("timer_status", "")
-                        same_game = _is_same_base_game(
-                            active_state.attributes.get("current_game"),
-                            state.attributes.get("current_game"),
-                            self._same_game_prefix_words,
-                        )
-
-                        # Rule 1 (glitch correction): a "Running" game ALWAYS beats a
-                        # "Paused/Grace Period" one, even for the same base game.
-                        if "Running" in t_status and "Paused" in active_t_status:
-                            active_state = state
-
-                        # Rule 2 (tiebreak): only decides between two genuinely
-                        # different games, and only once the incumbent has been
-                        # genuinely stale for a sustained period (not just this one
-                        # tick) -- otherwise a platform with a brief connectivity
-                        # blip can repeatedly steal and relinquish control from an
-                        # incumbent that's continuously, legitimately still active.
-                        elif not same_game and (("Running" in t_status and "Running" in active_t_status) or ("Paused" in t_status and "Paused" in active_t_status)):
-                            new_start = _safe_parse_datetime(state.attributes.get("play_start_time"))
-                            curr_start = _safe_parse_datetime(active_state.attributes.get("play_start_time"))
-                            incumbent_last_valid = _safe_parse_datetime(active_state.attributes.get("last_online_valid_timestamp"))
-                            incumbent_stale = (
-                                incumbent_last_valid is None
-                                or (dt_util.now() - incumbent_last_valid).total_seconds() >= self._handoff_grace_seconds
-                            )
-                            if new_start and curr_start and new_start > curr_start and incumbent_stale:
-                                active_state = state
+                    elif _candidate_wins_handoff(state, active_state, self._same_game_prefix_words, self._handoff_grace_seconds):
+                        active_state = state
 
         if active_state:
             self._attr_native_value = active_state.state
