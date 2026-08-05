@@ -7,6 +7,7 @@ import os
 import re
 import json
 from datetime import datetime, timezone, timedelta
+from typing import NamedTuple
 from dateutil import parser
 
 from homeassistant.components.sensor import RestoreSensor, SensorEntity, SensorStateClass
@@ -71,6 +72,16 @@ def _parse_fraction_attr(value):
         return (int(earned_str.strip()), int(total_str.strip()))
     except (ValueError, TypeError):
         return (None, None)
+
+
+class _DerivedHistoryStats(NamedTuple):
+    rolling_breakdown: dict
+    calendar_breakdown: dict
+    rolling_longest: dict
+    calendar_longest: dict
+    history_attr: dict
+    all_time_total_hours: float
+    all_time_top_games: list
 
 # ------------------------------------------------------------------
 # 1. PLATFORM SENSOR CLASS
@@ -240,6 +251,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._weekly_game_breakdown = {}
         self._longest_session_details = {"game": None, "duration": 0}
 
+        # Cached derived history stats; see _compute_derived_history_stats.
+        self._history_version = 0
+        self._derived_history = None
+        self._derived_history_key = None
+
         # All-time (lifetime) tracking data. Never pruned, unlike
         # _weekly_game_breakdown/_play_history -- lives only in the JSON
         # store and a small bounded attribute summary, never the recorder.
@@ -296,6 +312,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
     @property
     def available(self): return True
 
+    def _mark_history_changed(self):
+        """Invalidate the cached derived-history stats."""
+        self._history_version += 1
+
     def _bump_playtime(self, game, delta):
         """Credit `delta` seconds to `game` in both the weekly (pruned) and
         all-time (never pruned) breakdowns together, so they can't drift."""
@@ -303,6 +323,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             return
         self._weekly_game_breakdown[game] = self._weekly_game_breakdown.get(game, 0) + int(delta)
         self._all_time_game_seconds[game] = self._all_time_game_seconds.get(game, 0) + int(delta)
+        self._mark_history_changed()
 
     def _unbump_playtime(self, game, delta):
         """Roll back `delta` seconds from both breakdowns together -- used
@@ -318,6 +339,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._all_time_game_seconds[game] = max(0, self._all_time_game_seconds[game] - delta)
             if self._all_time_game_seconds[game] == 0:
                 del self._all_time_game_seconds[game]
+        self._mark_history_changed()
 
     @callback
     def _get_store_data(self):
@@ -401,9 +423,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             
             self._weekly_game_breakdown = {}
             self._longest_session_details = {"game": None, "duration": 0}
-            
+
             self._last_reset_date = current_date_str
-            
+            # Unconditional: breakdown/longest_session were reset above regardless of history_changed.
+            self._mark_history_changed()
+
         if self._last_weekly_reset != current_week_str:
             self._weekly_play_time_last_week = self._weekly_play_time
             self._weekly_play_time = 0
@@ -411,7 +435,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
         if history_changed:
             self._cached_history_seconds = sum(
-                day.get("total_seconds", day) if isinstance(day, dict) else day 
+                day.get("total_seconds", day) if isinstance(day, dict) else day
                 for day in self._play_history.values()
             )
             self._store.async_delay_save(self._get_store_data, 5.0)
@@ -1138,6 +1162,54 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # Apply overrides first, then sanitize the result
         return self._sanitize_game_title(self._apply_title_override(clean))
 
+    def _compute_derived_history_stats(self, local_today, today_longest):
+        """Pure rebuild of the derived history stats; cached by _write_common_attributes."""
+        week_start = local_today - timedelta(days=local_today.weekday())
+        rolling_breakdown = dict(self._weekly_game_breakdown)
+        calendar_breakdown = dict(self._weekly_game_breakdown)
+        rolling_longest = dict(today_longest)
+        calendar_longest = dict(today_longest)
+
+        for date_str, day_data in self._play_history.items():
+            if not isinstance(day_data, dict):
+                continue
+            try:
+                in_cal_week = parser.parse(date_str).date() >= week_start
+            except Exception:
+                in_cal_week = False
+            for game, secs in day_data.get("game_breakdown", {}).items():
+                rolling_breakdown[game] = rolling_breakdown.get(game, 0) + secs
+                if in_cal_week:
+                    calendar_breakdown[game] = calendar_breakdown.get(game, 0) + secs
+            hist_longest = day_data.get("longest_session", {})
+            if isinstance(hist_longest, dict):
+                if hist_longest.get("duration", 0) > rolling_longest.get("duration", 0):
+                    rolling_longest = dict(hist_longest)
+                if in_cal_week and hist_longest.get("duration", 0) > calendar_longest.get("duration", 0):
+                    calendar_longest = dict(hist_longest)
+
+        # Per-day game breakdown for history cards.
+        today_str = local_today.strftime("%Y-%m-%d")
+        history_attr = {
+            date_str: dict(day_data.get("game_breakdown", {}))
+            for date_str, day_data in self._play_history.items()
+            if isinstance(day_data, dict)
+        }
+        history_attr[today_str] = dict(self._weekly_game_breakdown)
+        history_attr = dict(sorted(history_attr.items()))
+
+        # All-time (lifetime) summary. Only a small, bounded summary is ever
+        # exposed here -- the full per-game breakdown lives only in the JSON
+        # store, never as a live attribute.
+        all_time_seconds = self._all_time_game_seconds
+        all_time_total_hours = round(sum(all_time_seconds.values()) / 3600, 1)
+        all_time_top_games = top_n_games(all_time_seconds, 20)
+
+        return _DerivedHistoryStats(
+            rolling_breakdown, calendar_breakdown, rolling_longest, calendar_longest,
+            history_attr, all_time_total_hours, all_time_top_games,
+        )
+
     def _write_common_attributes(self, secondary="", timer_status=None, game_cover=None, xbox_suppressed=None):
         
         # --- IMPROVED SELF HEALING: Recover true start time across HA reboots ---
@@ -1229,63 +1301,29 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._attr_extra_state_attributes["weekly_play_time"] = getattr(self, "_weekly_play_time", 0)
         self._attr_extra_state_attributes["weekly_play_time_last_week"] = getattr(self, "_weekly_play_time_last_week", 0)
 
-        # Build rolling 7-day and calendar-week breakdowns from history + today
-        rolling_breakdown = dict(getattr(self, "_weekly_game_breakdown", {}))
+        # Recompute only when marked dirty or the date rolled over.
+        today_longest = self._longest_session_details
         local_today = dt_util.as_local(dt_util.now()).date()
-        week_start = local_today - timedelta(days=local_today.weekday())
-        calendar_breakdown = dict(getattr(self, "_weekly_game_breakdown", {}))
+        derived_key = (self._history_version, local_today, today_longest.get("game"), today_longest.get("duration"))
+        if derived_key != self._derived_history_key:
+            self._derived_history = self._compute_derived_history_stats(local_today, today_longest)
+            self._derived_history_key = derived_key
+        derived = self._derived_history
 
-        today_longest = getattr(self, "_longest_session_details", {"game": None, "duration": 0})
-        rolling_longest = dict(today_longest)
-        calendar_longest = dict(today_longest)
-
-        if hasattr(self, "_play_history"):
-            for date_str, day_data in self._play_history.items():
-                if not isinstance(day_data, dict):
-                    continue
-                in_cal_week = False
-                try:
-                    in_cal_week = parser.parse(date_str).date() >= week_start
-                except Exception:
-                    pass
-                if "game_breakdown" in day_data:
-                    for game, secs in day_data["game_breakdown"].items():
-                        rolling_breakdown[game] = rolling_breakdown.get(game, 0) + secs
-                        if in_cal_week:
-                            calendar_breakdown[game] = calendar_breakdown.get(game, 0) + secs
-                hist_longest = day_data.get("longest_session", {})
-                if isinstance(hist_longest, dict):
-                    if hist_longest.get("duration", 0) > rolling_longest.get("duration", 0):
-                        rolling_longest = hist_longest
-                    if in_cal_week and hist_longest.get("duration", 0) > calendar_longest.get("duration", 0):
-                        calendar_longest = hist_longest
-
-        self._attr_extra_state_attributes["weekly_game_breakdown"] = rolling_breakdown
-        self._attr_extra_state_attributes["rolling_weekly_breakdown"] = rolling_breakdown
-        self._attr_extra_state_attributes["calendar_weekly_breakdown"] = calendar_breakdown
+        self._attr_extra_state_attributes["weekly_game_breakdown"] = derived.rolling_breakdown
+        self._attr_extra_state_attributes["rolling_weekly_breakdown"] = derived.rolling_breakdown
+        self._attr_extra_state_attributes["calendar_weekly_breakdown"] = derived.calendar_breakdown
         self._attr_extra_state_attributes["longest_session_details"] = today_longest
-        self._attr_extra_state_attributes["rolling_longest_session_details"] = rolling_longest
-        self._attr_extra_state_attributes["calendar_longest_session_details"] = calendar_longest
-        
-        # Expose per-day game breakdown for history cards
-        today_str = dt_util.as_local(dt_util.now()).strftime("%Y-%m-%d")
-        history_attr = {}
-        if hasattr(self, "_play_history"):
-            for date_str, day_data in self._play_history.items():
-                if isinstance(day_data, dict):
-                    history_attr[date_str] = day_data.get("game_breakdown", {})
-        history_attr[today_str] = dict(getattr(self, "_weekly_game_breakdown", {}))
-        self._attr_extra_state_attributes["play_history"] = dict(sorted(history_attr.items()))
+        self._attr_extra_state_attributes["rolling_longest_session_details"] = derived.rolling_longest
+        self._attr_extra_state_attributes["calendar_longest_session_details"] = derived.calendar_longest
+
+        self._attr_extra_state_attributes["play_history"] = derived.history_attr
         self._attr_extra_state_attributes["recent_sessions"] = list(getattr(self, "_recent_sessions", []))
         self._attr_extra_state_attributes["recent_achievements"] = list(getattr(self, "_recent_achievements", []))
 
-        # All-time (lifetime) summary. Only a small, bounded summary is ever
-        # exposed here -- the full per-game breakdown lives only in the JSON
-        # store, never as a live attribute.
-        all_time_seconds = getattr(self, "_all_time_game_seconds", {})
-        self._attr_extra_state_attributes["all_time_total_hours"] = round(sum(all_time_seconds.values()) / 3600, 1)
+        self._attr_extra_state_attributes["all_time_total_hours"] = derived.all_time_total_hours
         self._attr_extra_state_attributes["all_time_session_count"] = getattr(self, "_all_time_session_count", 0)
-        self._attr_extra_state_attributes["all_time_top_games"] = top_n_games(all_time_seconds, 20)
+        self._attr_extra_state_attributes["all_time_top_games"] = derived.all_time_top_games
 
     def _game_name_matches(self, stored_name, clean_target):
         """True if stored_name refers to the same game as clean_target (an
@@ -1366,6 +1404,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             _LOGGER.warning("Gaming Status: rename_game found no match for %r on %s", old_name, self.entity_id)
             return
 
+        self._mark_history_changed()
         self._write_common_attributes()
         await self._store.async_save(self._get_store_data())
         self.async_write_ha_state()
@@ -1440,6 +1479,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             _LOGGER.warning("Gaming Status: delete_game found no match for %r on %s", game, self.entity_id)
             return
 
+        self._mark_history_changed()
         self._write_common_attributes()
         await self._store.async_save(self._get_store_data())
         self.async_write_ha_state()
@@ -1566,6 +1606,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if not still_exists:
                 self._last_played_game = None
 
+        self._mark_history_changed()
         self._write_common_attributes()
         await self._store.async_save(self._get_store_data())
         self.async_write_ha_state()
@@ -1672,6 +1713,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._last_online_valid_timestamp = local_end.isoformat()
             self._last_session_play_time = secs
 
+        self._mark_history_changed()
         self._write_common_attributes()
         await self._store.async_save(self._get_store_data())
         self.async_write_ha_state()
