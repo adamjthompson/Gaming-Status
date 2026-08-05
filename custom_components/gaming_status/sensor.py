@@ -399,11 +399,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         
         if self._last_reset_date != current_date_str:
             if self._last_reset_date and self._daily_play_time > 0:
+                archived_week_str = parser.parse(self._last_reset_date).strftime("%Y-%U")
                 self._play_history[self._last_reset_date] = {
                     "total_seconds": self._daily_play_time,
                     "game_breakdown": dict(self._weekly_game_breakdown),
                     "longest_session": dict(self._longest_session_details),
-                    "week_str": current_week_str
+                    "week_str": archived_week_str
                 }
                 history_changed = True
             
