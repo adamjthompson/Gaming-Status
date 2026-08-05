@@ -399,7 +399,16 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         
         if self._last_reset_date != current_date_str:
             if self._last_reset_date and self._daily_play_time > 0:
-                archived_week_str = parser.parse(self._last_reset_date).strftime("%Y-%U")
+                # _last_reset_date is restored from persisted data, so it
+                # isn't fully trusted -- same reasoning as the cutoff-date
+                # parse a few lines down. A malformed value falls back to
+                # today's week rather than raising, which would otherwise
+                # abort this whole daily reset instead of just mistagging
+                # one archived day.
+                try:
+                    archived_week_str = parser.parse(self._last_reset_date).strftime("%Y-%U")
+                except Exception:
+                    archived_week_str = current_week_str
                 self._play_history[self._last_reset_date] = {
                     "total_seconds": self._daily_play_time,
                     "game_breakdown": dict(self._weekly_game_breakdown),
