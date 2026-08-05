@@ -47,7 +47,73 @@ jobs:
         run: |
           flake8 custom_components/gaming_status --count --select=E9,F63,F7,F82 --show-source --statistics
 
-  # TEST 3: HASSFEST VALIDATION
+  # TEST 3: RUFF LINT
+  ruff-lint:
+    name: Ruff Lint
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff==0.16.1
+
+      - name: Lint with ruff
+        run: |
+          ruff check custom_components/gaming_status
+
+  # TEST 4: RUFF FORMAT
+  ruff-format:
+    name: Ruff Format Check
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff==0.16.1
+
+      - name: Check formatting with ruff
+        run: |
+          ruff format --check custom_components/gaming_status
+
+  # TEST 5: MYPY TYPE CHECK
+  mypy:
+    name: Mypy Type Check
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install mypy==2.3.0 types-python-dateutil==2.9.0.20260716
+
+      - name: Type check with mypy
+        run: |
+          mypy custom_components/gaming_status
+
+  # TEST 6: HASSFEST VALIDATION
   hassfest:
     name: Hassfest
     runs-on: "ubuntu-latest"
