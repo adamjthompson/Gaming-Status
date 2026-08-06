@@ -51,17 +51,18 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry):
         new_options = {**config_entry.options}
         file_path = hass.config.path("gaming_profiles.json")
 
-        if os.path.exists(file_path):
+        def read_legacy_file():
+            if not os.path.exists(file_path):
+                return None
+            try:
+                with open(file_path, encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                return {}
 
-            def read_legacy_file():
-                try:
-                    with open(file_path, encoding="utf-8") as f:
-                        return json.load(f)
-                except Exception:
-                    return {}
+        old_data = await hass.async_add_executor_job(read_legacy_file)
 
-            old_data = await hass.async_add_executor_job(read_legacy_file)
-
+        if old_data is not None:
             # 1. Map Global Settings (Handling both old uppercase and newer lowercase formats)
             global_settings = old_data.get(
                 "global_settings", old_data.get("GLOBAL_SETTINGS", {})
@@ -463,5 +464,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.error(
                 "Gaming Status Discord Bot task failed during shutdown: %s", e
             )
+
+    # The Xbox client cache is keyed by entry_id (unlike the Steam/PSN
+    # client caches, which are keyed by credential value and shared across
+    # entries -- popping this entry's own credential(s) out of those would
+    # need re-resolving them, which isn't safe to do blindly at unload
+    # time), so this entry's own singleton can be dropped precisely here.
+    hass.data.get("gaming_status_xbox_clients", {}).pop(entry.entry_id, None)
 
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

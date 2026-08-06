@@ -567,8 +567,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     d = parser.parse(date_str).date()
                     if d < cutoff_date:
                         keys_to_remove.append(date_str)
-                except:
-                    pass
+                except Exception:
+                    # Not a parseable date -- doesn't belong in a date-keyed
+                    # history dict either way, so prune it rather than let it
+                    # sit forever and inflate the rolling stats.
+                    keys_to_remove.append(date_str)
             for k in keys_to_remove:
                 del self._play_history[k]
                 history_changed = True
@@ -2969,6 +2972,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             game_name_display = self._current_game
             if not game_name_display:
                 return
+            game_name_normalized = _normalize_game_name(game_name_display)
             if (
                 self._gaming_type == "steam"
                 and self._steam_api_key
@@ -2981,12 +2985,16 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     self._steam_api_key,
                     self._cached_steam_appid,
                 )
-                if result:
+                if (
+                    result
+                    and _normalize_game_name(self._current_game) == game_name_normalized
+                ):
                     self._cached_achievements_earned = result.get("earned")
                     self._cached_achievements_total = result.get("total")
                     self._cached_achievements_source = "steam"
                     self._cached_recent_unlocks = result.get("recent_unlocks") or []
                     self._ingest_recent_unlocks(self._cached_recent_unlocks)
+                    self._write_common_attributes()
                     self.async_write_ha_state()
             elif (
                 self._gaming_type == "xbox"
@@ -3000,12 +3008,16 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     self._xbox_oauth_session,
                     self._xbox_xuid,
                 )
-                if result:
+                if (
+                    result
+                    and _normalize_game_name(self._current_game) == game_name_normalized
+                ):
                     self._cached_achievements_earned = result.get("earned")
                     self._cached_achievements_total = result.get("total")
                     self._cached_achievements_source = "xbox"
                     self._cached_recent_unlocks = result.get("recent_unlocks") or []
                     self._ingest_recent_unlocks(self._cached_recent_unlocks)
+                    self._write_common_attributes()
                     self.async_write_ha_state()
             elif (
                 self._gaming_type == "playstation"
@@ -3023,7 +3035,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     title_id=title_id,
                     include_recent_unlocks=True,
                 )
-                if result:
+                if (
+                    result
+                    and _normalize_game_name(self._current_game) == game_name_normalized
+                ):
                     self._cached_trophies_earned = result.get("earned")
                     self._cached_trophies_total = result.get("total")
                     self._cached_achievements_source = "psn"
@@ -3035,6 +3050,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     )
                     self._cached_recent_unlocks = result.get("recent_unlocks") or []
                     self._ingest_recent_unlocks(self._cached_recent_unlocks)
+                    self._write_common_attributes()
                     self.async_write_ha_state()
         except Exception as e:
             _LOGGER.error(
@@ -3200,7 +3216,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 return
             self.async_write_ha_state()
         except Exception as e:
-            _LOGGER.error("Error in _update_play_time for %s: %s", self.entity_id, e)
+            _LOGGER.error(
+                "Error in _update_play_time for %s: %s",
+                self.entity_id,
+                e,
+                exc_info=True,
+            )
 
     async def _unified_update(self, current_state, attrs, force_update=False):
         try:
@@ -3543,7 +3564,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             e,
                         )
 
-                # --- NEW BACKGROUND DISK SCAN (Runs ONLY once per game transition) ---
+                # --- BACKGROUND DISK SCAN (runs only while a fallback is still missing) ---
                 def _scan_local_disk():
                     from homeassistant.helpers.network import get_url
 
@@ -3555,7 +3576,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     s_name = re.sub(r"[^a-z0-9]", "_", str(game_name_display).lower())
                     s_name = re.sub(r"_+", "_", s_name).strip("_")
                     for sfx in ["grid", "hero", "logo", "icon"]:
-                        for e in ["png", "jpg", "jpeg", "webp", "ico", "gif"]:
+                        for e in sorted(utils._SAFE_IMAGE_EXTENSIONS):
                             f_path = self.hass.config.path(
                                 "www", "gaming_status_cache", f"{s_name}_{sfx}.{e}"
                             )
@@ -3572,7 +3593,31 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                                 break
                     return res
 
-                local_scan = await self.hass.async_add_executor_job(_scan_local_disk)
+                # Only hit the filesystem while something is still unresolved --
+                # once all four fallbacks are set AND (if enabled) a color has
+                # already been resolved, every branch below is a no-op, so skip
+                # the scan entirely. Color extraction needs its own condition
+                # here too: it's the only thing that reads local_scan's
+                # "color_path", which nothing else in this block computes.
+                needs_local_scan = (
+                    not self._cached_game_cover
+                    or url_host_matches(self._cached_game_cover, "akamaihd.net")
+                    or not self._cached_game_hero
+                    or not self._cached_game_logo
+                    or not self._cached_game_icon
+                    or (
+                        utils.ENABLE_VIBRANT_COLOR
+                        and not self._cached_game_color
+                        and not getattr(utils, "GAME_COLOR_OVERRIDES", {}).get(
+                            _normalize_game_name(game_name_display)
+                        )
+                    )
+                )
+                local_scan = (
+                    await self.hass.async_add_executor_job(_scan_local_disk)
+                    if needs_local_scan
+                    else {}
+                )
 
                 # Apply local fallbacks to RAM if the API didn't provide them
                 if not self._cached_game_cover or url_host_matches(
@@ -3751,7 +3796,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             )
             self.async_write_ha_state()
         except Exception as e:
-            _LOGGER.error("Error in _unified_update for %s: %s", self.entity_id, e)
+            _LOGGER.error(
+                "Error in _unified_update for %s: %s",
+                self.entity_id,
+                e,
+                exc_info=True,
+            )
 
     async def _process_avatar_cache(self, url, filename):
         await utils.fetch_and_cache_image(self.hass, url, filename)
@@ -4547,6 +4597,14 @@ class PCGamingSensor(RestoreSensor):
         self.hass.async_create_task(self._update_pc_state())
 
     async def _update_pc_state(self):
+        # Snapshot of the previously-published state, so a poll that ends up
+        # producing identical output can skip the write -- same no-change
+        # guard MasterGamingSensor's equivalent aggregation already has.
+        old_native_value = self._attr_native_value
+        old_icon = self._attr_icon
+        old_entity_picture = self._attr_entity_picture
+        old_attrs = dict(self._attr_extra_state_attributes)
+
         active_state = None
         most_recent_state = None
         most_recent_ts = None
@@ -4769,6 +4827,14 @@ class PCGamingSensor(RestoreSensor):
             utils.ENABLE_ACHIEVEMENT_TRACKING
         )
 
+        if (
+            self._attr_native_value == old_native_value
+            and self._attr_icon == old_icon
+            and self._attr_entity_picture == old_entity_picture
+            and self._attr_extra_state_attributes == old_attrs
+        ):
+            return
+
         self.async_write_ha_state()
 
 
@@ -4819,7 +4885,14 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     }
     raw_colors = _load_opt_json(opts, OPT_CUSTOM_COLORS, {})
     utils.GAME_COLOR_OVERRIDES = {
-        _normalize_game_name(k): v.strip() for k, v in raw_colors.items()
+        _normalize_game_name(k): v.strip()
+        for k, v in raw_colors.items()
+        if re.fullmatch(
+            # "#" is optional -- notifier._hex_to_int already accepts a
+            # color with or without it (it does its own .lstrip("#")).
+            r"#?(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})",
+            v.strip(),
+        )
     }
     raw_cleanups = _load_opt_json(opts, OPT_TITLE_CLEANUPS, [])
     utils.TITLE_CLEANUPS = raw_cleanups
@@ -4845,14 +4918,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     # --- HARDWARE SAFETY NET ---
     # Detect Raspberry Pi hardware to prevent SD card I/O lockups during color extraction
-    def _check_is_pi():
-        try:
-            with open("/sys/firmware/devicetree/base/model") as f:
-                return "Raspberry Pi" in f.read()
-        except Exception:
-            return False
-
-    is_pi = await hass.async_add_executor_job(_check_is_pi)
+    is_pi = await utils.is_raspberry_pi(hass)
 
     dynamic_color_default = False if is_pi else DEFAULT_EXTRACT_COLOR
     # Color extraction samples pixels from a locally-cached image file, so it
@@ -5126,7 +5192,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     xbox_ghost_sources = {}
     for p_name, p_data in players.items():
-        _LOGGER.info(
+        _LOGGER.debug(
             "Gaming Status: [ghost-debug] player=%r suppresses_xbox_sensors=%r platforms=%r",
             p_name,
             p_data.get("suppresses_xbox_sensors"),
@@ -5146,7 +5212,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 # them can never match.
                 if p_data.get(plat):
                     sources.append(f"sensor.gaming_status_{p_safe_owner}_{plat}")
-    _LOGGER.info(
+    _LOGGER.debug(
         "Gaming Status: [ghost-debug] xbox_ghost_sources = %r", xbox_ghost_sources
     )
 
@@ -5178,7 +5244,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     xbox_ghost_sources.get(entity_id, []) if platform == "xbox" else []
                 )
                 if platform == "xbox":
-                    _LOGGER.info(
+                    _LOGGER.debug(
                         "Gaming Status: [ghost-debug] %s ghosted_by=%r",
                         entity_id,
                         ghosted_by,

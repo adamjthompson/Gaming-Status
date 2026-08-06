@@ -314,7 +314,9 @@
     "error": {
       "name_required": "Friendly Name cannot be empty.",
       "name_exists": "A player with that name already exists.",
-      "invalid_hex_color": "Must be a valid 6-digit hex color code, e.g. #FF0000"
+      "invalid_hex_color": "Must be a valid 6-digit hex color code, e.g. #FF0000",
+      "malformed_override_line": "Each line must be in the form 'Game Name = Override Name'. Fix or remove the invalid line(s) and try again.",
+      "malformed_rating_override_line": "Each line must be in the form 'Game Name = RATING' using one of the supported rating codes. Fix or remove the invalid line(s) and try again."
     }
   }
 }

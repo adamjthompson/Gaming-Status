@@ -158,7 +158,12 @@ class PsnClient:
 
         code = query_dict.get("code")
         if not code:
-            raise MalformedResponseError(f"No 'code' in PSN's redirect: {location}")
+            parsed_location = urlparse(location)
+            raise MalformedResponseError(
+                "No 'code' in PSN's redirect "
+                f"({parsed_location.scheme}://{parsed_location.netloc}{parsed_location.path}, "
+                f"query keys: {sorted(query_dict.keys())})"
+            )
         return code
 
     async def _async_exchange_code_for_tokens(self, code: str) -> None:

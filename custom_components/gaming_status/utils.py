@@ -18,7 +18,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 from homeassistant.util import dt as dt_util
 
-from .platform_exceptions import ApiError
+from .platform_exceptions import ApiError, AuthError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,6 +68,31 @@ CUSTOM_ICON_MAP = {}
 ASSET_URL_CACHE = OrderedDict()
 MAX_CACHE_SIZE = 500
 _MISSING_KEY_WARNED = False
+_KEY_PROBLEM_WARNED = False
+
+
+def _warn_steamgriddb_key_problem_once(status):
+    """A 401/403/429 from SteamGridDB otherwise looks identical to "no art
+    for this title" -- warn once (same one-shot shape as
+    _MISSING_KEY_WARNED above) so a revoked/rate-limited key doesn't look
+    like a silent, permanent lack of artwork."""
+    global _KEY_PROBLEM_WARNED
+    if status in (401, 403, 429) and not _KEY_PROBLEM_WARNED:
+        _LOGGER.warning(
+            "[Gaming Status] SteamGridDB returned HTTP %s -- the configured "
+            "API key may be invalid, revoked, or rate-limited.",
+            status,
+        )
+        _KEY_PROBLEM_WARNED = True
+
+
+# A "SteamGridDB has no art for this title" result is cached too (like any
+# other result), but isn't trusted forever -- SGDB's catalog grows over
+# time, so it's re-checked after ASSET_NOT_FOUND_RECHECK_SECONDS instead of
+# re-querying on every single fetch (the previous behavior) or sticking
+# forever (which would miss art added to SGDB later).
+_ASSET_NOT_FOUND_CHECKED_AT: dict = {}
+ASSET_NOT_FOUND_RECHECK_SECONDS = 86400  # 24 hours
 
 # Content-rating cache: a confirmed rating is immutable and cached forever
 # (just the LRU size cap below). An "unrated" result is NOT trusted forever,
@@ -77,6 +102,12 @@ _MISSING_KEY_WARNED = False
 RATING_CACHE = OrderedDict()
 MAX_RATING_CACHE_SIZE = 500
 RATING_RECHECK_SECONDS = 86400  # 24 hours
+
+# Throttle for the image cache retention sweep -- it used to fire on every
+# single cache-miss (a new game entering ASSET_URL_CACHE); this caps it to
+# once per interval regardless of how many games enter the cache in between.
+_LAST_CACHE_CLEANUP_AT = 0.0
+CACHE_CLEANUP_MIN_INTERVAL_SECONDS = 300  # 5 minutes
 
 # Display label for a manually-overridden age floor (RATING_OVERRIDES).
 AGE_FLOOR_LABELS = {
@@ -94,6 +125,28 @@ def compile_title_cleanups():
     COMPILED_TITLE_CLEANUPS = [
         re.compile(re.escape(p), re.IGNORECASE) for p in TITLE_CLEANUPS
     ]
+
+
+_IS_RASPBERRY_PI: bool | None = None
+
+
+async def is_raspberry_pi(hass) -> bool:
+    """Whether this HA install is running on a Raspberry Pi -- true for the
+    life of the process, so checked (via a blocking sysfs read, hence the
+    executor job) only once and cached, instead of on every config-flow
+    render/integration setup that wants to know."""
+    global _IS_RASPBERRY_PI
+    if _IS_RASPBERRY_PI is None:
+
+        def _check_is_pi():
+            try:
+                with Path("/sys/firmware/devicetree/base/model").open() as f:
+                    return "Raspberry Pi" in f.read()
+            except Exception:
+                return False
+
+        _IS_RASPBERRY_PI = await hass.async_add_executor_job(_check_is_pi)
+    return _IS_RASPBERRY_PI
 
 
 def _clean_image_cache(cache_dir_path: Path):
@@ -158,8 +211,14 @@ async def fetch_game_assets(hass, game_name):
 
     # 0. Check Memory Cache BEFORE touching the disk or creating sessions!
     if cache_key in ASSET_URL_CACHE:
-        ASSET_URL_CACHE.move_to_end(cache_key)
-        return ASSET_URL_CACHE[cache_key]
+        not_found_at = _ASSET_NOT_FOUND_CHECKED_AT.get(cache_key)
+        is_stale = (
+            not_found_at is not None
+            and (time.time() - not_found_at) > ASSET_NOT_FOUND_RECHECK_SECONDS
+        )
+        if not is_stale:
+            ASSET_URL_CACHE.move_to_end(cache_key)
+            return ASSET_URL_CACHE[cache_key]
 
     # --- THE MEMORY LOCK ---
     # Prevent race conditions by making simultaneous requests wait
@@ -248,11 +307,14 @@ async def fetch_game_assets(hass, game_name):
                         )
                     else:
                         async with session.get(remote_url, timeout=15) as img_resp:
-                            if img_resp.status == 200:
-                                img_bytes = await img_resp.read()
-                                await hass.async_add_executor_job(
-                                    lambda: file_path.write_bytes(img_bytes)
-                                )
+                            if img_resp.status == 200 and await is_public_url(
+                                hass, str(img_resp.url)
+                            ):
+                                img_bytes = await _read_capped(img_resp)
+                                if img_bytes is not None:
+                                    await hass.async_add_executor_job(
+                                        lambda: file_path.write_bytes(img_bytes)
+                                    )
                 except Exception as e:
                     _LOGGER.error(
                         "Failed to cache override for %s (%s): %s",
@@ -274,20 +336,37 @@ async def fetch_game_assets(hass, game_name):
         def _update_cache(name, data_dict):
             final_dict = {k: assets[k] or data_dict.get(k) for k in assets}
 
-            # ONLY cache to RAM if we successfully retrieved at least one image
-            if any(final_dict.values()):
-                ASSET_URL_CACHE[name] = final_dict
-                ASSET_URL_CACHE.move_to_end(name)
-                if len(ASSET_URL_CACHE) > MAX_CACHE_SIZE:
-                    ASSET_URL_CACHE.popitem(last=False)
+            # Cache the result either way -- including "nothing found", so a
+            # title SteamGridDB has no art for doesn't re-run the full
+            # search+fetch sequence on every single call. A found result is
+            # trusted until evicted; a not-found one is re-checked after
+            # ASSET_NOT_FOUND_RECHECK_SECONDS in case SGDB's catalog grew.
+            ASSET_URL_CACHE[name] = final_dict
+            ASSET_URL_CACHE.move_to_end(name)
+            if len(ASSET_URL_CACHE) > MAX_CACHE_SIZE:
+                ASSET_URL_CACHE.popitem(last=False)
 
-                # Fire off non-blocking cache cleanup whenever a NEW game enters RAM
-                if USE_LOCAL_CACHE:
+            if any(final_dict.values()):
+                _ASSET_NOT_FOUND_CHECKED_AT.pop(name, None)
+
+                # Fire off non-blocking cache cleanup whenever a NEW game
+                # enters RAM, throttled so a burst of new games doesn't
+                # trigger a full directory sweep for each one.
+                global _LAST_CACHE_CLEANUP_AT
+                now = time.time()
+                if (
+                    USE_LOCAL_CACHE
+                    and now - _LAST_CACHE_CLEANUP_AT
+                    > CACHE_CLEANUP_MIN_INTERVAL_SECONDS
+                ):
+                    _LAST_CACHE_CLEANUP_AT = now
 
                     async def _run_cleanup():
                         await hass.async_add_executor_job(_clean_image_cache, cache_dir)
 
                     hass.async_create_task(_run_cleanup())
+            else:
+                _ASSET_NOT_FOUND_CHECKED_AT[name] = time.time()
 
             return final_dict
 
@@ -308,13 +387,19 @@ async def fetch_game_assets(hass, game_name):
         headers = {"Authorization": f"Bearer {STEAMGRIDDB_API_KEY}"}
 
         try:
+            from .const import RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS
+
+            limiter = _get_rate_limiter(hass, "steamgriddb")
+
             safe_title = quote(game_name, safe="")
             search_url = (
                 f"https://www.steamgriddb.com/api/v2/search/autocomplete/{safe_title}"
             )
 
+            await limiter.async_acquire(timeout=RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS)
             async with session.get(search_url, headers=headers, timeout=10) as resp:
                 if resp.status != 200:
+                    _warn_steamgriddb_key_problem_once(resp.status)
                     return _update_cache(cache_key, fetched_assets)
                 search_data = await resp.json()
 
@@ -333,7 +418,10 @@ async def fetch_game_assets(hass, game_name):
                 if assets[asset_type]:
                     continue  # Already filled by override
 
+                await limiter.async_acquire(timeout=RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS)
                 async with session.get(endpoint, headers=headers, timeout=10) as resp:
+                    if resp.status != 200:
+                        _warn_steamgriddb_key_problem_once(resp.status)
                     if resp.status == 200:
                         asset_data = await resp.json()
                         if asset_data.get("data"):
@@ -373,11 +461,19 @@ async def fetch_game_assets(hass, game_name):
                                     async with session.get(
                                         remote_url, timeout=15
                                     ) as img_resp:
-                                        if img_resp.status == 200:
-                                            img_bytes = await img_resp.read()
-                                            await hass.async_add_executor_job(
-                                                lambda: file_path.write_bytes(img_bytes)
+                                        if (
+                                            img_resp.status == 200
+                                            and await is_public_url(
+                                                hass, str(img_resp.url)
                                             )
+                                        ):
+                                            img_bytes = await _read_capped(img_resp)
+                                            if img_bytes is not None:
+                                                await hass.async_add_executor_job(
+                                                    lambda: file_path.write_bytes(
+                                                        img_bytes
+                                                    )
+                                                )
 
                             try:
                                 mt = int(
@@ -473,6 +569,7 @@ async def fetch_game_grid_urls_remote(hass, game_name):
             timeout=10,
         ) as resp:
             if resp.status != 200:
+                _warn_steamgriddb_key_problem_once(resp.status)
                 return assets
             search_data = await resp.json()
         if not search_data.get("data"):
@@ -500,6 +597,7 @@ async def fetch_game_grid_urls_remote(hass, game_name):
             await limiter.async_acquire(timeout=RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS)
             async with session.get(endpoint, headers=headers, timeout=10) as resp:
                 if resp.status != 200:
+                    _warn_steamgriddb_key_problem_once(resp.status)
                     continue
                 asset_data = await resp.json()
             if not asset_data.get("data"):
@@ -1025,6 +1123,14 @@ async def fetch_steam_achievements(hass, steamid64, api_key, appid):
             "recent_unlocks": recent_unlocks,
             "last_achievement_at": last_achievement_at,
         }
+    except AuthError as e:
+        _LOGGER.warning(
+            "[Gaming Status] Steam rejected the API key fetching achievements "
+            "for appid %s -- it may be invalid or revoked: %s",
+            appid,
+            e,
+        )
+        return None
     except Exception as e:
         _LOGGER.debug(
             "[Gaming Status] Steam achievement fetch failed for appid %s: %s", appid, e
@@ -1047,6 +1153,13 @@ async def resolve_psn_title_id(hass, npsso, account_id):
             return None
         titles = ((presence.get("basicPresence") or {}).get("gameTitleInfoList")) or []
         return titles[0].get("npTitleId") if titles else None
+    except AuthError as e:
+        _LOGGER.warning(
+            "[Gaming Status] PSN rejected the request resolving a title_id -- "
+            "the NPSSO cookie may have expired and need replacing: %s",
+            e,
+        )
+        return None
     except Exception as e:
         _LOGGER.debug("[Gaming Status] PSN presence/title_id resolution failed: %s", e)
         return None
@@ -1152,6 +1265,14 @@ async def fetch_psn_trophies(
             ]
 
         return result
+    except AuthError as e:
+        _LOGGER.warning(
+            "[Gaming Status] PSN rejected the request fetching trophies for "
+            "%s -- the NPSSO cookie may have expired and need replacing: %s",
+            game_name,
+            e,
+        )
+        return None
     except Exception as e:
         _LOGGER.debug(
             "[Gaming Status] PSN trophy fetch failed for %s: %s", game_name, e
@@ -1306,11 +1427,19 @@ async def fetch_and_cache_image(hass, remote_url, file_name):
 
     await hass.async_add_executor_job(_ensure_dir)
 
-    file_path = cache_dir / file_name
+    # The allowed charset has no path separators, so the only way this
+    # could still escape cache_dir as a single path segment is "." or
+    # ".." verbatim -- checked directly (no filesystem I/O needed) rather
+    # than resolving the path, which would be a blocking call here.
+    safe_file_name = re.sub(r"[^a-zA-Z0-9._]", "_", file_name)
+    if safe_file_name in (".", ".."):
+        _LOGGER.error("Refusing to cache avatar to an unsafe path: %s", file_name)
+        return remote_url
+    file_path = cache_dir / safe_file_name
 
     # 2. Return immediately if already cached
     if await hass.async_add_executor_job(file_path.exists):
-        return f"{base_url}/local/gaming_status_cache/{file_name}"
+        return f"{base_url}/local/gaming_status_cache/{safe_file_name}"
 
     # 3. Download and save
     try:
@@ -1322,15 +1451,15 @@ async def fetch_and_cache_image(hass, remote_url, file_name):
 
         session = async_get_clientsession(hass)
         async with session.get(remote_url, timeout=10) as resp:
-            if resp.status == 200:
-                img_bytes = await resp.read()
+            if resp.status == 200 and await is_public_url(hass, str(resp.url)):
+                img_bytes = await _read_capped(resp)
+                if img_bytes is not None:
+                    # Safely wrap the file writing command
+                    def _write_img():
+                        file_path.write_bytes(img_bytes)
 
-                # Safely wrap the file writing command
-                def _write_img():
-                    file_path.write_bytes(img_bytes)
-
-                await hass.async_add_executor_job(_write_img)
-                return f"{base_url}/local/gaming_status_cache/{file_name}"
+                    await hass.async_add_executor_job(_write_img)
+                    return f"{base_url}/local/gaming_status_cache/{safe_file_name}"
     except Exception as e:
         _LOGGER.error("Failed to cache avatar %s: %s", remote_url, e)
 
@@ -1397,6 +1526,10 @@ def top_n_games(breakdown, n=10):
     ]
 
 
+_TRADEMARK_SYMBOLS_RE = re.compile(r"[™®©]")
+_NORMALIZE_GAME_NAME_RE = re.compile(r"[,:\-™®©]")
+
+
 def _format_game_name_for_display(game_name):
     if not game_name:
         return game_name
@@ -1405,7 +1538,7 @@ def _format_game_name_for_display(game_name):
 
     if " - " in clean_name:
         clean_name = clean_name.split(" - ")[0].strip()
-    clean_name = re.sub(r"[™®©]", "", clean_name).strip()
+    clean_name = _TRADEMARK_SYMBOLS_RE.sub("", clean_name).strip()
 
     for pattern in COMPILED_TITLE_CLEANUPS:
         clean_name = pattern.sub("", clean_name).strip()
@@ -1424,7 +1557,7 @@ def _normalize_game_name(game_name):
     """
     if not game_name:
         return ""
-    clean = re.sub(r"[,:\-™®©]", "", str(game_name).lower())
+    clean = _NORMALIZE_GAME_NAME_RE.sub("", str(game_name).lower())
     return " ".join(clean.split())
 
 
@@ -1537,13 +1670,48 @@ def url_host_matches(url, domain):
     return bool(host) and (host == domain or host.endswith("." + domain))
 
 
+_SAFE_IMAGE_EXTENSIONS = {
+    "png",
+    "jpg",
+    "jpeg",
+    "webp",
+    "ico",
+    "gif",
+    "bmp",
+    "tiff",
+    "tif",
+}
+
+MAX_IMAGE_DOWNLOAD_BYTES = (
+    25 * 1024 * 1024
+)  # generous for any real cover/hero/logo/icon
+
+
+async def _read_capped(resp, max_bytes=MAX_IMAGE_DOWNLOAD_BYTES):
+    """Read a response body in chunks, aborting early (returning None) if
+    it exceeds max_bytes -- avoids ever buffering a hostile/oversized
+    response fully into memory, unlike checking the size after resp.read()."""
+    content_length = resp.content_length
+    if content_length is not None and content_length > max_bytes:
+        return None
+    chunks = []
+    total = 0
+    async for chunk in resp.content.iter_chunked(65536):
+        total += len(chunk)
+        if total > max_bytes:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def safe_image_ext(url, default="png"):
-    """Extract a safe file extension from a URL, rejecting anything that isn't a short alnum token."""
+    """Extract a safe file extension from a URL, rejecting anything that isn't a known image type."""
     try:
         raw = urlparse(url).path.rsplit(".", 1)[-1]
     except ValueError:
         return default
-    return raw.lower() if re.fullmatch(r"[a-z0-9]{1,4}", raw.lower()) else default
+    raw = raw.lower()
+    return raw if raw in _SAFE_IMAGE_EXTENSIONS else default
 
 
 async def is_public_url(hass, url):
@@ -1562,14 +1730,11 @@ async def is_public_url(hass, url):
             return False
         for addr in addrs:
             ip = ipaddress.ip_address(addr)
-            if (
-                ip.is_private
-                or ip.is_loopback
-                or ip.is_link_local
-                or ip.is_reserved
-                or ip.is_multicast
-                or ip.is_unspecified
-            ):
+            # is_global is a strict superset of the six checks this
+            # replaced for every case EXCEPT multicast, which Python's
+            # ipaddress module counts as "global" -- verified empirically
+            # (e.g. 224.0.0.1, ff0e::1) -- so it needs its own check.
+            if not ip.is_global or ip.is_multicast:
                 return False
         return True
     except Exception:
@@ -1648,7 +1813,9 @@ def get_cached_remote_url(game_name, asset_type="grid"):
     if not game_name:
         return None
 
-    cache_entry = ASSET_URL_CACHE.get(game_name)
+    # ASSET_URL_CACHE is keyed by the normalized name (see fetch_game_assets),
+    # not the raw display name this is usually called with.
+    cache_entry = ASSET_URL_CACHE.get(_normalize_game_name(game_name))
     if not cache_entry:
         return None
 

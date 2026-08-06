@@ -51,7 +51,14 @@ class SteamClient:
         try:
             async with self._session.get(url, params=query, timeout=_TIMEOUT) as resp:
                 if resp.status == 429:
-                    raise RateLimitedError(f"Steam rate-limited {path}")
+                    retry_after_header = resp.headers.get("Retry-After")
+                    retry_after = (
+                        float(retry_after_header) if retry_after_header else None
+                    )
+                    self._rate_limiter.notify_rate_limited(retry_after)
+                    raise RateLimitedError(
+                        f"Steam rate-limited {path}", retry_after=retry_after
+                    )
                 if resp.status in (401, 403):
                     raise AuthError(f"Steam rejected the API key calling {path}")
                 if resp.status != 200:
@@ -63,8 +70,9 @@ class SteamClient:
                         f"Unexpected response body from Steam {path}: {err}"
                     ) from err
         except aiohttp.ClientError as err:
+            safe_err = str(err).replace(self._api_key, "***")
             raise NetworkError(
-                f"Error communicating with Steam ({path}): {err}"
+                f"Error communicating with Steam ({path}): {safe_err}"
             ) from err
         except TimeoutError as err:
             raise NetworkError(f"Timed out reaching Steam ({path}): {err}") from err

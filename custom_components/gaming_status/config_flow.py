@@ -5,14 +5,16 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 
-import aiohttp
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er, selector
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 
+from . import utils
 from .const import (
     CONF_DISCORD_SERVER,
     CONF_DISCORD_TOKEN,
@@ -100,27 +102,43 @@ def _dump_json(obj) -> str:
     return json.dumps(obj, indent=2, ensure_ascii=False)
 
 
-async def _fetch_discord_members(token: str, server_id: str) -> list:
+_DISCORD_MEMBERS_CACHE: dict = {}
+DISCORD_MEMBERS_CACHE_SECONDS = 60
+
+
+async def _fetch_discord_members(hass, token: str, server_id: str) -> list:
     if not token or not server_id:
         return []
+
+    # Short-lived cache -- this is called on every render of any step that
+    # shows the Discord member dropdown, so navigating back and forth
+    # within one options-flow session shouldn't re-hit Discord's API each
+    # time. Short enough that a just-added member still shows up quickly.
+    cache_key = (token, server_id)
+    cached = _DISCORD_MEMBERS_CACHE.get(cache_key)
+    if cached is not None and time.time() - cached[0] < DISCORD_MEMBERS_CACHE_SECONDS:
+        return cached[1]
+
     url = f"https://discord.com/api/v10/guilds/{server_id}/members?limit=1000"
     headers = {"Authorization": f"Bot {token}"}
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    members = []
-                    for m in data:
-                        user = m.get("user", {})
-                        if not user.get("bot"):
-                            display = (
-                                m.get("nick")
-                                or user.get("global_name")
-                                or user.get("username")
-                            )
-                            members.append((user.get("id"), display))
-                    return sorted(members, key=lambda x: x[1].lower())
+        session = async_get_clientsession(hass)
+        async with session.get(url, headers=headers, timeout=10) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                members = []
+                for m in data:
+                    user = m.get("user", {})
+                    if not user.get("bot"):
+                        display = (
+                            m.get("nick")
+                            or user.get("global_name")
+                            or user.get("username")
+                        )
+                        members.append((user.get("id"), display))
+                members = sorted(members, key=lambda x: x[1].lower())
+                _DISCORD_MEMBERS_CACHE[cache_key] = (time.time(), members)
+                return members
     except Exception as e:
         _LOGGER.error(f"Error fetching Discord members: {e}")
     return []
@@ -340,7 +358,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
         if "steam" in enabled_platforms:
-            schema[vol.Optional("steam")] = _get_filtered_selector("steam", None)
+            schema[vol.Optional("steam")] = _get_filtered_selector("steam_online", None)
         if "xbox" in enabled_platforms:
             schema[vol.Optional("xbox")] = _get_filtered_selector("xbox", "_status")
         if "playstation" in enabled_platforms:
@@ -352,7 +370,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             server_id = self._temp_user_input.get(CONF_DISCORD_SERVER)
             dc_options = [selector.SelectOptionDict(value="none", label="None")]
             if token and server_id:
-                members = await _fetch_discord_members(token, server_id)
+                members = await _fetch_discord_members(self.hass, token, server_id)
                 for m in members:
                     dc_options.append(
                         selector.SelectOptionDict(value=m[0], label=f"{m[1]} ({m[0]})")
@@ -437,7 +455,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         token = self._config_entry.data.get(CONF_DISCORD_TOKEN)
         server_id = self._config_entry.data.get(CONF_DISCORD_SERVER)
         if token and server_id and not self._discord_members:
-            self._discord_members = await _fetch_discord_members(token, server_id)
+            self._discord_members = await _fetch_discord_members(
+                self.hass, token, server_id
+            )
 
         from .const import OPT_ENABLE_NOTIFICATIONS, OPT_ENABLE_PARENTAL
 
@@ -543,14 +563,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             return await self._update_and_return()
 
         # --- HARDWARE SAFETY NET ---
-        def _check_is_pi():
-            try:
-                with open("/sys/firmware/devicetree/base/model") as f:
-                    return "Raspberry Pi" in f.read()
-            except Exception:
-                return False
-
-        is_pi = await self.hass.async_add_executor_job(_check_is_pi)
+        is_pi = await utils.is_raspberry_pi(self.hass)
 
         dynamic_color_default = False if is_pi else DEFAULT_EXTRACT_COLOR
 
@@ -1139,7 +1152,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         schema_dict = {
             vol.Optional("enabled", default=report.get("enabled", False)): bool,
             vol.Optional("day", default=report.get("day", 0)): vol.In(day_options),
-            vol.Optional("time", default=report.get("time", "09:00")): str,
+            vol.Optional(
+                "time", default=report.get("time", "09:00")
+            ): selector.TimeSelector(),
         }
 
         if endpoint_options:
@@ -1353,8 +1368,12 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         schema_dict.update(
             {
                 vol.Optional("cf_enabled", default=cf.get("enabled", False)): bool,
-                vol.Optional("cf_weekday", default=cf.get("weekday", "22:00")): str,
-                vol.Optional("cf_weekend", default=cf.get("weekend", "23:00")): str,
+                vol.Optional(
+                    "cf_weekday", default=cf.get("weekday", "22:00")
+                ): selector.TimeSelector(),
+                vol.Optional(
+                    "cf_weekend", default=cf.get("weekend", "23:00")
+                ): selector.TimeSelector(),
                 vol.Optional(
                     "cf_repeat", default=str(cf.get("repeat", 0))
                 ): selector.SelectSelector(
@@ -1520,38 +1539,46 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         parental_enabled = opts.get(OPT_ENABLE_PARENTAL, False)
 
         if user_input is not None:
-            for key, field in [
-                (OPT_TITLE_OVERRIDES, "title_overrides"),
-            ]:
-                raw = user_input.get(field, "")
-                parsed_dict = {}
-                for item in raw.splitlines():
-                    if "=" in item:
-                        k, v = item.split("=", 1)
-                        parsed_dict[k.strip()] = v.strip()
-                opts[key] = _dump_json(parsed_dict)
+            raw_overrides = user_input.get("title_overrides", "")
+            parsed_dict = {}
+            for item in raw_overrides.splitlines():
+                if not item.strip():
+                    continue
+                if "=" not in item:
+                    errors["title_overrides"] = "malformed_override_line"
+                    continue
+                k, v = item.split("=", 1)
+                parsed_dict[k.strip()] = v.strip()
 
+            parsed_ratings = {}
             if parental_enabled:
-                raw = user_input.get("rating_overrides", "")
-                parsed_ratings = {}
-                for item in raw.splitlines():
+                raw_ratings = user_input.get("rating_overrides", "")
+                for item in raw_ratings.splitlines():
+                    if not item.strip():
+                        continue
                     if "=" not in item:
+                        errors["rating_overrides"] = "malformed_rating_override_line"
                         continue
                     k, v = item.split("=", 1)
                     code = v.strip().upper()
-                    if code in RATING_OVERRIDE_CODES:
-                        parsed_ratings[k.strip()] = RATING_OVERRIDE_CODES[code]
-                opts[OPT_RATING_OVERRIDES] = _dump_json(parsed_ratings)
-
-            for key, field in [
-                (OPT_TITLE_CLEANUPS, "title_cleanups"),
-                (OPT_GLOBAL_EXCLUSIONS, "global_exclusions"),
-            ]:
-                raw = user_input.get(field, "")
-                parsed_list = [x.strip() for x in raw.splitlines() if x.strip()]
-                opts[key] = _dump_json(parsed_list)
+                    if code not in RATING_OVERRIDE_CODES:
+                        errors["rating_overrides"] = "malformed_rating_override_line"
+                        continue
+                    parsed_ratings[k.strip()] = RATING_OVERRIDE_CODES[code]
 
             if not errors:
+                opts[OPT_TITLE_OVERRIDES] = _dump_json(parsed_dict)
+                if parental_enabled:
+                    opts[OPT_RATING_OVERRIDES] = _dump_json(parsed_ratings)
+
+                for key, field in [
+                    (OPT_TITLE_CLEANUPS, "title_cleanups"),
+                    (OPT_GLOBAL_EXCLUSIONS, "global_exclusions"),
+                ]:
+                    raw = user_input.get(field, "")
+                    parsed_list = [x.strip() for x in raw.splitlines() if x.strip()]
+                    opts[key] = _dump_json(parsed_list)
+
                 self._options = opts
                 return await self._update_and_return()
 
@@ -1704,13 +1731,17 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 steam_achievements_key_override
             )
             new_data[CONF_PSN_NPSSO_OVERRIDE] = psn_npsso_override
-            self.hass.config_entries.async_update_entry(
-                self._config_entry, data=new_data
-            )
 
             if not errors:
                 self._options = opts
-                return await self._update_and_return()
+                # Combined into one call (data + options together) so this
+                # save triggers a single reload instead of two back-to-back
+                # ones -- _update_and_return's own update-entry call would
+                # otherwise duplicate the one above.
+                self.hass.config_entries.async_update_entry(
+                    self._config_entry, data=new_data, options=self._options
+                )
+                return await self.async_step_init()
 
         schema_dict = {
             vol.Optional(
@@ -1784,29 +1815,35 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         opts = self._options
         errors = {}
 
+        from .const import DEFAULT_ENABLED_PLATFORMS, OPT_ENABLED_PLATFORMS
+
+        enabled_platforms = opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
+
         if user_input is not None:
             opts[OPT_SAME_GAME_PREFIX_WORDS] = user_input.get(
                 OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS
             )
 
             api_key = user_input.get(CONF_STEAMGRIDDB_API_KEY, "").strip()
-            dc_token = user_input.get(CONF_DISCORD_TOKEN, "").strip()
-            dc_server = user_input.get(CONF_DISCORD_SERVER, "").strip()
             new_data = dict(self._config_entry.data)
             new_data[CONF_STEAMGRIDDB_API_KEY] = api_key
-            new_data[CONF_DISCORD_TOKEN] = dc_token
-            new_data[CONF_DISCORD_SERVER] = dc_server
-            self.hass.config_entries.async_update_entry(
-                self._config_entry, data=new_data
-            )
-
+            if "discord" in enabled_platforms:
+                new_data[CONF_DISCORD_TOKEN] = user_input.get(
+                    CONF_DISCORD_TOKEN, ""
+                ).strip()
+                new_data[CONF_DISCORD_SERVER] = user_input.get(
+                    CONF_DISCORD_SERVER, ""
+                ).strip()
             if not errors:
                 self._options = opts
-                return await self._update_and_return()
-
-        from .const import DEFAULT_ENABLED_PLATFORMS, OPT_ENABLED_PLATFORMS
-
-        enabled_platforms = opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
+                # Combined into one call (data + options together) so this
+                # save triggers a single reload instead of two back-to-back
+                # ones -- _update_and_return's own update-entry call would
+                # otherwise duplicate the one this replaces.
+                self.hass.config_entries.async_update_entry(
+                    self._config_entry, data=new_data, options=self._options
+                )
+                return await self.async_step_init()
 
         schema_dict = {
             vol.Optional(

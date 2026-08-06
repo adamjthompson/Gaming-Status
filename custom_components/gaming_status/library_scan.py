@@ -39,6 +39,7 @@ call already returns recent_unlocks for free, every scan.
 from __future__ import annotations
 
 import logging
+import time
 from datetime import timedelta
 
 from homeassistant.helpers.event import async_call_later
@@ -61,6 +62,12 @@ _LOGGER = logging.getLogger(__name__)
 
 _STORAGE_VERSION = 1
 _TIER_KEYS = ("bronze", "silver", "gold", "platinum")
+
+# A "SteamGridDB has no art for this title" result is cached too, but isn't
+# trusted forever -- SGDB's catalog grows over time, so it's re-checked
+# after this many seconds instead of repeating the full search+fetch on
+# every single scan (the previous behavior) or sticking forever.
+ART_NOT_FOUND_RECHECK_SECONDS = 86400  # 24 hours
 
 # Console disambiguation for PSN titles that exist as separate entries per
 # console generation (e.g. a PS3 disc version and a separate PS4 remaster
@@ -323,34 +330,64 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         """External-URL-only SteamGridDB lookup (see
         utils.fetch_game_grid_urls_remote) -- never downloaded/cached
         locally, unlike the current-game sensors' artwork. The SteamGridDB-
-        sourced result is persisted here by resolved title so a 12h+ rescan
-        doesn't repeat the search for games already resolved -- but a title
-        with a manual CUSTOM_GRID/HERO/LOGO/ICON_MAP override skips this
-        cache entirely and re-resolves fresh every scan (a cheap in-memory
-        dict lookup for the override itself, still no local download either
-        way), so a newly-added or changed override takes effect on the very
-        next scan instead of being shadowed by whatever was cached before it
-        existed. Not gated on STEAMGRIDDB_API_KEY here -- a library scanned
-        entirely through manual overrides, with no SteamGridDB key
-        configured at all, is a valid setup fetch_game_grid_urls_remote
-        already handles on its own."""
+        sourced portion is persisted here by resolved title so a 12h+ rescan
+        doesn't repeat the search for games already resolved. A manual
+        CUSTOM_GRID/HERO/LOGO/ICON_MAP override is always re-applied fresh
+        on top of the cached (or freshly-fetched) result below -- a cheap
+        in-memory dict lookup, no local download either way -- so a newly-
+        added or changed override takes effect on the very next scan
+        without needing to bypass this cache for the OTHER, non-overridden
+        asset types too. If an override is later removed, the asset
+        type(s) it used to cover are treated as a cache miss (real
+        SteamGridDB art for them was never fetched while overridden), so
+        they get a real chance to resolve from SteamGridDB again instead of
+        sticking at None forever. Not gated on STEAMGRIDDB_API_KEY here --
+        a library scanned entirely through manual overrides, with no
+        SteamGridDB key configured at all, is a valid setup
+        fetch_game_grid_urls_remote already handles on its own."""
         if not title:
             return {"grid": None, "hero": None, "logo": None, "icon": None}
         cache_key = _normalize_game_name(title)
-        has_override = any(
-            cache_key in m
-            for m in (
-                utils.CUSTOM_GRID_MAP,
-                utils.CUSTOM_HERO_MAP,
-                utils.CUSTOM_LOGO_MAP,
-                utils.CUSTOM_ICON_MAP,
+        override_maps = {
+            "grid": utils.CUSTOM_GRID_MAP,
+            "hero": utils.CUSTOM_HERO_MAP,
+            "logo": utils.CUSTOM_LOGO_MAP,
+            "icon": utils.CUSTOM_ICON_MAP,
+        }
+        overridden_now = {t for t, m in override_maps.items() if cache_key in m}
+
+        cached = self._art_cache.get(cache_key)
+        art = None
+        if (
+            isinstance(cached, dict)
+            and "art" in cached
+            and not (set(cached.get("overridden", [])) - overridden_now)
+        ):
+            checked_at = cached.get("checked_at")
+            is_stale = checked_at is not None and (
+                time.time() - checked_at > ART_NOT_FOUND_RECHECK_SECONDS
             )
-        )
-        if not has_override and cache_key in self._art_cache:
-            return self._art_cache[cache_key]
-        art = await utils.fetch_game_grid_urls_remote(self.hass, title)
-        if any(art.values()) and not has_override:
-            self._art_cache[cache_key] = art
+            if not is_stale:
+                # No previously-overridden type has since been un-overridden,
+                # and this isn't a stale "nothing found" result -- the
+                # cached SGDB-derived values are still trustworthy.
+                art = dict(cached["art"])
+
+        if art is None:
+            art = await utils.fetch_game_grid_urls_remote(self.hass, title)
+            sgdb_only = {
+                asset_type: (None if asset_type in overridden_now else value)
+                for asset_type, value in art.items()
+            }
+            entry = {"art": sgdb_only, "overridden": sorted(overridden_now)}
+            if not any(sgdb_only.values()):
+                entry["checked_at"] = time.time()
+            self._art_cache[cache_key] = entry
+
+        for asset_type, override_map in override_maps.items():
+            if cache_key in override_map:
+                art[asset_type] = override_map[cache_key]
+
         return art
 
     async def _scan_steam(self, source_entity_id):
@@ -919,7 +956,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             1
             for platform in ("xbox", "playstation")
             for g in (self.data.get("platforms", {}).get(platform, {}).get("games", []))
-            if str(g["id"]) not in self._backfill_done.get(platform, {})
+            if str(g.get("id")) not in self._backfill_done.get(platform, {})
         )
         if remaining:
             _LOGGER.info(
@@ -950,7 +987,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         done = self._backfill_done.setdefault(platform, {})
         cursor = self._activity_cursor.setdefault(platform, {})
         attempts = self._backfill_attempts.setdefault(platform, {})
-        pending = [g for g in games if str(g["id"]) not in done]
+        pending = [g for g in games if str(g.get("id")) not in done]
         if not pending:
             return 0
 
@@ -964,7 +1001,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         resolved = 0
         for g in pending:
             if not g.get("achievements_total"):
-                done[str(g["id"])] = True
+                done[str(g.get("id"))] = True
                 resolved += 1
             else:
                 still_pending.append(g)
@@ -1095,7 +1132,7 @@ def has_pending_library_backfill(coordinator) -> bool:
     for platform in ("xbox", "playstation"):
         games = coordinator.data.get("platforms", {}).get(platform, {}).get("games", [])
         done = coordinator._backfill_done.get(platform, {})
-        if any(str(g["id"]) not in done for g in games):
+        if any(str(g.get("id")) not in done for g in games):
             return True
     return False
 
@@ -1116,8 +1153,8 @@ def _aggregate(raw_by_platform):
             platform_errors[platform] = raw["error"]
 
         summary = {
-            "achievements_earned": sum(g["achievements_earned"] for g in games),
-            "achievements_total": sum(g["achievements_total"] for g in games),
+            "achievements_earned": sum(g.get("achievements_earned", 0) for g in games),
+            "achievements_total": sum(g.get("achievements_total", 0) for g in games),
             "game_count": len(games),
             "games": games,
         }
@@ -1144,18 +1181,24 @@ def _aggregate(raw_by_platform):
         platform_summaries[platform] = summary
         all_games.extend(games)
 
-    percents = [g["percent"] for g in all_games]
+    percents = [g.get("percent", 0) for g in all_games]
 
     return {
-        "total_achievements_earned": sum(g["achievements_earned"] for g in all_games),
-        "total_achievements_possible": sum(g["achievements_total"] for g in all_games),
+        "total_achievements_earned": sum(
+            g.get("achievements_earned", 0) for g in all_games
+        ),
+        "total_achievements_possible": sum(
+            g.get("achievements_total", 0) for g in all_games
+        ),
         "total_gamerscore": sum(
-            g.get("gamerscore_earned", 0) for g in all_games if g["platform"] == "xbox"
+            g.get("gamerscore_earned", 0)
+            for g in all_games
+            if g.get("platform") == "xbox"
         ),
         "total_platinum_trophies": sum(
             g.get("trophies_earned", {}).get("platinum", 0)
             for g in all_games
-            if g["platform"] == "playstation"
+            if g.get("platform") == "playstation"
         ),
         "average_completion_percent": round(sum(percents) / len(percents), 1)
         if percents

@@ -75,25 +75,40 @@ class GamingNotifier:
 
         return self._entry.options.get(OPT_ENABLE_PARENTAL, False)
 
+    def _memoized_json_option(self, cache_attr: str, option_key: str, fallback):
+        """Parse an options-stored JSON blob once per distinct raw value,
+        instead of on every property access -- an options change already
+        forces a full integration reload, so a cached value can never go
+        stale between reloads."""
+        raw = self._entry.options.get(option_key)
+        cached = getattr(self, cache_attr, None)
+        if cached is not None and cached[0] == raw:
+            return cached[1]
+        value = _load_json(raw, fallback)
+        setattr(self, cache_attr, (raw, value))
+        return value
+
     @property
     def _cached_players(self) -> dict:
-        return _load_json(self._entry.options.get(OPT_PLAYERS), {})
+        return self._memoized_json_option("_players_cache", OPT_PLAYERS, {})
 
     @property
     def _cached_endpoints(self) -> dict:
-        return _load_json(self._entry.options.get(OPT_ENDPOINTS), {})
+        return self._memoized_json_option("_endpoints_cache", OPT_ENDPOINTS, {})
 
     @property
     def _cached_weekly(self) -> dict:
-        return _load_json(self._entry.options.get(OPT_WEEKLY_REPORT), {})
+        return self._memoized_json_option("_weekly_cache", OPT_WEEKLY_REPORT, {})
 
     @property
     def _cached_parental(self) -> dict:
-        return _load_json(self._entry.options.get(OPT_PARENTAL), {})
+        return self._memoized_json_option("_parental_cache", OPT_PARENTAL, {})
 
     @property
     def _cached_discord_colors(self) -> dict:
-        return _load_json(self._entry.options.get(OPT_DISCORD_COLORS), {})
+        return self._memoized_json_option(
+            "_discord_colors_cache", OPT_DISCORD_COLORS, {}
+        )
 
     @property
     def _cached_notify_artwork(self) -> str:
@@ -101,10 +116,13 @@ class GamingNotifier:
 
     @property
     def _cached_exclusions(self) -> list:
-        return [
-            x.strip().lower()
-            for x in _load_json(self._entry.options.get(OPT_GLOBAL_EXCLUSIONS), [])
-        ]
+        raw = self._entry.options.get(OPT_GLOBAL_EXCLUSIONS)
+        cached = getattr(self, "_exclusions_cache", None)
+        if cached is not None and cached[0] == raw:
+            return cached[1]
+        value = [x.strip().lower() for x in _load_json(raw, [])]
+        self._exclusions_cache = (raw, value)
+        return value
 
     # Keep legacy getters functioning to support older function calls
     def _players(self) -> dict:
@@ -140,7 +158,9 @@ class GamingNotifier:
         run_day = int(report.get("day", 0))
         run_time_str = report.get("time", "09:00")
         try:
-            target_hour, target_minute = map(int, run_time_str.split(":"))
+            # [:2] tolerates both "HH:MM" (legacy free-text entries) and
+            # "HH:MM:SS" (Home Assistant's TimeSelector widget).
+            target_hour, target_minute = (int(p) for p in run_time_str.split(":")[:2])
         except ValueError:
             target_hour, target_minute = 9, 0
 
@@ -380,9 +400,7 @@ class GamingNotifier:
                     if "logo" in self._cached_notify_artwork
                     else "grid"
                 )
-                remote_url = await self.hass.async_add_executor_job(
-                    get_cached_remote_url, game_name, target_type
-                )
+                remote_url = get_cached_remote_url(game_name, target_type)
                 return remote_url or image_url
             except Exception:
                 return image_url
@@ -655,15 +673,19 @@ class GamingNotifier:
             )
             image_url = await self._make_external_url(raw_url, new_game)
 
-            for ep_id in start_dests:
-                await self._send_to_endpoint(
-                    ep_id,
-                    message=msg,
-                    image_url=image_url,
-                    game_title=display_title,
-                    event_type="start",
-                    state_obj=new_state,
+            await asyncio.gather(
+                *(
+                    self._send_to_endpoint(
+                        ep_id,
+                        message=msg,
+                        image_url=image_url,
+                        game_title=display_title,
+                        event_type="start",
+                        state_obj=new_state,
+                    )
+                    for ep_id in start_dests
                 )
+            )
 
         elif is_end:
             msg = (
@@ -683,16 +705,20 @@ class GamingNotifier:
 
             image_url = await self._make_external_url(raw_url, old_game)
 
-            for ep_id in end_dests:
-                # Pass the OLD state so the color is fully preserved!
-                await self._send_to_endpoint(
-                    ep_id,
-                    message=msg,
-                    image_url=image_url,
-                    game_title=old_game,
-                    event_type="stop",
-                    state_obj=old_state,
+            # Pass the OLD state so the color is fully preserved!
+            await asyncio.gather(
+                *(
+                    self._send_to_endpoint(
+                        ep_id,
+                        message=msg,
+                        image_url=image_url,
+                        game_title=old_game,
+                        event_type="stop",
+                        state_obj=old_state,
+                    )
+                    for ep_id in end_dests
                 )
+            )
 
     # ------------------------------------------------------------------
     # Parental controls
@@ -809,7 +835,9 @@ class GamingNotifier:
                 )
                 cf_repeat = int(cf_rule.get("repeat", 0))
                 try:
-                    c_hour, c_min = map(int, curfew_time.split(":"))
+                    # [:2] tolerates both "HH:MM" (legacy free-text entries)
+                    # and "HH:MM:SS" (Home Assistant's TimeSelector widget).
+                    c_hour, c_min = (int(p) for p in curfew_time.split(":")[:2])
                     curfew_dt = now_dt.replace(
                         hour=c_hour, minute=c_min, second=0, microsecond=0
                     )
@@ -828,11 +856,10 @@ class GamingNotifier:
                             overage_minutes = int(
                                 (now_dt - curfew_dt).total_seconds() / 60
                             )
-                            pretty_time = (
-                                datetime.strptime(curfew_time, "%H:%M")
-                                .strftime("%I:%M %p")
-                                .lstrip("0")
-                            )
+                            # Reuse the already-parsed curfew_dt rather than
+                            # re-parsing curfew_time with a strict format
+                            # that "HH:MM:SS" input wouldn't match.
+                            pretty_time = curfew_dt.strftime("%I:%M %p").lstrip("0")
                             if overage_minutes > 1:
                                 msg = f"❗️ {player_name} has exceeded the {pretty_time} curfew by {overage_minutes} minutes."
                             else:
