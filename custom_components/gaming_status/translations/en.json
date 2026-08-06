@@ -131,6 +131,7 @@
         "title": "Notifications & Reporting",
         "description": "Configure where and how notifications are sent.",
         "data": {
+          "endpoint_choice": "Notification Menu",
           "endpoints": "Notification Methods",
           "notify_artwork": "Notification Artwork Style",
           "weekly_report": "Weekly Report Settings"
