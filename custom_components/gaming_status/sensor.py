@@ -5202,8 +5202,13 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         for xbox_entity_id in p_data.get("suppresses_xbox_sensors", []):
             sources = xbox_ghost_sources.setdefault(xbox_entity_id, [])
             for plat in PLAYER_PLATFORMS:
-                if plat == "xbox" or plat not in enabled_platforms:
+                if plat not in enabled_platforms:
                     continue
+                # Xbox is deliberately included as a possible source here (not
+                # just Steam/PlayStation/PC): the most common way this player's
+                # activity ghosts onto someone else's Xbox sensor in the first
+                # place is a shared-PC Xbox app misattributing THIS player's own
+                # real Xbox session too, not only their non-Xbox platforms.
                 # The ghost check needs Gaming Status's OWN derived sensor (which
                 # publishes a sanitized `current_game` attribute), not the raw
                 # source entity configured here -- raw platform integrations

@@ -13,7 +13,7 @@ This section maps a friendly display name to the underlying Home Assistant senso
 - **Xbox:** sensor.playername_status
 - **PlayStation:** sensor.playername_online_status
 
-**Ghosted-by:** A list of master sensor IDs. If the current user is playing the exact same game as someone in this list, the current user's Xbox sensor will remain offline. This is useful for shared PCs where one user's profile is signed into the Xbox app and another user is signed into Steam.
+**Ghosted-by:** A list of master sensor IDs. If the current user is playing the exact same game as someone in this list, the current user's Xbox sensor will remain offline. This is useful for shared PCs where one user's profile is signed into the Xbox app while another user is actually playing — on Steam, PlayStation, or their own Xbox.
 
 **Games to exclude:** A user-specific list of games or apps that should be completely ignored (case-insensitive).
 
