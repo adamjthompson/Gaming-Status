@@ -36,11 +36,21 @@ Marvel Rivals = https://cdn2.steamgriddb.com/hero/a31d2779e08530d0b5fdbed368c735
 ```
 
 ## Title Cleanup Strings
-This is a universal "scrubber." It takes a list of phrases and automatically deletes them from any game title it encounters. This is evaluated case-insensitively. It is the best way to handle dynamic "Rich Presence" statuses that console integrations append to games or to remove unnecessary word from game titles.
+This is a universal "scrubber." It takes a list of regex patterns, one per line, and automatically deletes any matching text from a game title. Plain text works too -- a phrase with no regex special characters just matches itself. This is evaluated case-insensitively. It is the best way to handle dynamic "Rich Presence" statuses that console integrations append to games, to remove unnecessary words from game titles, or to strip a portion of a title that changes over time (like an embedded version number) without needing to update the entry every time it changes.
 
 ```
-Tom Clancy's, Sid Meier's, Marvel's, Director's Cut, Steam Edition, : Java Edition, Open Network Test
+Tom Clancy's
+Sid Meier's
+Marvel's
+Director's Cut
+Steam Edition
+: Java Edition
+Open Network Test
 ```
+
+*Regex example: a title like `Minecraft* 26.2 - Multiplayer (Realms)` can be reduced to just `Minecraft` -- regardless of what the version number becomes later -- with a single entry: `(?<=Minecraft)\*.*`. This deletes everything from the `*` immediately after "Minecraft" to the end of the title, without touching unrelated titles like "Minecraft Dungeons" that don't have that `*`.*
+
+*Invalid regex entries are skipped (and logged as a warning) rather than breaking the whole list, so a typo in one pattern won't stop the others from working.*
 
 ## Global Exclusion List
 This is a universal "ignore list." While **Games to exclude** inside a user profile only applies to that specific person, the **Global Exclusion List** applies to every single gamer on your Home Assistant instance. If any console or PC reports playing an app on this list, the integration will immediately force the sensor to report as "Offline." This is incredibly useful for preventing streaming apps, music players, or dashboard menus from padding out your gaming hours or sending false "Online" triggers.

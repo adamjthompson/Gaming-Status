@@ -122,9 +122,13 @@ AGE_FLOOR_LABELS = {
 def compile_title_cleanups():
     """Pre-compile regex patterns for performance."""
     global COMPILED_TITLE_CLEANUPS
-    COMPILED_TITLE_CLEANUPS = [
-        re.compile(re.escape(p), re.IGNORECASE) for p in TITLE_CLEANUPS
-    ]
+    compiled = []
+    for pattern in TITLE_CLEANUPS:
+        try:
+            compiled.append(re.compile(pattern, re.IGNORECASE))
+        except re.error as err:
+            _LOGGER.warning("Skipping invalid Title Cleanups pattern %r: %s", pattern, err)
+    COMPILED_TITLE_CLEANUPS = compiled
 
 
 _IS_RASPBERRY_PI: bool | None = None
