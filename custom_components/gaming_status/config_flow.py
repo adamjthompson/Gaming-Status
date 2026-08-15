@@ -1063,7 +1063,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         _HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
         if user_input is not None:
-            for field in ("color_start", "color_end", "color_parental"):
+            for field in ("color_start", "color_end", "color_parental", "color_weekly"):
                 val = user_input.get(field, "").strip()
                 if not _HEX_RE.match(val):
                     errors[field] = "invalid_hex_color"
@@ -1076,6 +1076,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                         "color_end": user_input.get("color_end", "#FF0000").strip(),
                         "color_parental": user_input.get(
                             "color_parental", "#0000FF"
+                        ).strip(),
+                        "color_weekly": user_input.get(
+                            "color_weekly", "#F1C40F"
                         ).strip(),
                     }
                 )
@@ -1118,6 +1121,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                         "color_parental",
                         default=colors.get("color_parental", "#0000FF"),
                     ): str,
+                    vol.Optional(
+                        "color_weekly",
+                        default=colors.get("color_weekly", "#F1C40F"),
+                    ): str,
                 }
             ),
         )
@@ -1136,6 +1143,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             report["day"] = user_input.get("day", 0)
             report["time"] = user_input.get("time", "09:00")
             report["destinations"] = user_input.get("destinations", [])
+            report["style"] = user_input.get("style", "simple")
             self._options[OPT_WEEKLY_REPORT] = _dump_json(report)
             return await self._update_and_return()
 
@@ -1155,6 +1163,21 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 "time", default=report.get("time", "09:00")
             ): selector.TimeSelector(),
+            vol.Optional(
+                "style", default=report.get("style", "simple")
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(
+                            value="simple", label="Simple (Plain Text)"
+                        ),
+                        selector.SelectOptionDict(
+                            value="rich", label="Rich (Ranked, With Artwork)"
+                        ),
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
         }
 
         if endpoint_options:

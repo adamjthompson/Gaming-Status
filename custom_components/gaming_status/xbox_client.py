@@ -19,6 +19,7 @@ import logging
 
 from homeassistant.util.dt import utc_from_timestamp
 from pythonxbox.api.client import XboxLiveClient
+from pythonxbox.api.provider.catalog.models import AlternateIdType
 from pythonxbox.authentication.manager import AuthenticationManager
 from pythonxbox.authentication.models import OAuth2TokenResponse
 
@@ -109,6 +110,43 @@ async def async_get_current_title_id(client, xuid):
     except Exception as e:
         _LOGGER.debug(
             "[Gaming Status] Xbox title_id resolution failed for xuid %s: %s", xuid, e
+        )
+        return None
+
+
+async def async_get_catalog_content_ratings(client, title_id):
+    """Native ESRB/PEGI/etc. content rating source via Xbox's catalog
+    lookup -- unauthenticated (the underlying request doesn't need the XSTS
+    user token), so this is safe to call even for a ratings-only setup with
+    no achievement-tracking side effects. Returns a list of
+    {"rating_system": "ESRB", "rating_id": "ESRB:T", "descriptors": [...]}
+    dicts (one per rating board the catalog lists for this title), or None
+    if the title isn't found or the lookup fails for any reason. Never
+    raises."""
+    try:
+        response = await client.catalog.get_product_from_alternate_id(
+            title_id, AlternateIdType.XBOX_TITLE_ID
+        )
+        products = response.products or []
+        if not products:
+            return None
+        market_properties = products[0].market_properties or []
+        if not market_properties:
+            return None
+        content_ratings = market_properties[0].content_ratings or []
+        return [
+            {
+                "rating_system": cr.rating_system,
+                "rating_id": cr.rating_id,
+                "descriptors": list(cr.rating_descriptors or []),
+            }
+            for cr in content_ratings
+        ]
+    except Exception as e:
+        _LOGGER.debug(
+            "[Gaming Status] Xbox catalog rating fetch failed for title %s: %s",
+            title_id,
+            e,
         )
         return None
 

@@ -956,6 +956,24 @@ def _get_psn_client(hass, npsso: str):
 
 _STEAM_ESRB_AGE_FLOOR = {"e": 0, "e10": 10, "e10+": 10, "t": 13, "m": 17, "ao": 18}
 
+# Maps a raw Xbox catalog rating_id (board:tier) to a human-readable label.
+# An unrecognized/future tier falls back to the text after the colon rather
+# than being dropped, same "prefer mapped, fall back to raw" philosophy as
+# _STEAM_ESRB_AGE_FLOOR's own required_age fallback below.
+_XBOX_RATING_ID_LABELS = {
+    "ESRB:EC": "Early Childhood",
+    "ESRB:E": "Everyone",
+    "ESRB:E10+": "Everyone 10+",
+    "ESRB:T": "Teen",
+    "ESRB:M": "Mature",
+    "ESRB:AO": "Adults Only",
+    "PEGI:3": "PEGI 3",
+    "PEGI:7": "PEGI 7",
+    "PEGI:12": "PEGI 12",
+    "PEGI:16": "PEGI 16",
+    "PEGI:18": "PEGI 18",
+}
+
 
 async def _fetch_native_rating(hass, platform, platform_context):
     """Tries a platform-native rating source. Returns a rating dict in the
@@ -965,20 +983,76 @@ async def _fetch_native_rating(hass, platform, platform_context):
     try:
         if platform == "xbox":
             min_age = platform_context.get("min_age")
-            if min_age is None:
-                return None
             # Xbox's min_age is a numeric age floor Microsoft synthesizes
             # from whatever regional rating board applies to that title --
             # not guaranteed to sit on the exact same 0/10/13/17/18 buckets
             # Steam's native rating uses, but age_floor is already a "board-agnostic
             # numeric" field meant to be compared with >=, not exact-matched
             # against those 5 labels, so a raw numeric value from a
-            # different board is still meaningful here.
+            # different board is still meaningful here. This is free (a
+            # sibling entity's own attribute, no API call) and left
+            # completely untouched by the catalog lookup below -- esrb/pegi
+            # text is additive, never a replacement for it.
+            age_floor = int(min_age) if min_age is not None else None
+
+            esrb = None
+            pegi = None
+            descriptors = []
+            xbox_config_entry = platform_context.get("xbox_config_entry")
+            oauth_session = platform_context.get("oauth_session")
+            xuid = platform_context.get("xuid")
+            if xbox_config_entry and oauth_session and xuid:
+                try:
+                    from . import xbox_client
+
+                    client = xbox_client.get_xbox_client(
+                        hass, xbox_config_entry, oauth_session
+                    )
+                    title_id = await xbox_client.async_get_current_title_id(
+                        client, xuid
+                    )
+                    if title_id:
+                        ratings = await xbox_client.async_get_catalog_content_ratings(
+                            client, title_id
+                        )
+                        by_system = {
+                            r["rating_system"]: r
+                            for r in ratings or []
+                            if r.get("rating_system")
+                        }
+                        # Never populate both -- matches the strict
+                        # either/or invariant every other branch here
+                        # already upholds (Steam always leaves pegi: None;
+                        # PSN sets exactly one based on authority), which is
+                        # what makes the master sensor's esrb-or-pegi
+                        # fallback correct.
+                        chosen = by_system.get("ESRB") or by_system.get("PEGI")
+                        if chosen:
+                            rating_id = chosen.get("rating_id") or ""
+                            label = _XBOX_RATING_ID_LABELS.get(
+                                rating_id,
+                                rating_id.split(":", 1)[-1]
+                                if ":" in rating_id
+                                else rating_id,
+                            )
+                            if chosen["rating_system"] == "ESRB":
+                                esrb = label
+                            else:
+                                pegi = label
+                            descriptors = chosen.get("descriptors") or []
+                except Exception as e:
+                    _LOGGER.debug(
+                        "[Gaming Status] Xbox catalog rating lookup failed: %s", e
+                    )
+
+            if age_floor is None and esrb is None and pegi is None:
+                return None
+
             return {
-                "esrb": None,
-                "pegi": None,
-                "age_floor": int(min_age),
-                "descriptors": [],
+                "esrb": esrb,
+                "pegi": pegi,
+                "age_floor": age_floor,
+                "descriptors": descriptors,
                 "unrated": False,
                 "source": "xbox_native",
             }
@@ -1056,9 +1130,9 @@ async def fetch_steam_achievements(hass, steamid64, api_key, appid):
     recent-unlocks list, for one game on one Steam account. Never raises --
     returns None on any failure (missing key, network error, or Steam's own
     per-account achievement-data restriction, see steam_client.py). The
-    schema call (total achievements, and now display names for the
-    recent-unlocks list) is cached forever per appid, since it's static; the
-    earned count/unlock list is always fetched fresh -- the caller
+    schema call (total achievements, and display names/icons/descriptions for
+    the recent-unlocks list) is cached forever per appid, since it's static;
+    the earned count/unlock list is always fetched fresh -- the caller
     (sensor.py) controls how often via its own recheck-interval guard, so
     caching it here would just serve stale data.
 
@@ -1073,13 +1147,14 @@ async def fetch_steam_achievements(hass, steamid64, api_key, appid):
 
         if appid in STEAM_SCHEMA_CACHE:
             STEAM_SCHEMA_CACHE.move_to_end(appid)
-            total, display_names, icons = STEAM_SCHEMA_CACHE[appid]
+            total, display_names, icons, descriptions = STEAM_SCHEMA_CACHE[appid]
         else:
             schema = await client.async_get_schema_for_game(appid)
             total = schema.get("total_achievements", 0)
             display_names = schema.get("display_names") or {}
             icons = schema.get("icons") or {}
-            STEAM_SCHEMA_CACHE[appid] = (total, display_names, icons)
+            descriptions = schema.get("descriptions") or {}
+            STEAM_SCHEMA_CACHE[appid] = (total, display_names, icons, descriptions)
             STEAM_SCHEMA_CACHE.move_to_end(appid)
             if len(STEAM_SCHEMA_CACHE) > MAX_ENRICHMENT_CACHE_SIZE:
                 STEAM_SCHEMA_CACHE.popitem(last=False)
@@ -1098,7 +1173,7 @@ async def fetch_steam_achievements(hass, steamid64, api_key, appid):
         recent_unlocks = [
             {
                 "name": display_names.get(a.get("apiname"), a.get("apiname")),
-                "description": None,
+                "description": descriptions.get(a.get("apiname")),
                 "unlocked_at": (
                     datetime.fromtimestamp(a["unlocktime"], tz=UTC).isoformat()
                     if a.get("unlocktime")

@@ -168,12 +168,14 @@
           "discord_color_mode": "Discord Embed Color",
           "color_start": "Custom Start Color (Hex)",
           "color_end": "Custom End Color (Hex)",
-          "color_parental": "Custom Parental Color (Hex)"
+          "color_parental": "Custom Parental Color (Hex)",
+          "color_weekly": "Custom Weekly Report Color (Hex)"
         },
         "data_description": {
           "color_start": "Used when color mode is set to Custom. e.g. #00FF00",
           "color_end": "Used when color mode is set to Custom. e.g. #FF0000",
-          "color_parental": "Used when color mode is set to Custom. e.g. #0000FF"
+          "color_parental": "Used when color mode is set to Custom. e.g. #0000FF",
+          "color_weekly": "Used when color mode is set to Custom, and only for the Weekly Report's rich style. e.g. #F1C40F"
         }
       },
       "weekly_report": {
@@ -183,7 +185,8 @@
           "enabled": "Enable weekly report",
           "day": "Day of week",
           "time": "Send time (HH:MM)",
-          "destinations": "Notification method"
+          "destinations": "Notification method",
+          "style": "Report style"
         }
       },
       "parental_controls": {

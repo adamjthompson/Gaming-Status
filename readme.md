@@ -99,8 +99,8 @@ Add, edit, or delete the gamers in your household.
 Manage where your [gaming alerts and weekly reports](docs/notifications.md) are sent.
 * **Notify Artwork Style:** Choose which fetched artwork type (Cover, Hero, Logo, Icon) attaches to your notifications.
 * **Add Notification:** Map a friendly name (e.g., "Dad's Phone") to an existing Home Assistant `notify.` service. It fully supports standard mobile app notifications, Discord, and SMS.
-* **Discord Notification Colors:** Customize the embed colors for Discord alerts (Default, Platform Colors, Game Color, or Custom Hex).
-* **Weekly Report:** Send a formatted summary of everyone's weekly playtime and top games to your selected notification methods on a specific day and time.
+* **Discord Notification Colors:** Customize the embed colors for Discord alerts (Default, Platform Colors, Game Color, or Custom Hex) — including a dedicated custom color for the Rich weekly report style, below.
+* **Weekly Report:** Send a summary of everyone's weekly playtime to your selected notification methods on a specific day and time. Choose a **Report Style**: **Simple** (a plain, unranked line per player — the original format, unchanged) or **Rich** (players ranked by hours with their top game for the week, a real Discord embed with artwork for Discord destinations, and a sorted plain-text version for Mobile App/SMS destinations).
 
 #### 3. Parental Controls (Requires Global Toggle)
 Set automated rules based on accumulated playtime, time of day, or game content rating.
@@ -126,7 +126,7 @@ Manually adjust game titles, ratings, and what gets tracked.
 
 #### 6. Achievements & Ratings
 Native achievement/trophy/rating enrichment and full game library scanning, all in one place -- every field here is always visible together, regardless of which toggles are on, so you never have to save and reopen the menu just to find a setting.
-* **Enable Native Content Ratings:** See [Content Ratings](#content-ratings) above. Off by default. Independent from achievement tracking below — Steam and Xbox ratings need no credential at all, and PlayStation just reuses the same session achievement tracking uses. This same setting is also shown on the main Parental Controls screen, above the player picker.
+* **Enable Native Content Ratings:** See [Content Ratings](#content-ratings) above. Off by default. Independent from achievement tracking below — Steam ratings need no credential at all, while Xbox and PlayStation each reuse the same session achievement tracking uses (Xbox's numeric age limit is still free either way, from the same official Xbox integration sensor it always was; the credential is only needed for the ESRB/PEGI text label alongside it). This same setting is also shown on the main Parental Controls screen, above the player picker.
 * **Enable Achievement/Trophy Tracking:** Adds achievement/trophy counts and recent-unlock details to the current game's Steam/Xbox/PlayStation sensor. Off by default; the recheck interval, credential overrides, and library scan fields below only take effect once this is on.
 * **Achievement/Trophy Recheck Interval:** How often to re-check for newly-earned achievements/trophies while a game keeps running. Default 900 seconds (15 min), minimum 300 (5 min).
 * **Steam Web API Key Override / PSN NPSSO Override:** *(Optional)* Only needed if the Steam /PlayStation Network integration isn't installed, or you want to use a different credential than the one already configured there. Leave blank to auto-detect. The PSN override is used by both native ratings and achievement tracking.

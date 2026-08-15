@@ -2375,11 +2375,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # Advanced Settings override for steam/psn if no owning entry is found.
         #
         # Gated per-platform on whichever toggle(s) actually need the
-        # credential: Steam/Xbox ratings need no credential at all (public
-        # store API / a sibling entity's own attribute), so only achievement
-        # tracking triggers resolution for those two. PSN ratings DO need
-        # the resolved npsso/account_id (to call get_presence()/title
-        # concepts), so PSN resolves if either toggle is on.
+        # credential: Steam ratings need no credential at all (public store
+        # API), so only achievement tracking triggers resolution for that
+        # platform. PSN ratings DO need the resolved npsso/account_id (to
+        # call get_presence()/title concepts), and Xbox ratings now also need
+        # the resolved client/xuid (for the catalog content-rating lookup in
+        # _fetch_native_rating's xbox branch, alongside the free sibling-
+        # entity min_age read that needs no credential), so both resolve if
+        # either toggle is on.
         if self._gaming_type == "steam" and utils.ENABLE_ACHIEVEMENT_TRACKING:
             self._steam_api_key, self._steam_id64 = utils.resolve_steam_credentials(
                 self.hass, self._source_entity_id
@@ -2390,7 +2393,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._psn_npsso, self._psn_account_id = utils.resolve_psn_credentials(
                 self.hass, self._source_entity_id
             )
-        elif self._gaming_type == "xbox" and utils.ENABLE_ACHIEVEMENT_TRACKING:
+        elif self._gaming_type == "xbox" and (
+            utils.ENABLE_NATIVE_RATINGS or utils.ENABLE_ACHIEVEMENT_TRACKING
+        ):
             (
                 self._xbox_config_entry,
                 self._xbox_oauth_session,
@@ -3414,7 +3419,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             if self._gaming_type == "xbox":
                                 native_platform, native_context = (
                                     "xbox",
-                                    {"min_age": platform_data.get("xbox_min_age_attr")},
+                                    {
+                                        "min_age": platform_data.get(
+                                            "xbox_min_age_attr"
+                                        ),
+                                        "xbox_config_entry": self._xbox_config_entry,
+                                        "oauth_session": self._xbox_oauth_session,
+                                        "xuid": self._xbox_xuid,
+                                    },
                                 )
                             elif self._gaming_type == "steam" and platform_data.get(
                                 "steam_appid"
@@ -4215,7 +4227,7 @@ class MasterGamingSensor(RestoreSensor):
             rating_info = active_state.attributes.get("game_content_rating") or {}
             age_floor = rating_info.get("age_floor")
             max_age_floor = rt_rule.get("max_age_floor")
-            current_game_rating = rating_info.get("esrb")
+            current_game_rating = rating_info.get("esrb") or rating_info.get("pegi")
             if (
                 age_floor is not None
                 and max_age_floor is not None

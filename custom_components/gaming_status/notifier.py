@@ -206,6 +206,7 @@ class GamingNotifier:
         DEFAULT_START = 65280  # green
         DEFAULT_STOP = 16711680  # red
         DEFAULT_INFO = 3447003  # blue
+        DEFAULT_WEEKLY = 15844367  # gold
 
         PLATFORM_COLORS = {
             "steam": 175599,  # rgb(2, 173, 239)
@@ -219,6 +220,8 @@ class GamingNotifier:
             if event_type == "start"
             else DEFAULT_STOP
             if event_type == "stop"
+            else DEFAULT_WEEKLY
+            if event_type == "weekly"
             else DEFAULT_INFO
         )
 
@@ -245,6 +248,10 @@ class GamingNotifier:
             if event_type == "stop":
                 return self._hex_to_int(
                     colors_config.get("color_end", ""), DEFAULT_STOP
+                )
+            if event_type == "weekly":
+                return self._hex_to_int(
+                    colors_config.get("color_weekly", ""), DEFAULT_WEEKLY
                 )
             return self._hex_to_int(
                 colors_config.get("color_parental", ""), DEFAULT_INFO
@@ -342,6 +349,8 @@ class GamingNotifier:
                 )
             elif event_type == "parental":
                 service_data["title"] = game_title or "Parental Controls"
+            elif event_type == "weekly":
+                service_data["title"] = game_title or "Weekly Gaming Report"
             else:
                 service_data["title"] = "Gaming Status"
 
@@ -1030,6 +1039,11 @@ class GamingNotifier:
         ):
             return
         assigned = self._cached_weekly.get("destinations", [])
+
+        if self._cached_weekly.get("style") == "rich":
+            await self._trigger_weekly_report_rich(assigned)
+            return
+
         lines = [f"**Weekly Gaming Report** — {dt_util.now().strftime('%B %d, %Y')}"]
         for player_name in self._cached_players:
             safe = safe_owner_slug(player_name)
@@ -1042,3 +1056,82 @@ class GamingNotifier:
         message = "\n".join(lines)
         for ep_id in assigned:
             await self._send_to_endpoint(ep_id, message, event_type="info")
+
+    async def _trigger_weekly_report_rich(self, assigned) -> None:
+        """Leaderboard-style weekly report: players ranked by last week's
+        hours, each shown with their top game -- a real Discord embed (with
+        artwork) for Discord destinations, and a sorted plain-text version
+        for everything else. Opt-in via style: rich (see
+        async_step_weekly_report) -- the default 'simple' style above is
+        completely untouched by this method."""
+        from .utils import _format_time, get_cached_remote_url
+
+        title = "🏆 Weekly Gaming Report"
+        players_stats = []
+        for player_name in self._cached_players:
+            safe = safe_owner_slug(player_name)
+            state = self.hass.states.get(f"sensor.gaming_status_{safe}_master")
+            if not state:
+                continue
+            attrs = state.attributes
+            hours = float(
+                attrs.get("total_weekly_hours_last_week", attrs.get("total_weekly_hours", 0))
+                or 0
+            )
+            if hours <= 0:
+                continue
+            # raw_rolling_breakdown is the trailing 7-day window, already
+            # sorted descending by hours -- its first key is a close (not
+            # exact) proxy for "top game last week," the same known
+            # rolling-vs-calendar-week tradeoff already accepted elsewhere
+            # (see the Library card's "Recently Played" sort).
+            rolling = attrs.get("raw_rolling_breakdown") or {}
+            top_game = (
+                next(iter(rolling), None) or attrs.get("last_played_game") or "Unknown"
+            )
+            players_stats.append(
+                {"name": player_name, "hours": hours, "top_game": top_game}
+            )
+
+        players_stats.sort(key=lambda p: p["hours"], reverse=True)
+
+        if not players_stats:
+            message = "No gaming activity this week."
+            for ep_id in assigned:
+                await self._send_to_endpoint(
+                    ep_id, message, game_title=title, event_type="weekly"
+                )
+            return
+
+        total_hours = sum(p["hours"] for p in players_stats)
+        player_word = "player" if len(players_stats) == 1 else "players"
+        total_line = (
+            f"Total: {_format_time(total_hours * 3600)} across "
+            f"{len(players_stats)} {player_word}"
+        )
+
+        discord_message = "\n".join(
+            f"**{i + 1}. {p['name']}** — {_format_time(p['hours'] * 3600)} — {p['top_game']}"
+            for i, p in enumerate(players_stats)
+        ) + f"\n\n{total_line}"
+
+        plain_message = "\n".join(
+            f"{i + 1}. {p['name']} - {_format_time(p['hours'] * 3600)} - {p['top_game']}"
+            for i, p in enumerate(players_stats)
+        ) + f"\n{total_line}"
+
+        top_game = players_stats[0]["top_game"]
+        image_url = get_cached_remote_url(top_game, "hero") or get_cached_remote_url(
+            top_game, "grid"
+        )
+
+        for ep_id in assigned:
+            ep_type = self._cached_endpoints.get(ep_id, {}).get("type")
+            message = discord_message if ep_type == "Discord" else plain_message
+            await self._send_to_endpoint(
+                ep_id,
+                message,
+                image_url=image_url,
+                game_title=title,
+                event_type="weekly",
+            )

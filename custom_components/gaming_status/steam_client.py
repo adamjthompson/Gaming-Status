@@ -101,11 +101,14 @@ class SteamClient:
 
     async def async_get_schema_for_game(self, appid: int) -> dict:
         """Returns {"total_achievements": int, "display_names": {apiname: str},
-        "icons": {apiname: str}}. total_achievements is 0 (not an error) for
-        a game with no achievements at all. `icons` holds each achievement's
-        unlocked-state icon URL (Steam's `icon` field -- there's also an
-        `icongray` locked-state variant, not needed here since this is only
-        ever used for already-earned unlocks)."""
+        "icons": {apiname: str}, "descriptions": {apiname: str}}.
+        total_achievements is 0 (not an error) for a game with no achievements
+        at all. `icons` holds each achievement's unlocked-state icon URL
+        (Steam's `icon` field -- there's also an `icongray` locked-state
+        variant, not needed here since this is only ever used for
+        already-earned unlocks). `descriptions` holds each achievement's
+        flavor text, omitted entirely for entries Steam didn't provide one for
+        (some achievements, especially "secret" ones, have no description)."""
         data = await self._get("ISteamUserStats/GetSchemaForGame/v2/", {"appid": appid})
         game = (data or {}).get("game") or {}
         achievements = (
@@ -121,10 +124,16 @@ class SteamClient:
             for entry in achievements
             if entry.get("name") and entry.get("icon")
         }
+        descriptions = {
+            entry["name"]: entry.get("description")
+            for entry in achievements
+            if entry.get("name") and entry.get("description")
+        }
         return {
             "total_achievements": len(achievements),
             "display_names": display_names,
             "icons": icons,
+            "descriptions": descriptions,
         }
 
     async def async_get_player_achievements(
