@@ -2535,46 +2535,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._all_time_session_count = 0
             self._all_time_seeded = False
 
-        if self._clear_achievements_requested:
-            self._recent_achievements = []
-            self._cached_recent_unlocks = []
-            # Immediate, awaited save (not the usual delayed save) -- the
-            # flag-reset below triggers a config-entry reload of its own,
-            # and a delayed save's timer would get cancelled by that reload
-            # tearing this entity down before it ever fires, silently
-            # discarding the wipe.
-            await self._store.async_save(self._get_store_data())
-            _LOGGER.warning(
-                "Gaming Status: cleared achievement/trophy history for %s (%s) "
-                "via the 'Clear achievement/trophy history' player option",
-                self._owner_name,
-                self._gaming_type,
-            )
-            # Self-reset the checkbox that requested this, so it only ever
-            # fires once instead of wiping every future achievement too.
-            # Done here (immediately after the save completes), not from
-            # async_setup_entry after constructing every sensor, since
-            # async_add_entities there doesn't wait for async_added_to_hass
-            # to actually finish -- that ordering could flip the flag back
-            # off before this wipe ever ran. A player with 2-3 tracked
-            # platforms may harmlessly repeat this write once per platform
-            # (each converges on the same final "off" value, just a few
-            # redundant reloads, not a correctness issue).
-            if self._config_entry is not None:
-                current_players = _load_opt_json(
-                    self._config_entry.options, OPT_PLAYERS, {}
-                )
-                player_entry = current_players.get(self._owner_name)
-                if isinstance(player_entry, dict) and player_entry.get(
-                    "clear_achievements"
-                ):
-                    player_entry["clear_achievements"] = False
-                    new_options = dict(self._config_entry.options)
-                    new_options[OPT_PLAYERS] = json.dumps(current_players)
-                    self.hass.config_entries.async_update_entry(
-                        self._config_entry, options=new_options
-                    )
-
         # --- TEMPORARY ONE-OFF MIGRATION -- SAFE TO DELETE THIS BLOCK ---
         # Re-cleans already-recorded recent_achievements "game" names that
         # predate _ingest_recent_unlocks's game-name-refresh fix. Existing
@@ -2891,6 +2851,60 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         ]:
             if legacy_debug in self._attr_extra_state_attributes:
                 del self._attr_extra_state_attributes[legacy_debug]
+
+        if self._clear_achievements_requested:
+            # Must run AFTER the RestoreEntity block above, not before it --
+            # that block (a) unconditionally overwrites the whole
+            # _attr_extra_state_attributes dict with the last-known-state
+            # snapshot (line ~2843's `dict(attrs)`), and (b) re-populates
+            # _cached_recent_unlocks from that same stale snapshot whenever
+            # it's falsy (`if not getattr(self, "_cached_recent_unlocks", ...)`
+            # -- an empty list IS falsy), silently re-importing the exact
+            # data this is supposed to wipe. Running this block last means
+            # nothing downstream in this method can undo it.
+            self._recent_achievements = []
+            self._cached_recent_unlocks = []
+            self._attr_extra_state_attributes["recent_achievements"] = []
+            if self._gaming_type in ("xbox", "steam"):
+                self._attr_extra_state_attributes["recent_unlocked_achievements"] = []
+            elif self._gaming_type == "playstation":
+                self._attr_extra_state_attributes["recent_unlocked_trophies"] = []
+            # Immediate, awaited save (not the usual delayed save) -- the
+            # flag-reset below triggers a config-entry reload of its own,
+            # and a delayed save's timer would get cancelled by that reload
+            # tearing this entity down before it ever fires, silently
+            # discarding the wipe.
+            await self._store.async_save(self._get_store_data())
+            _LOGGER.warning(
+                "Gaming Status: cleared achievement/trophy history for %s (%s) "
+                "via the 'Clear achievement/trophy history' player option",
+                self._owner_name,
+                self._gaming_type,
+            )
+            # Self-reset the checkbox that requested this, so it only ever
+            # fires once instead of wiping every future achievement too.
+            # Done here (immediately after the save completes), not from
+            # async_setup_entry after constructing every sensor, since
+            # async_add_entities there doesn't wait for async_added_to_hass
+            # to actually finish -- that ordering could flip the flag back
+            # off before this wipe ever ran. A player with 2-3 tracked
+            # platforms may harmlessly repeat this write once per platform
+            # (each converges on the same final "off" value, just a few
+            # redundant reloads, not a correctness issue).
+            if self._config_entry is not None:
+                current_players = _load_opt_json(
+                    self._config_entry.options, OPT_PLAYERS, {}
+                )
+                player_entry = current_players.get(self._owner_name)
+                if isinstance(player_entry, dict) and player_entry.get(
+                    "clear_achievements"
+                ):
+                    player_entry["clear_achievements"] = False
+                    new_options = dict(self._config_entry.options)
+                    new_options[OPT_PLAYERS] = json.dumps(current_players)
+                    self.hass.config_entries.async_update_entry(
+                        self._config_entry, options=new_options
+                    )
 
         self.async_on_remove(
             async_track_time_interval(
