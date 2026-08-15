@@ -300,7 +300,7 @@
           "game_transition_grace_seconds": "Bridges small gaps between game launches so sessions stay continuous. Default: 120 (2 min)",
           "min_session_duration": "Sessions shorter than this are not counted in history. Default: 300 (5 min)",
           "master_handoff_grace_seconds": "Only lets a newer game on another platform take over once the currently shown platform's own connection has been stuck (offline-grace/ghosted) this long. Prevents notification spam from brief connectivity blips. Default: 300 (5 min). Set to 0 to disable.",
-          "reset_history": "Clear all accumulated session history when Home Assistant restarts.",
+          "reset_history": "Clear all accumulated session history when Home Assistant restarts. Applies once on the next restart, then automatically switches back off.",
           "remove_disabled_sensors": "Automatically deletes sensors from Home Assistant for platforms you have unchecked in the Global Settings menu.",
           "enable_ps3_tracking": "Adds a 'PS3 Media Player' field to PlayStation-enabled player profiles, so a PS3's media_player entity can feed into that player's existing PlayStation sensor."
         }

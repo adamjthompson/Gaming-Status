@@ -77,7 +77,7 @@ These settings allow you to adjust caching, override the default grace periods (
 
 **Mnimum session duration:** Default: 300. Game sessions shorter than this are discarded from history and do not count toward playtime totals and will not display on the dashboard.
 
-**Reset play history on restart:** *Use this with EXTREME caution: It will nuke all of your collected playtime history. If used, be sure to return it to "false" after restarting or each restart of the integration will wipe your stats!*
+**Reset play history on restart:** *Use this with EXTREME caution: It will nuke all of your collected playtime/session history for every player — daily and weekly totals, all-time totals, and the recent sessions log. Applies once on the next restart, then automatically switches itself back off — unlike some other settings, you don't need to remember to undo it. Does NOT touch achievement/trophy history; use each player's own "Clear achievement/trophy history" option for that instead.*
 
 ---
 

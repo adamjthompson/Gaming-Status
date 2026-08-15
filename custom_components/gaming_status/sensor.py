@@ -2666,6 +2666,76 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         if self._active_settings["RESET_HISTORY"]:
             self._attr_native_value = "Offline"
             self._attr_extra_state_attributes = {}
+            # Actually wipe the persisted playtime/session history -- the
+            # option's own name/description always implied this, but it
+            # previously only blanked the displayed attributes for one load
+            # cycle; stored_data (just loaded above) had already repopulated
+            # every one of these fields with the real history, so it must be
+            # explicitly overridden here, not left to whatever stored_data
+            # set. Deliberately does NOT touch _recent_achievements/
+            # _cached_recent_unlocks -- achievement/trophy history has its
+            # own separate, dedicated "Clear achievement/trophy history"
+            # player option instead, so the two stay independently scoped.
+            self._play_history = {}
+            self._recent_sessions = []
+            self._backup_last_session_time = 0
+            self._backup_last_online_timestamp = None
+            self._backup_last_played_game = None
+            self._backup_last_game_stopped_timestamp = None
+            self._temp_offline_start = None
+            self._daily_play_time_yesterday = 0
+            self._last_reset_date = None
+            self._last_weekly_reset = None
+            self._last_session_play_time = 0
+            self._weekly_game_breakdown = {}
+            self._longest_session_details = {"game": None, "duration": 0}
+            self._session_ticks_persistent = {}
+            self._active_elsewhere_blocked_seconds = {}
+            self._all_time_game_seconds = {}
+            self._all_time_session_count = 0
+            self._daily_play_time = 0
+            self._weekly_play_time = 0
+            self._weekly_play_time_last_week = 0
+            self._last_played_game = None
+            # Immediate, awaited save (not the usual delayed save) -- same
+            # reasoning as the achievements checkbox's own fix: the
+            # self-reset write-back below triggers a config-entry reload of
+            # its own, and a delayed save's timer would get cancelled by
+            # that reload tearing this entity down before it ever fires,
+            # silently discarding the wipe.
+            await self._store.async_save(self._get_store_data())
+            _LOGGER.warning(
+                "Gaming Status: cleared play/session history for %s (%s) "
+                "via 'Reset play history on restart'",
+                self._owner_name,
+                self._gaming_type,
+            )
+            # Self-reset the global "Reset play history on restart" toggle,
+            # so it only ever applies once instead of wiping every future
+            # restart -- same self-terminating idea as the per-player
+            # "Clear achievement/trophy history" checkbox. Safe to skip the
+            # elif last_state restoration branch here (unlike that
+            # checkbox's own fix): this branch is a mutually exclusive
+            # alternative to it, not something that runs before it, so
+            # there's no later restoration step that could undo this write.
+            # RESET_HISTORY is a single flat global option (not per-player),
+            # and this same shared active_settings dict is seen by every
+            # player's every platform sensor on this reload -- each one
+            # harmlessly repeating this write converges on the same final
+            # "off" value, just redundant extra writes, not a correctness
+            # issue (same tradeoff already accepted for the achievements
+            # checkbox, just fanned out across every tracked sensor here).
+            if self._config_entry is not None:
+                new_options = dict(self._config_entry.options)
+                if new_options.get(OPT_RESET_HISTORY):
+                    new_options[OPT_RESET_HISTORY] = False
+                    self.hass.config_entries.async_update_entry(
+                        self._config_entry, options=new_options
+                    )
+                    _LOGGER.warning(
+                        "Gaming Status: 'Reset play history on restart' applied -- "
+                        "switching the option back off automatically"
+                    )
         elif last_state:
             self._attr_native_value = last_state.state
             attrs = last_state.attributes
