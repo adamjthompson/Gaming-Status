@@ -364,7 +364,7 @@ Renames a game across a player's stored history (recent sessions, daily/weekly b
 | `new_name` | Yes | The name to rename it to, e.g. `DOOM Eternal` |
 
 **`gaming_status.delete_game`**
-Permanently purges every trace of a named game from a player's stored history — every recorded session, today's live totals, and every archived day's contribution to daily/weekly breakdowns. **This cannot be undone.**
+Permanently purges every trace of a named game from a player's stored history — every recorded session, today's live totals, every archived day's contribution to daily/weekly breakdowns, and any recorded achievement/trophy unlocks for that game. **This cannot be undone.**
 
 | Field | Required | Description |
 | --- | --- | --- |

@@ -1991,6 +1991,24 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._last_played_game = None
             purged = True
 
+        # 6. Achievement/trophy unlock history -- both the cumulative,
+        #    cross-session list and, if this is the currently active game,
+        #    the current-game snapshot exposed as recent_unlocked_achievements/
+        #    recent_unlocked_trophies -- so "permanently purge every trace"
+        #    actually holds for achievement data too, not just playtime.
+        before = len(self._recent_achievements)
+        self._recent_achievements = [
+            entry
+            for entry in self._recent_achievements
+            if not self._game_name_matches(entry.get("game"), clean_target)
+        ]
+        purged = purged or (len(self._recent_achievements) != before)
+        if self._cached_recent_unlocks and self._game_name_matches(
+            self._current_game, clean_target
+        ):
+            self._cached_recent_unlocks = []
+            purged = True
+
         if not purged:
             _LOGGER.warning(
                 "Gaming Status: delete_game found no match for %r on %s",
