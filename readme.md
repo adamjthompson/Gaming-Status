@@ -94,6 +94,7 @@ Add, edit, or delete the gamers in your household.
   * **Session Notifications:** Select notification methods for when this specific player starts or stops gaming. *Note: These must be configured under Notifications.*
   * **Suppress other players' Xbox sensors:** Configured on the player whose *own* sensor(s) are accurate. Pick which other players' Xbox sensors should be suppressed whenever this player is confirmed playing on any of their own enabled platforms — including their own Xbox sensor. Fixes a shared-PC Xbox app misattributing this player's session to someone else's Xbox account. *Only for cross-player mixups; the same player's own overlapping sensors are already handled automatically.*
   * **Exclude Games:** Comma-separated list of games to ignore for this specific player — applies to both current-game tracking and their full game library scan (see [Overrides & Exclusions](#5-overrides--exclusions) below for exactly how matching works).
+  * **Clear achievement/trophy history:** *Use with caution.* Permanently deletes this player's entire recorded achievement/trophy unlock history, across every platform they're tracked on. Applies once on the next reload, then automatically switches itself back off — unlike other settings, you don't need to remember to undo it.
 
 #### 2. Notifications (Requires Global Toggle)
 Manage where your [gaming alerts and weekly reports](docs/notifications.md) are sent.

@@ -118,13 +118,15 @@
           "notify_start_destinations": "Session Start Notification(s)",
           "notify_end_destinations": "Session End Notification(s)",
           "suppresses_xbox_sensors": "Suppress other players' Xbox sensors",
-          "exclude_games": "Games to exclude (one per line)"
+          "exclude_games": "Games to exclude (one per line)",
+          "clear_achievements": "Clear achievement/trophy history"
         },
         "data_description": {
           "notify_start_destinations": "Select notification method(s) when this player starts gaming.",
           "notify_end_destinations": "Select notification method(s) when this player stops gaming.",
           "suppresses_xbox_sensors": "When this player is confirmed playing on any of their own sensors, block the selected Xbox sensor(s) from also claiming the same game.",
-          "exclude_games": "Game titles to ignore for this player, one per line."
+          "exclude_games": "Game titles to ignore for this player, one per line.",
+          "clear_achievements": "Use with caution: permanently deletes this player's entire recorded achievement/trophy unlock history, across every platform. Applies once on the next reload, then automatically switches back off. This cannot be undone."
         }
       },
       "notifications": {

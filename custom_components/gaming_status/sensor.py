@@ -199,6 +199,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         available_avatars=None,
         ps3_entity_id=None,
         device_info=None,
+        clear_achievements_requested=False,
+        config_entry=None,
     ):
 
         # --- SILENT AUTO-CORRECTION FOR CONSOLES ---
@@ -354,6 +356,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._xbox_config_entry = None
         self._xbox_oauth_session = None
         self._xbox_xuid = None
+
+        # One-shot: consumed and cleared by async_added_to_hass on the very
+        # next load, which also flips the "Clear achievement/trophy
+        # history" checkbox itself back off (self._config_entry below), so
+        # this only ever fires once per checkbox toggle, not on every
+        # future restart.
+        self._clear_achievements_requested = clear_achievements_requested
+        self._config_entry = config_entry
 
         self._current_game = None
         self._play_start_time = None
@@ -2524,6 +2534,46 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._all_time_game_seconds = {}
             self._all_time_session_count = 0
             self._all_time_seeded = False
+
+        if self._clear_achievements_requested:
+            self._recent_achievements = []
+            self._cached_recent_unlocks = []
+            # Immediate, awaited save (not the usual delayed save) -- the
+            # flag-reset below triggers a config-entry reload of its own,
+            # and a delayed save's timer would get cancelled by that reload
+            # tearing this entity down before it ever fires, silently
+            # discarding the wipe.
+            await self._store.async_save(self._get_store_data())
+            _LOGGER.warning(
+                "Gaming Status: cleared achievement/trophy history for %s (%s) "
+                "via the 'Clear achievement/trophy history' player option",
+                self._owner_name,
+                self._gaming_type,
+            )
+            # Self-reset the checkbox that requested this, so it only ever
+            # fires once instead of wiping every future achievement too.
+            # Done here (immediately after the save completes), not from
+            # async_setup_entry after constructing every sensor, since
+            # async_add_entities there doesn't wait for async_added_to_hass
+            # to actually finish -- that ordering could flip the flag back
+            # off before this wipe ever ran. A player with 2-3 tracked
+            # platforms may harmlessly repeat this write once per platform
+            # (each converges on the same final "off" value, just a few
+            # redundant reloads, not a correctness issue).
+            if self._config_entry is not None:
+                current_players = _load_opt_json(
+                    self._config_entry.options, OPT_PLAYERS, {}
+                )
+                player_entry = current_players.get(self._owner_name)
+                if isinstance(player_entry, dict) and player_entry.get(
+                    "clear_achievements"
+                ):
+                    player_entry["clear_achievements"] = False
+                    new_options = dict(self._config_entry.options)
+                    new_options[OPT_PLAYERS] = json.dumps(current_players)
+                    self.hass.config_entries.async_update_entry(
+                        self._config_entry, options=new_options
+                    )
 
         # --- TEMPORARY ONE-OFF MIGRATION -- SAFE TO DELETE THIS BLOCK ---
         # Re-cleans already-recorded recent_achievements "game" names that
@@ -5253,6 +5303,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     for player_name, player_data in players.items():
         exclude_games = player_data.get("exclude_games", [])
+        clear_achievements_requested = player_data.get("clear_achievements", False)
         rules = parental_rules.get(player_name, {})
         safe_owner = safe_owner_slug(player_name)
         device_info = player_device_info(
@@ -5299,6 +5350,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     available_avatars,
                     ps3_entity_id=ps3_entity_id,
                     device_info=device_info,
+                    clear_achievements_requested=clear_achievements_requested,
+                    config_entry=config_entry,
                 )
                 ents.append(sensor_entity)
                 hass.data.setdefault(DOMAIN, {}).setdefault("platform_sensors", {})[

@@ -844,6 +844,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             existing["exclude_games"] = [
                 e.strip() for e in exclude_raw.splitlines() if e.strip()
             ]
+            existing["clear_achievements"] = user_input.get(
+                "clear_achievements", False
+            )
 
             # Only update destinations if the UI actually displayed them
             if notifications_enabled:
@@ -906,6 +909,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional(
                     "exclude_games", description={"suggested_value": exclude_default}
                 ): selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
+                vol.Optional(
+                    "clear_achievements",
+                    default=existing.get("clear_achievements", False),
+                ): bool,
             }
         )
 
