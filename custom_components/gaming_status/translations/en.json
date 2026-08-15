@@ -126,7 +126,7 @@
           "notify_end_destinations": "Select notification method(s) when this player stops gaming.",
           "suppresses_xbox_sensors": "When this player is confirmed playing on any of their own sensors, block the selected Xbox sensor(s) from also claiming the same game.",
           "exclude_games": "Game titles to ignore for this player, one per line.",
-          "clear_achievements": "Use with caution: permanently deletes this player's entire recorded achievement/trophy unlock history, across every platform. Applies once on the next reload, then automatically switches back off. This cannot be undone."
+          "clear_achievements": "Use with caution: Permanently deletes this player's entire recorded achievement/trophy unlock history, across every platform. Applies once on the next reload, then automatically switches back off. This cannot be undone."
         }
       },
       "notifications": {
