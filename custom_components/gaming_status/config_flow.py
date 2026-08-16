@@ -844,9 +844,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             existing["exclude_games"] = [
                 e.strip() for e in exclude_raw.splitlines() if e.strip()
             ]
-            existing["clear_achievements"] = user_input.get(
-                "clear_achievements", False
-            )
+            existing["clear_achievements"] = user_input.get("clear_achievements", False)
 
             # Only update destinations if the UI actually displayed them
             if notifications_enabled:

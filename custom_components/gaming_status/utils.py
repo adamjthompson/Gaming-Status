@@ -127,7 +127,9 @@ def compile_title_cleanups():
         try:
             compiled.append(re.compile(pattern, re.IGNORECASE))
         except re.error as err:
-            _LOGGER.warning("Skipping invalid Title Cleanups pattern %r: %s", pattern, err)
+            _LOGGER.warning(
+                "Skipping invalid Title Cleanups pattern %r: %s", pattern, err
+            )
     COMPILED_TITLE_CLEANUPS = compiled
 
 

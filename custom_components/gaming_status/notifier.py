@@ -1075,7 +1075,9 @@ class GamingNotifier:
                 continue
             attrs = state.attributes
             hours = float(
-                attrs.get("total_weekly_hours_last_week", attrs.get("total_weekly_hours", 0))
+                attrs.get(
+                    "total_weekly_hours_last_week", attrs.get("total_weekly_hours", 0)
+                )
                 or 0
             )
             if hours <= 0:
@@ -1110,15 +1112,21 @@ class GamingNotifier:
             f"{len(players_stats)} {player_word}"
         )
 
-        discord_message = "\n".join(
-            f"**{i + 1}. {p['name']}** — {_format_time(p['hours'] * 3600)} — {p['top_game']}"
-            for i, p in enumerate(players_stats)
-        ) + f"\n\n{total_line}"
+        discord_message = (
+            "\n".join(
+                f"**{i + 1}. {p['name']}** — {_format_time(p['hours'] * 3600)} — {p['top_game']}"
+                for i, p in enumerate(players_stats)
+            )
+            + f"\n\n{total_line}"
+        )
 
-        plain_message = "\n".join(
-            f"{i + 1}. {p['name']} - {_format_time(p['hours'] * 3600)} - {p['top_game']}"
-            for i, p in enumerate(players_stats)
-        ) + f"\n{total_line}"
+        plain_message = (
+            "\n".join(
+                f"{i + 1}. {p['name']} - {_format_time(p['hours'] * 3600)} - {p['top_game']}"
+                for i, p in enumerate(players_stats)
+            )
+            + f"\n{total_line}"
+        )
 
         top_game = players_stats[0]["top_game"]
         image_url = get_cached_remote_url(top_game, "hero") or get_cached_remote_url(
