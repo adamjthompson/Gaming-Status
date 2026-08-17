@@ -872,8 +872,18 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                         title_id=np_comm_id,
                         include_recent_unlocks=True,
                     )
-                    if detail is not None:
-                        if target_sensor is not None and detail.get("recent_unlocks"):
+                    # detail.get("recent_unlocks") must also be checked, not
+                    # just `detail is not None` -- we already know
+                    # total_earned > 0 to have reached this branch at all, so
+                    # a "successful" fetch with an empty recent_unlocks here
+                    # is almost certainly the same silent mid-fetch failure
+                    # async_get_title_trophies_with_progress can produce
+                    # (see psn_client.py), not a genuine "nothing new."
+                    # Treating it identically to a failed fetch (cursor
+                    # untouched) lets the next scan retry instead of
+                    # permanently losing this title's new unlock detail.
+                    if detail is not None and detail.get("recent_unlocks"):
+                        if target_sensor is not None:
                             target_sensor._ingest_recent_unlocks(
                                 detail["recent_unlocks"],
                                 game_name=name,
@@ -888,7 +898,8 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                             )
                         psn_cursor[np_comm_id] = last_updated
                         psn_done[np_comm_id] = True
-                    # else: failed -- cursor untouched, retried next cycle.
+                    # else: failed, or succeeded with nothing new found --
+                    # cursor untouched, retried next cycle.
 
             games.append(
                 {
@@ -1087,6 +1098,33 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 if detail is None:
                     # See the matching Xbox comment above -- same head-of-
                     # line-blocking risk applies here.
+                    attempts[np_comm_id] = attempts.get(np_comm_id, 0) + 1
+                    if attempts[np_comm_id] >= LIBRARY_BACKFILL_MAX_ATTEMPTS:
+                        _LOGGER.warning(
+                            "Gaming Status: giving up on trophy detail for PlayStation title '%s' "
+                            "(id %s) after %d failed attempts -- keeping its existing summary "
+                            "counts without per-trophy unlock detail",
+                            game["title"],
+                            np_comm_id,
+                            attempts[np_comm_id],
+                        )
+                        done[np_comm_id] = True
+                        attempts.pop(np_comm_id, None)
+                        resolved += 1
+                    continue
+                # Unlike a fully-failed fetch (detail is None, handled
+                # above), `detail` can succeed with a legitimately empty
+                # recent_unlocks -- a title can have achievements_total > 0
+                # but zero actually earned, in which case there's nothing to
+                # list and that's correct, not a bug. Only treat an empty
+                # result as suspicious (and thus retry it) when this SAME
+                # fetch's own reliable summary half says trophies genuinely
+                # ARE earned -- that combination (earned > 0, recent_unlocks
+                # empty) is the exact silent mid-fetch failure
+                # async_get_title_trophies_with_progress can produce (see
+                # psn_client.py), not a real "nothing to find."
+                total_earned_in_detail = sum((detail.get("earned") or {}).values())
+                if total_earned_in_detail > 0 and not detail.get("recent_unlocks"):
                     attempts[np_comm_id] = attempts.get(np_comm_id, 0) + 1
                     if attempts[np_comm_id] >= LIBRARY_BACKFILL_MAX_ATTEMPTS:
                         _LOGGER.warning(

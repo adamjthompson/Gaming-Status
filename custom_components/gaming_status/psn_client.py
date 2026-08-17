@@ -477,6 +477,12 @@ class PsnClient:
                 params={"npServiceName": "trophy"},
             )
             if status != 200:
+                _LOGGER.debug(
+                    "[Gaming Status] PSN trophy metadata fetch failed for "
+                    "np_communication_id %s (HTTP %s)",
+                    np_communication_id,
+                    status,
+                )
                 return []
             status, progress_body = await self._authenticated_request(
                 "GET",
@@ -484,6 +490,12 @@ class PsnClient:
                 params={"npServiceName": "trophy"},
             )
             if status != 200:
+                _LOGGER.debug(
+                    "[Gaming Status] PSN trophy progress fetch failed for "
+                    "np_communication_id %s (HTTP %s)",
+                    np_communication_id,
+                    status,
+                )
                 return []
 
             meta_by_id = {
@@ -508,5 +520,17 @@ class PsnClient:
                     }
                 )
             return results
-        except (NetworkError, RateLimitedError, ReauthRequiredError, AuthError):
+        except (
+            NetworkError,
+            RateLimitedError,
+            ReauthRequiredError,
+            AuthError,
+            MalformedResponseError,
+        ) as e:
+            _LOGGER.debug(
+                "[Gaming Status] PSN trophy detail fetch failed for "
+                "np_communication_id %s: %s",
+                np_communication_id,
+                e,
+            )
             return []

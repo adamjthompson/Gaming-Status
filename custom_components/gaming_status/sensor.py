@@ -1426,8 +1426,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         fetcher caps its own list at RECENT_UNLOCKS_LIMIT), but that's
         enough for a manual refresh to backfill icons onto whatever's
         still within that window without needing a special one-time
-        migration path. unlocked_at/hero_art_url/game_dominant_color are
-        deliberately left alone here -- those reflect the entry's original
+        migration path. This now also covers unlocked_at (see below) --
+        PSN's per-trophy earned_at can lag behind the tier-count summary
+        that earned/total come from, so a trophy is sometimes first
+        recorded with no timestamp yet, then dated correctly once a later
+        fetch catches up. hero_art_url/game_dominant_color are still
+        deliberately left alone -- those reflect the entry's original
         discovery context, not something a later fetch should overwrite.
         """
         game_name = game_name or self._current_game
@@ -1466,7 +1470,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 # that's the entire reason console is part of this key.
                 existing = existing_by_key.get((game_key, None, unlock.get("name")))
             if existing is not None:
-                for field in ("icon_url", "description", "tier"):
+                for field in ("icon_url", "description", "tier", "unlocked_at"):
                     if not existing.get(field) and unlock.get(field):
                         existing[field] = unlock.get(field)
                         patched = True
@@ -1501,13 +1505,17 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._recent_achievements.insert(0, new_entry)
             existing_by_key[key] = new_entry
             inserted = True
-        if inserted:
+        if inserted or patched:
+            # Also re-sort on a patch-only pass (not just insert): a
+            # retroactively-filled unlocked_at (see the field list above)
+            # can change where this entry belongs in newest-first order --
+            # leaving it unsorted risks it being trimmed from the bottom
+            # below even though it should now rank near the top.
             self._recent_achievements.sort(
                 key=lambda a: a.get("unlocked_at") or "", reverse=True
             )
             if len(self._recent_achievements) > MAX_RECENT_ACHIEVEMENT_UNLOCKS:
                 del self._recent_achievements[MAX_RECENT_ACHIEVEMENT_UNLOCKS:]
-        if inserted or patched:
             self._store.async_delay_save(self._get_store_data, 5.0)
 
     def _get_session_info(self):

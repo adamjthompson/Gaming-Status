@@ -1330,10 +1330,15 @@ async def fetch_psn_trophies(
             trophies = await client.async_get_title_trophies_with_progress(
                 account_id, np_communication_id
             )
-            earned_trophies = [
-                t for t in trophies if t.get("earned") and t.get("earned_at")
-            ]
-            earned_trophies.sort(key=lambda t: t["earned_at"], reverse=True)
+            # Only require "earned" -- Sony's per-trophy detail endpoint
+            # (which this list comes from) is known to sometimes lag behind
+            # the tier-count summary endpoint (which the aggregate earned/
+            # total counts above come from), so a trophy can be genuinely
+            # earned before its own earned_at timestamp is populated here.
+            # Excluding it entirely on a missing timestamp silently drops a
+            # real unlock rather than just showing it undated.
+            earned_trophies = [t for t in trophies if t.get("earned")]
+            earned_trophies.sort(key=lambda t: t.get("earned_at") or "", reverse=True)
             result["recent_unlocks"] = [
                 {
                     "name": t.get("name"),
