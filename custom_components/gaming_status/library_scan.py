@@ -1087,6 +1087,13 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 return resolved
             for game in pending[:budget]:
                 np_comm_id = str(game["id"])
+                _LOGGER.debug(
+                    "Gaming Status: backfill attempting PlayStation title '%s' "
+                    "(id %s), attempt %d",
+                    game["title"],
+                    np_comm_id,
+                    attempts.get(np_comm_id, 0) + 1,
+                )
                 detail = await utils.fetch_psn_trophies(
                     self.hass,
                     npsso,
@@ -1099,6 +1106,13 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                     # See the matching Xbox comment above -- same head-of-
                     # line-blocking risk applies here.
                     attempts[np_comm_id] = attempts.get(np_comm_id, 0) + 1
+                    _LOGGER.debug(
+                        "Gaming Status: backfill attempt %d for PlayStation title '%s' "
+                        "(id %s) failed -- fetch_psn_trophies returned None",
+                        attempts[np_comm_id],
+                        game["title"],
+                        np_comm_id,
+                    )
                     if attempts[np_comm_id] >= LIBRARY_BACKFILL_MAX_ATTEMPTS:
                         _LOGGER.warning(
                             "Gaming Status: giving up on trophy detail for PlayStation title '%s' "
@@ -1126,6 +1140,15 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 total_earned_in_detail = sum((detail.get("earned") or {}).values())
                 if total_earned_in_detail > 0 and not detail.get("recent_unlocks"):
                     attempts[np_comm_id] = attempts.get(np_comm_id, 0) + 1
+                    _LOGGER.debug(
+                        "Gaming Status: backfill attempt %d for PlayStation title '%s' "
+                        "(id %s) came back with %d earned trophies but an empty "
+                        "recent_unlocks -- treating as a retry-worthy silent failure",
+                        attempts[np_comm_id],
+                        game["title"],
+                        np_comm_id,
+                        total_earned_in_detail,
+                    )
                     if attempts[np_comm_id] >= LIBRARY_BACKFILL_MAX_ATTEMPTS:
                         _LOGGER.warning(
                             "Gaming Status: giving up on trophy detail for PlayStation title '%s' "
@@ -1140,6 +1163,13 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                         resolved += 1
                     continue
                 attempts.pop(np_comm_id, None)
+                _LOGGER.debug(
+                    "Gaming Status: backfill resolved PlayStation title '%s' "
+                    "(id %s) -- %d recent unlocks",
+                    game["title"],
+                    np_comm_id,
+                    len(detail.get("recent_unlocks") or []),
+                )
                 if target_sensor is not None and detail.get("recent_unlocks"):
                     art = await self._async_art_for(game["title"])
                     target_sensor._ingest_recent_unlocks(
