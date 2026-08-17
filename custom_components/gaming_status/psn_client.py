@@ -454,13 +454,23 @@ class PsnClient:
         return titles
 
     async def async_get_title_trophies_with_progress(
-        self, account_id: str, np_communication_id: str
+        self, account_id: str, np_communication_id: str, np_service_name: str = "trophy"
     ) -> list[dict]:
         """Individual trophy detail (name/description/earned/earnedDateTime)
         for one title -- feeds the recent-unlocks list, distinct from
         async_get_trophy_summary_for_title's tier-count-only summary.
         `np_communication_id` comes from that summary call's own response --
         no extra ID-resolution request needed.
+
+        `np_service_name` distinguishes Sony's two trophy-set generations --
+        "trophy" for PS3/PS4/Vita-era titles, "trophy2" for PS5-native
+        trophy sets. Confirmed live: this endpoint 404s if queried with the
+        wrong generation for a given np_communication_id, even though the
+        tier-count summary endpoint (async_get_trophy_summary_for_title)
+        doesn't care and succeeds either way -- callers should pass through
+        the `npServiceName` field from that same summary response rather
+        than relying on this method's "trophy" default, which only covers
+        the older generation.
 
         Confirmed live (psnawp_api's own trophy.py + test fixtures) that this
         genuinely requires TWO requests, not one -- metadata (name/
@@ -474,27 +484,29 @@ class PsnClient:
             status, meta_body = await self._authenticated_request(
                 "GET",
                 f"{PSN_TROPHY_API_BASE}/npCommunicationIds/{np_communication_id}/trophyGroups/all/trophies",
-                params={"npServiceName": "trophy"},
+                params={"npServiceName": np_service_name},
             )
             if status != 200:
                 _LOGGER.debug(
                     "[Gaming Status] PSN trophy metadata fetch failed for "
-                    "np_communication_id %s (HTTP %s)",
+                    "np_communication_id %s (HTTP %s, npServiceName=%s)",
                     np_communication_id,
                     status,
+                    np_service_name,
                 )
                 return []
             status, progress_body = await self._authenticated_request(
                 "GET",
                 f"{PSN_TROPHY_API_BASE}/users/{account_id}/npCommunicationIds/{np_communication_id}/trophyGroups/all/trophies",
-                params={"npServiceName": "trophy"},
+                params={"npServiceName": np_service_name},
             )
             if status != 200:
                 _LOGGER.debug(
                     "[Gaming Status] PSN trophy progress fetch failed for "
-                    "np_communication_id %s (HTTP %s)",
+                    "np_communication_id %s (HTTP %s, npServiceName=%s)",
                     np_communication_id,
                     status,
+                    np_service_name,
                 )
                 return []
 

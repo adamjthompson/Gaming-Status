@@ -1346,8 +1346,16 @@ async def fetch_psn_trophies(
                 game_name,
             )
         if include_recent_unlocks and np_communication_id:
+            # PS5-native titles are registered under a different trophy-set
+            # generation ("trophy2") than PS4/PS3/Vita-era titles ("trophy")
+            # -- confirmed live that querying with the wrong one 404s this
+            # detail endpoint even though the tier-count summary above
+            # (this same `entry`) doesn't care and always succeeds. The
+            # summary response carries which generation this title actually
+            # uses; fall back to the older default only if it's absent.
+            np_service_name = entry.get("npServiceName") or "trophy"
             trophies = await client.async_get_title_trophies_with_progress(
-                account_id, np_communication_id
+                account_id, np_communication_id, np_service_name=np_service_name
             )
             # Only require "earned" -- Sony's per-trophy detail endpoint
             # (which this list comes from) is known to sometimes lag behind
