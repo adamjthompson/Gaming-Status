@@ -1325,7 +1325,26 @@ async def fetch_psn_trophies(
             "recent_unlocks": [],
         }
 
-        np_communication_id = entry.get("npCommunicationId")
+        # Prefer the caller's own already-known title_id over re-deriving it
+        # from this response -- confirmed live that PSN's single-title
+        # npTitleIds-filtered trophyTitles lookup can omit npCommunicationId
+        # from the returned entry for some titles, even though the exact
+        # same ID was just used to filter for it. When that happens the
+        # entry-derived value is silently None/falsy, the guard below skips
+        # the detail fetch entirely, and recent_unlocks stays permanently
+        # empty with zero errors anywhere (aggregate counts still come from
+        # this same entry and stay correct, masking the gap). Only the
+        # fallback full-listing branch above (no explicit title_id) has to
+        # rely on entry.get(...) alone, since that response is confirmed to
+        # always carry the field.
+        np_communication_id = entry.get("npCommunicationId") or title_id
+        if include_recent_unlocks and not np_communication_id:
+            _LOGGER.debug(
+                "[Gaming Status] PSN trophy detail skipped for %s -- no "
+                "npCommunicationId available from either the response or "
+                "the caller",
+                game_name,
+            )
         if include_recent_unlocks and np_communication_id:
             trophies = await client.async_get_title_trophies_with_progress(
                 account_id, np_communication_id
