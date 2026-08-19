@@ -1640,7 +1640,13 @@ def top_n_games(breakdown, n=10):
 
 
 _TRADEMARK_SYMBOLS_RE = re.compile(r"[™®©]")
-_NORMALIZE_GAME_NAME_RE = re.compile(r"[,:\-™®©]")
+# Includes both the plain ASCII apostrophe and the curly/smart quote
+# variants -- live-confirmed that different Xbox title_ids for what's
+# conceptually the same franchise (e.g. separate SKUs/editions) can report
+# an otherwise-identical name with different apostrophe characters (e.g.
+# "Tom Clancy's" vs "Tom Clancy's"), which would otherwise silently defeat
+# Title Overrides and every other lookup keyed on this normalization.
+_NORMALIZE_GAME_NAME_RE = re.compile(r"[,:\-™®©'‘’]")
 
 
 def _format_game_name_for_display(game_name):
