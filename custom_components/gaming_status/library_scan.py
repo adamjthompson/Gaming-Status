@@ -567,14 +567,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             # Apply the user's Title Overrides + display cleanup, matching
             # the real-time "currently playing" pipeline (see the Steam
             # scan above for the full rationale).
-            raw_name = name
             name = utils._format_game_name_for_display(name)
-            _LOGGER.debug(
-                "Gaming Status: Xbox title (id %s) name after Title Overrides/Cleanups: %r -> %r",
-                title_id,
-                raw_name,
-                name,
-            )
             # Deliberately no Xbox equivalent of PSN's `console` field (see
             # _PSN_PLATFORM_LABELS above) -- title.devices lists every
             # device an Xbox Play Anywhere-style entitlement COVERS (often
@@ -743,13 +736,6 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         # finalized.)
         for prev_id, prev_game in previous_games.items():
             if prev_id not in seen_ids:
-                _LOGGER.debug(
-                    "Gaming Status: Xbox title '%s' (id %s) absent from this scan's "
-                    "title-history results -- carrying forward its last known data "
-                    "unchanged (Title Overrides/Cleanups are NOT reapplied here)",
-                    prev_game.get("title"),
-                    prev_id,
-                )
                 games.append(prev_game)
 
         return {"games": games, "error": fetch_error}
