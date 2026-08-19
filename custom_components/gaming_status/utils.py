@@ -1647,11 +1647,21 @@ def _format_game_name_for_display(game_name):
     if not game_name:
         return game_name
     clean_name = " ".join(str(game_name).split())
-    clean_name = GAME_TITLE_OVERRIDES.get(_normalize_game_name(clean_name), clean_name)
 
+    # Strip a " - Subtitle" suffix and trademark symbols BEFORE the Title
+    # Overrides lookup, not after -- a raw name that differs from the user's
+    # configured override only by an edition/bundle suffix (e.g. "Tom
+    # Clancy's The Division 2 - Warlords of New York Edition", which some
+    # platforms track as a distinct title from the base game) would
+    # otherwise normalize to a longer string that never matches a plain
+    # "Tom Clancy's The Division 2" override, silently leaving it
+    # unrenamed even though this same cleanup would have stripped the exact
+    # suffix a moment later.
     if " - " in clean_name:
         clean_name = clean_name.split(" - ")[0].strip()
     clean_name = _TRADEMARK_SYMBOLS_RE.sub("", clean_name).strip()
+
+    clean_name = GAME_TITLE_OVERRIDES.get(_normalize_game_name(clean_name), clean_name)
 
     for pattern in COMPILED_TITLE_CLEANUPS:
         clean_name = pattern.sub("", clean_name).strip()
