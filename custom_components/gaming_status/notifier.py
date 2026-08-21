@@ -19,6 +19,7 @@ from homeassistant.helpers.network import get_url
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    DOMAIN,
     OPT_DISCORD_COLORS,
     OPT_ENDPOINTS,
     OPT_GLOBAL_EXCLUSIONS,
@@ -201,6 +202,7 @@ class GamingNotifier:
         self,
         event_type: str,
         state_obj,
+        game_color_override: str = None,
     ) -> int:
         """Return the Discord embed color integer for this endpoint and event type."""
         DEFAULT_START = 65280  # green
@@ -235,8 +237,15 @@ class GamingNotifier:
                     return PLATFORM_COLORS[key]
             return default_for_type
 
-        if mode == "game" and state_obj:
-            hex_color = state_obj.attributes.get("game_dominant_color", "")
+        if mode == "game":
+            # For event types with no single natural state_obj (e.g. the
+            # weekly report, which aggregates multiple players) callers can
+            # pass an already-resolved color directly instead.
+            hex_color = game_color_override or (
+                state_obj.attributes.get("game_dominant_color", "")
+                if state_obj
+                else ""
+            )
             if hex_color:
                 return self._hex_to_int(hex_color, default_for_type)
 
@@ -277,6 +286,7 @@ class GamingNotifier:
         game_title: str = None,
         event_type: str = "info",
         state_obj=None,
+        game_color: str = None,
     ) -> bool:
         """Dispatch a notification to a configured endpoint."""
         dest = self._cached_endpoints.get(ep_id)
@@ -320,7 +330,9 @@ class GamingNotifier:
             if image_url and not image_url.startswith("http"):
                 image_url = None
 
-            color = self._resolve_discord_color(event_type, state_obj)
+            color = self._resolve_discord_color(
+                event_type, state_obj, game_color_override=game_color
+            )
             embed = {"color": color}
 
             # Placing text in "description" puts it INSIDE the colored bar
@@ -333,7 +345,16 @@ class GamingNotifier:
                 embed["description"] = message
 
             if image_url:
-                embed["image"] = {"url": image_url}
+                # Discord embeds have no "banner under the title" slot --
+                # only a large image (always rendered at the very bottom,
+                # below every field) or a small thumbnail (top-right,
+                # alongside the title). The weekly report wants its image
+                # near the top, so it gets the thumbnail slot; every other
+                # event type keeps the existing full-width bottom image.
+                if event_type == "weekly":
+                    embed["thumbnail"] = {"url": image_url}
+                else:
+                    embed["image"] = {"url": image_url}
 
             service_data["message"] = ""
             service_data["data"] = {"embed": embed}
@@ -1145,9 +1166,10 @@ class GamingNotifier:
             discord_message += f"\n\n{total_line}"
             plain_message += f"\n{total_line}"
 
+        top_game = players_stats[0]["top_game"]
+
         image_url = None
         if include_images:
-            top_game = players_stats[0]["top_game"]
             # Actively fetch rather than passively reading the cache -- the
             # week's top game isn't necessarily the player's currently
             # active game, so there's no guarantee its artwork was ever
@@ -1169,6 +1191,31 @@ class GamingNotifier:
                     "Gaming Status: weekly report image resolved to %r", image_url
                 )
 
+        # Only meaningful when Discord Notification Colors mode is "Game
+        # Color" -- _resolve_discord_color falls back to the default gold
+        # otherwise. No explicit color-extraction-enabled check needed:
+        # _color_history_cache is only ever populated when extraction is
+        # on, so this naturally resolves to None (and the default color)
+        # when it's off, for anyone, with no separate gate required.
+        from .library_scan import _dominant_color_for
+
+        game_color = None
+        safe_owner = safe_owner_slug(players_stats[0]["name"])
+        platform_sensors = self.hass.data.get(DOMAIN, {}).get("platform_sensors", {})
+        for entity_id, sensor_obj in platform_sensors.items():
+            if entity_id.startswith(f"sensor.gaming_status_{safe_owner}_"):
+                color = _dominant_color_for(sensor_obj, top_game)
+                if color:
+                    game_color = color
+                    break
+        _LOGGER.debug(
+            "Gaming Status: weekly report color lookup for top game '%s' "
+            "(player '%s') -- resolved to %r",
+            top_game,
+            players_stats[0]["name"],
+            game_color,
+        )
+
         for ep_id in assigned:
             ep_type = self._cached_endpoints.get(ep_id, {}).get("type")
             message = discord_message if ep_type == "Discord" else plain_message
@@ -1178,4 +1225,5 @@ class GamingNotifier:
                 image_url=image_url,
                 game_title=title,
                 event_type="weekly",
+                game_color=game_color,
             )
