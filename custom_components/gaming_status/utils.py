@@ -1933,11 +1933,22 @@ def extract_vibrant_color(image_path):
         return None
 
 
-def get_cached_remote_url(game_name, asset_type="grid"):
+def get_cached_remote_url(game_name, asset_type="grid", *, require_remote_host=True):
     """
-    Retrieve the original remote SteamGridDB URL from the cache,
-    bypassing the local file path. Useful for cloud webhooks like Discord
-    when Home Assistant lacks an external domain.
+    Retrieve the cached asset URL for a game.
+
+    By default (require_remote_host=True), only returns a URL if it still
+    points at the remote SteamGridDB CDN, bypassing any locally-cached
+    copy -- useful for cloud webhooks like Discord when Home Assistant
+    lacks an external domain and local-to-external URL construction has
+    already failed once (see GamingNotifier._make_external_url's own
+    fallback use of this function).
+
+    With require_remote_host=False, returns whatever is cached regardless
+    of host (a local-cache-baked-in URL, a bare "/local/..." path, or a
+    remote CDN URL) -- callers must run the result through
+    GamingNotifier._make_external_url() themselves before handing it to a
+    webhook, exactly as session start/stop notifications already do.
     """
     if not game_name:
         return None
@@ -1949,7 +1960,9 @@ def get_cached_remote_url(game_name, asset_type="grid"):
         return None
 
     url = cache_entry.get(asset_type)
-    if url and url_host_matches(url, "steamgriddb.com"):
-        return url
+    if not url:
+        return None
+    if require_remote_host and not url_host_matches(url, "steamgriddb.com"):
+        return None
 
-    return None
+    return url

@@ -1067,8 +1067,17 @@ class GamingNotifier:
         from .utils import _format_time, get_cached_remote_url
 
         title = "🏆 Weekly Gaming Report"
+        selected_players = self._cached_weekly.get("players", [])
+        include_zero_hours = self._cached_weekly.get("include_zero_hours", False)
+        include_images = self._cached_weekly.get("include_images", True)
+        show_top_game = self._cached_weekly.get("show_top_game", True)
+        show_rank_numbers = self._cached_weekly.get("show_rank_numbers", True)
+        show_total_summary = self._cached_weekly.get("show_total_summary", True)
+
         players_stats = []
         for player_name in self._cached_players:
+            if selected_players and player_name not in selected_players:
+                continue
             safe = safe_owner_slug(player_name)
             state = self.hass.states.get(f"sensor.gaming_status_{safe}_master")
             if not state:
@@ -1080,7 +1089,7 @@ class GamingNotifier:
                 )
                 or 0
             )
-            if hours <= 0:
+            if hours <= 0 and not include_zero_hours:
                 continue
             # raw_rolling_breakdown is the trailing 7-day window, already
             # sorted descending by hours -- its first key is a close (not
@@ -1105,33 +1114,45 @@ class GamingNotifier:
                 )
             return
 
-        total_hours = sum(p["hours"] for p in players_stats)
-        player_word = "player" if len(players_stats) == 1 else "players"
-        total_line = (
-            f"Total: {_format_time(total_hours * 3600)} across "
-            f"{len(players_stats)} {player_word}"
+        # Shared per-player line builder so the Discord and plain-text
+        # formats stay consistent by construction -- same fields shown or
+        # hidden in both, only the markdown/punctuation differs.
+        def _player_line(i, p, bold_name, dash):
+            name_part = f"{i + 1}. {p['name']}" if show_rank_numbers else p["name"]
+            if bold_name:
+                name_part = f"**{name_part}**"
+            parts = [name_part, f" {dash} {_format_time(p['hours'] * 3600)}"]
+            if show_top_game:
+                parts.append(f" {dash} {p['top_game']}")
+            return "".join(parts)
+
+        discord_message = "\n".join(
+            _player_line(i, p, bold_name=True, dash="—")
+            for i, p in enumerate(players_stats)
+        )
+        plain_message = "\n".join(
+            _player_line(i, p, bold_name=False, dash="-")
+            for i, p in enumerate(players_stats)
         )
 
-        discord_message = (
-            "\n".join(
-                f"**{i + 1}. {p['name']}** — {_format_time(p['hours'] * 3600)} — {p['top_game']}"
-                for i, p in enumerate(players_stats)
+        if show_total_summary:
+            total_hours = sum(p["hours"] for p in players_stats)
+            player_word = "player" if len(players_stats) == 1 else "players"
+            total_line = (
+                f"Total: {_format_time(total_hours * 3600)} across "
+                f"{len(players_stats)} {player_word}"
             )
-            + f"\n\n{total_line}"
-        )
+            discord_message += f"\n\n{total_line}"
+            plain_message += f"\n{total_line}"
 
-        plain_message = (
-            "\n".join(
-                f"{i + 1}. {p['name']} - {_format_time(p['hours'] * 3600)} - {p['top_game']}"
-                for i, p in enumerate(players_stats)
-            )
-            + f"\n{total_line}"
-        )
-
-        top_game = players_stats[0]["top_game"]
-        image_url = get_cached_remote_url(top_game, "hero") or get_cached_remote_url(
-            top_game, "grid"
-        )
+        image_url = None
+        if include_images:
+            top_game = players_stats[0]["top_game"]
+            raw_image_url = get_cached_remote_url(
+                top_game, "hero", require_remote_host=False
+            ) or get_cached_remote_url(top_game, "grid", require_remote_host=False)
+            if raw_image_url:
+                image_url = await self._make_external_url(raw_image_url, top_game)
 
         for ep_id in assigned:
             ep_type = self._cached_endpoints.get(ep_id, {}).get("type")

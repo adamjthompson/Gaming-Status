@@ -187,8 +187,23 @@
           "enabled": "Enable weekly report",
           "day": "Day of week",
           "time": "Send time (HH:MM)",
-          "destinations": "Notification method",
-          "style": "Report style"
+          "style": "Report style",
+          "include_zero_hours": "Include players with zero hours",
+          "include_images": "Include artwork",
+          "show_top_game": "Show each player's top game",
+          "show_rank_numbers": "Show rank numbers",
+          "show_total_summary": "Show total summary line",
+          "players": "Players to include",
+          "destinations": "Notification method"
+        },
+        "data_description": {
+          "style": "Simple: a plain, unranked line per player. Rich: players ranked by hours with their top game, a Discord embed with artwork for Discord destinations, and a sorted plain-text version for everything else.",
+          "include_zero_hours": "Rich style only. Off by default -- players with 0 hours last week are left off the report entirely, same as before this option existed.",
+          "include_images": "Rich style only. On by default -- attaches the top-ranked player's top game artwork to Discord embeds. Turn off if you don't want images.",
+          "show_top_game": "Rich style only. Shows each player's top game for the week alongside their hours.",
+          "show_rank_numbers": "Rich style only. Shows each player's numbered rank (1., 2., ...) in the list.",
+          "show_total_summary": "Rich style only. Adds a closing line with the combined total hours across everyone included.",
+          "players": "Leave blank to include every tracked player. Select specific players to limit the report to only them."
         }
       },
       "parental_controls": {

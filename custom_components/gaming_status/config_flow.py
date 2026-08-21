@@ -1137,10 +1137,14 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     async def async_step_weekly_report(self, user_input=None):
         report = _weekly_report(self._options)
         endpoints = _endpoints(self._options)
+        players = _players(self._options)
 
         endpoint_options = [
             selector.SelectOptionDict(value=k, label=v["name"])
             for k, v in endpoints.items()
+        ]
+        player_options = [
+            selector.SelectOptionDict(value=p_name, label=p_name) for p_name in players
         ]
 
         if user_input is not None:
@@ -1149,6 +1153,12 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             report["time"] = user_input.get("time", "09:00")
             report["destinations"] = user_input.get("destinations", [])
             report["style"] = user_input.get("style", "simple")
+            report["players"] = user_input.get("players", [])
+            report["include_zero_hours"] = user_input.get("include_zero_hours", False)
+            report["include_images"] = user_input.get("include_images", True)
+            report["show_top_game"] = user_input.get("show_top_game", True)
+            report["show_rank_numbers"] = user_input.get("show_rank_numbers", True)
+            report["show_total_summary"] = user_input.get("show_total_summary", True)
             self._options[OPT_WEEKLY_REPORT] = _dump_json(report)
             return await self._update_and_return()
 
@@ -1183,7 +1193,34 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
+            vol.Optional(
+                "include_zero_hours",
+                default=report.get("include_zero_hours", False),
+            ): bool,
+            vol.Optional(
+                "include_images", default=report.get("include_images", True)
+            ): bool,
+            vol.Optional(
+                "show_top_game", default=report.get("show_top_game", True)
+            ): bool,
+            vol.Optional(
+                "show_rank_numbers", default=report.get("show_rank_numbers", True)
+            ): bool,
+            vol.Optional(
+                "show_total_summary", default=report.get("show_total_summary", True)
+            ): bool,
         }
+
+        if player_options:
+            schema_dict[
+                vol.Optional("players", default=report.get("players", []))
+            ] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=player_options,
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            )
 
         if endpoint_options:
             schema_dict[
