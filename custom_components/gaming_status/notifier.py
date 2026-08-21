@@ -28,7 +28,11 @@ from .const import (
     OPT_PLAYERS,
     OPT_WEEKLY_REPORT,
 )
-from .device import safe_owner_slug
+from .device import (
+    resolve_master_entity_id,
+    resolve_pc_entity_id,
+    resolve_platform_entity_id,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,8 +60,7 @@ class GamingNotifier:
         # Built once at startup since entities require a full system reload to change
         initial_players = _load_json(self._entry.options.get(OPT_PLAYERS), {})
         self._entity_player_map = {
-            f"sensor.gaming_status_{safe_owner_slug(p)}_master": p
-            for p in initial_players
+            resolve_master_entity_id(self.hass, p): p for p in initial_players
         }
 
     # ------------------------------------------------------------------
@@ -437,19 +440,23 @@ class GamingNotifier:
         if self._cached_notify_artwork == "none":
             return None
 
-        safe = safe_owner_slug(player_name)
         old_url = (
             old_state.attributes.get(self._cached_notify_artwork) if old_state else None
         )
 
         # Check Master, Sub-Master, and all active platforms (including Discord) for artwork
         platform_entity_ids = [
-            f"sensor.gaming_status_{safe}_master",
-            f"sensor.gaming_status_{safe}_pc",
+            resolve_master_entity_id(self.hass, player_name),
+            resolve_pc_entity_id(self.hass, player_name),
         ]
         for platform in ("steam", "xbox", "playstation", "custom", "discord"):
-            if user_config.get(platform):
-                platform_entity_ids.append(f"sensor.gaming_status_{safe}_{platform}")
+            source_entity_id = user_config.get(platform)
+            if source_entity_id:
+                platform_entity_ids.append(
+                    resolve_platform_entity_id(
+                        self.hass, player_name, platform, source_entity_id
+                    )
+                )
 
         def _read_cover() -> str | None:
             """Return the preferred artwork URL found across platform sensors."""
@@ -753,8 +760,7 @@ class GamingNotifier:
         is_weekend = now_dt.weekday() >= 5
 
         for player_name, rules in self._cached_parental.items():
-            safe_player = safe_owner_slug(player_name)
-            master_entity = f"sensor.gaming_status_{safe_player}_master"
+            master_entity = resolve_master_entity_id(self.hass, player_name)
             master_state = self.hass.states.get(master_entity)
             if not master_state:
                 continue
@@ -1058,8 +1064,9 @@ class GamingNotifier:
 
         lines = [f"**Weekly Gaming Report** — {dt_util.now().strftime('%B %d, %Y')}"]
         for player_name in self._cached_players:
-            safe = safe_owner_slug(player_name)
-            state = self.hass.states.get(f"sensor.gaming_status_{safe}_master")
+            state = self.hass.states.get(
+                resolve_master_entity_id(self.hass, player_name)
+            )
             if state:
                 attrs = state.attributes
                 lines.append(
@@ -1090,8 +1097,9 @@ class GamingNotifier:
         for player_name in self._cached_players:
             if selected_players and player_name not in selected_players:
                 continue
-            safe = safe_owner_slug(player_name)
-            state = self.hass.states.get(f"sensor.gaming_status_{safe}_master")
+            state = self.hass.states.get(
+                resolve_master_entity_id(self.hass, player_name)
+            )
             if not state:
                 continue
             attrs = state.attributes
@@ -1191,10 +1199,10 @@ class GamingNotifier:
         from .library_scan import _dominant_color_for
 
         game_color = None
-        safe_owner = safe_owner_slug(players_stats[0]["name"])
+        top_player_name = players_stats[0]["name"]
         platform_sensors = self.hass.data.get(DOMAIN, {}).get("platform_sensors", {})
-        for entity_id, sensor_obj in platform_sensors.items():
-            if entity_id.startswith(f"sensor.gaming_status_{safe_owner}_"):
+        for sensor_obj in platform_sensors.values():
+            if getattr(sensor_obj, "_owner_name", None) == top_player_name:
                 color = _dominant_color_for(sensor_obj, top_game)
                 if color:
                     game_color = color

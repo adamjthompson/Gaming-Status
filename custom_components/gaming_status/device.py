@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import re
 
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN, PLATFORM_CONFIG
@@ -31,6 +32,50 @@ HUB_DEVICE_ID = "hub"
 
 def safe_owner_slug(player_name: str) -> str:
     return re.sub(r"[^a-z0-9_]", "_", player_name.lower().replace(" ", "_"))
+
+
+def resolve_registered_entity_id(hass, unique_id: str, guessed_entity_id: str) -> str:
+    """Look up a Gaming Status sensor's real, already-registered entity_id
+    by its unique_id, instead of trusting a freshly-guessed string built
+    from the player's name. Home Assistant silently re-slugifies (via its
+    own slugify()) any assigned entity_id containing adjacent/leading/
+    trailing underscores -- which safe_owner_slug's output can produce for
+    names with adjacent punctuation, e.g. "Phil (ItchyKiller23)" ->
+    "phil__itchykiller23_" -- permanently diverging from the guess from
+    then on. Falls back to the guess only if nothing is registered yet (a
+    brand-new sensor on its first-ever setup) -- self-corrects on the next
+    reload once it is."""
+    registry = er.async_get(hass)
+    return registry.async_get_entity_id("sensor", DOMAIN, unique_id) or guessed_entity_id
+
+
+def resolve_master_entity_id(hass, player_name: str) -> str:
+    safe_owner = safe_owner_slug(player_name)
+    return resolve_registered_entity_id(
+        hass,
+        f"gaming_status_{safe_owner}_master_v6",
+        f"sensor.gaming_status_{safe_owner}_master",
+    )
+
+
+def resolve_pc_entity_id(hass, player_name: str) -> str:
+    safe_owner = safe_owner_slug(player_name)
+    return resolve_registered_entity_id(
+        hass,
+        f"gaming_status_{safe_owner}_pc_v2",
+        f"sensor.gaming_status_{safe_owner}_pc",
+    )
+
+
+def resolve_platform_entity_id(
+    hass, player_name: str, platform: str, source_entity_id: str
+) -> str:
+    safe_owner = safe_owner_slug(player_name)
+    return resolve_registered_entity_id(
+        hass,
+        f"gaming_status_{safe_owner}_{source_entity_id}_tracker_v6",
+        f"sensor.gaming_status_{safe_owner}_{platform}",
+    )
 
 
 def player_device_info(

@@ -88,7 +88,12 @@ from .const import (
     PLAYER_PLATFORMS,
     ZOMBIE_ATTRIBUTES,
 )
-from .device import hub_device_info, player_device_info, safe_owner_slug
+from .device import (
+    hub_device_info,
+    player_device_info,
+    resolve_registered_entity_id,
+    safe_owner_slug,
+)
 from .library_scan import LibraryScanCoordinator
 from .library_sensor import TrophyLibraryPlatformSensor, TrophyLibrarySummarySensor
 from .utils import (
@@ -4080,14 +4085,13 @@ class MasterGamingSensor(RestoreSensor):
         self,
         hass,
         name,
-        profiles,
+        resolved_platform_entities,
         parental_rules=None,
         same_game_prefix_words=DEFAULT_SAME_GAME_PREFIX_WORDS,
         handoff_grace_seconds=DEFAULT_MASTER_HANDOFF_GRACE_SECONDS,
         device_info=None,
     ):
         self.hass = hass
-        self._profiles = profiles
         self._parental_rules = parental_rules or {}
         self._same_game_prefix_words = same_game_prefix_words
         self._handoff_grace_seconds = handoff_grace_seconds
@@ -4100,12 +4104,15 @@ class MasterGamingSensor(RestoreSensor):
         self._attr_icon = "mdi:controller"
         self._attr_entity_picture = None
         self._attr_extra_state_attributes = {}
+        # Keyed by each platform sensor's REAL, already-resolved entity_id
+        # (see resolve_registered_entity_id in device.py) -- not a guessed
+        # string re-derived from the player's name, which can permanently
+        # diverge from what Home Assistant actually registered.
         self._platform_sensors = {}
         for platform in PLATFORM_PRIORITY:
-            if profiles.get(platform):
-                self._platform_sensors[
-                    f"sensor.gaming_status_{safe_owner}_{platform}"
-                ] = platform
+            real_id = resolved_platform_entities.get(platform)
+            if real_id:
+                self._platform_sensors[real_id] = platform
 
     @property
     def available(self):
@@ -5477,6 +5484,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
         pc_platforms_present = []
         library_platform_sources = {}
+        resolved_platform_entities = {}
 
         for platform in enabled_platforms:
             entity_id = player_data.get(platform)
@@ -5509,15 +5517,25 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     config_entry=config_entry,
                 )
                 ents.append(sensor_entity)
+                # Resolve the real, already-registered entity_id via the
+                # entity registry rather than trusting sensor_entity's own
+                # guessed entity_id -- HA silently re-slugifies a guess
+                # containing adjacent/leading/trailing underscores (e.g.
+                # from a player name with punctuation) at first
+                # registration, so the guess can permanently diverge from
+                # what's actually registered. Falls back to the guess only
+                # for a brand-new sensor not yet registered anywhere.
+                real_entity_id = resolve_registered_entity_id(
+                    hass, sensor_entity._attr_unique_id, sensor_entity.entity_id
+                )
                 hass.data.setdefault(DOMAIN, {}).setdefault("platform_sensors", {})[
-                    sensor_entity.entity_id
+                    real_entity_id
                 ] = sensor_entity
+                resolved_platform_entities[platform] = real_entity_id
 
                 # Register PC platforms in strict hierarchy order for the Sub-Master
                 if platform in ["playnite", "custom", "steam", "discord"]:
-                    pc_platforms_present.append(
-                        f"sensor.gaming_status_{safe_owner}_{platform}"
-                    )
+                    pc_platforms_present.append(real_entity_id)
 
                 if platform in ("steam", "xbox", "playstation"):
                     library_platform_sources[platform] = entity_id
@@ -5548,7 +5566,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         master_sensor = MasterGamingSensor(
             hass,
             player_name,
-            player_data,
+            resolved_platform_entities,
             rules,
             active_settings["SAME_GAME_PREFIX_WORDS"],
             active_settings["MASTER_HANDOFF_GRACE_SECONDS"],
