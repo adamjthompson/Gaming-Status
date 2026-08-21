@@ -345,16 +345,7 @@ class GamingNotifier:
                 embed["description"] = message
 
             if image_url:
-                # Discord embeds have no "banner under the title" slot --
-                # only a large image (always rendered at the very bottom,
-                # below every field) or a small thumbnail (top-right,
-                # alongside the title). The weekly report wants its image
-                # near the top, so it gets the thumbnail slot; every other
-                # event type keeps the existing full-width bottom image.
-                if event_type == "weekly":
-                    embed["thumbnail"] = {"url": image_url}
-                else:
-                    embed["image"] = {"url": image_url}
+                embed["image"] = {"url": image_url}
 
             service_data["message"] = ""
             service_data["data"] = {"embed": embed}
