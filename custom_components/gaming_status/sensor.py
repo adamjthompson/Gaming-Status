@@ -4132,13 +4132,32 @@ class MasterGamingSensor(RestoreSensor):
                     self._async_platform_changed,
                 )
             )
-        await self._update_master_state()
+        await self._update_master_state_safe()
 
     @callback
     def _async_platform_changed(self, event):
-        self.hass.async_create_task(self._update_master_state())
+        self.hass.async_create_task(self._update_master_state_safe())
+
+    async def _update_master_state_safe(self):
+        """Wraps _update_master_state so unexpected/malformed data on any
+        one contributing platform sensor can't silently freeze this
+        aggregator at whatever it last wrote (or its "Offline" default, if
+        it never once succeeded since the last reload) -- a crash here is
+        always a real bug worth surfacing loudly, not a transient
+        condition to swallow quietly."""
+        try:
+            await self._update_master_state()
+        except Exception:
+            _LOGGER.error(
+                "Gaming Status: %s failed to update", self.entity_id, exc_info=True
+            )
 
     async def _update_master_state(self):
+        _LOGGER.debug(
+            "Gaming Status: %s update starting, checking %d platform(s)",
+            self.entity_id,
+            len(self._platform_sensors),
+        )
         active_sensor_id = None
         active_state = None
         total_daily_seconds = 0
@@ -4167,7 +4186,21 @@ class MasterGamingSensor(RestoreSensor):
         for platform_sensor_id, p_key in self._platform_sensors.items():
             platform_state = self.hass.states.get(platform_sensor_id)
             if not platform_state:
+                _LOGGER.debug(
+                    "Gaming Status: %s -- %s (%s) not found in hass.states",
+                    self.entity_id,
+                    platform_sensor_id,
+                    p_key,
+                )
                 continue
+            _LOGGER.debug(
+                "Gaming Status: %s -- %s (%s) state=%r timer_status=%r",
+                self.entity_id,
+                platform_sensor_id,
+                p_key,
+                platform_state.state,
+                platform_state.attributes.get("timer_status"),
+            )
 
             d_time = platform_state.attributes.get("daily_play_time")
             w_time = platform_state.attributes.get("weekly_play_time")
@@ -4743,14 +4776,14 @@ class PCGamingSensor(RestoreSensor):
                 self.hass, self._async_pc_poll, timedelta(seconds=30)
             )
         )
-        await self._update_pc_state()
+        await self._update_pc_state_safe()
 
         # FORCE UPDATE: Wait for HA to finish booting, pause 5 seconds, then check platforms again
         from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 
         async def _force_delayed_update(event=None):
             await asyncio.sleep(5)
-            await self._update_pc_state()
+            await self._update_pc_state_safe()
 
         # OPTIMIZATION: Allow Hot-Reloads to work without full system reboots
         if self.hass.is_running:
@@ -4762,13 +4795,31 @@ class PCGamingSensor(RestoreSensor):
 
     @callback
     def _async_pc_changed(self, event):
-        self.hass.async_create_task(self._update_pc_state())
+        self.hass.async_create_task(self._update_pc_state_safe())
 
     @callback
     def _async_pc_poll(self, now=None):
-        self.hass.async_create_task(self._update_pc_state())
+        self.hass.async_create_task(self._update_pc_state_safe())
+
+    async def _update_pc_state_safe(self):
+        """Wraps _update_pc_state so unexpected/malformed data on any one
+        contributing platform sensor can't silently freeze this aggregator
+        at whatever it last wrote -- a crash here is always a real bug
+        worth surfacing loudly, not a transient condition to swallow
+        quietly."""
+        try:
+            await self._update_pc_state()
+        except Exception:
+            _LOGGER.error(
+                "Gaming Status: %s failed to update", self.entity_id, exc_info=True
+            )
 
     async def _update_pc_state(self):
+        _LOGGER.debug(
+            "Gaming Status: %s update starting, checking %d entity(ies)",
+            self.entity_id,
+            len(self._pc_entities),
+        )
         # Snapshot of the previously-published state, so a poll that ends up
         # producing identical output can skip the write -- same no-change
         # guard MasterGamingSensor's equivalent aggregation already has.
@@ -4785,7 +4836,19 @@ class PCGamingSensor(RestoreSensor):
         for entity_id in self._pc_entities:
             state = self.hass.states.get(entity_id)
             if not state:
+                _LOGGER.debug(
+                    "Gaming Status: %s -- %s not found in hass.states",
+                    self.entity_id,
+                    entity_id,
+                )
                 continue
+            _LOGGER.debug(
+                "Gaming Status: %s -- %s state=%r timer_status=%r",
+                self.entity_id,
+                entity_id,
+                state.state,
+                state.attributes.get("timer_status"),
+            )
 
             # Track most recent for offline fallback
             # NEW: Only treat as an offline fallback if the integration isn't actively tracking a live or paused game

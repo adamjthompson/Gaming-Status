@@ -339,8 +339,19 @@ async def fetch_game_assets(hass, game_name):
                     f"{base_url}/local/gaming_status_cache/{file_name}?v={mt}"
                 )
 
-        def _update_cache(name, data_dict):
+        def _update_cache(name, data_dict, *, cache_as_not_found=True):
             final_dict = {k: assets[k] or data_dict.get(k) for k in assets}
+
+            # A "not found" result is only trustworthy -- and thus only
+            # worth caching for a full day -- when SteamGridDB itself was
+            # actually asked and genuinely had nothing. Callers pass
+            # cache_as_not_found=False for a missing API key or a network/
+            # request failure, neither of which is evidence the game has
+            # no art -- caching those would silently block ever retrying
+            # once the real problem (key added, connectivity restored) is
+            # fixed, since nothing else ever invalidates this cache early.
+            if not any(final_dict.values()) and not cache_as_not_found:
+                return final_dict
 
             # Cache the result either way -- including "nothing found", so a
             # title SteamGridDB has no art for doesn't re-run the full
@@ -386,11 +397,12 @@ async def fetch_game_assets(hass, game_name):
                     "[Gaming Status] SteamGridDB API key is not configured."
                 )
                 _MISSING_KEY_WARNED = True
-            return _update_cache(cache_key, assets)
+            return _update_cache(cache_key, assets, cache_as_not_found=False)
 
         # 4. Fetch from SteamGridDB
         fetched_assets = {"grid": None, "hero": None, "logo": None, "icon": None}
         headers = {"Authorization": f"Bearer {STEAMGRIDDB_API_KEY}"}
+        fetch_failed = False
 
         try:
             from .const import RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS
@@ -495,8 +507,11 @@ async def fetch_game_assets(hass, game_name):
 
         except Exception as e:
             _LOGGER.error("Failed to fetch assets for %s: %s", game_name, e)
+            fetch_failed = True
 
-        return _update_cache(cache_key, fetched_assets)
+        return _update_cache(
+            cache_key, fetched_assets, cache_as_not_found=not fetch_failed
+        )
 
     finally:
         # ALWAYS release the lock, even if the API throws an unexpected error

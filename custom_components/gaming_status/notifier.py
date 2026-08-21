@@ -1064,7 +1064,7 @@ class GamingNotifier:
         for everything else. Opt-in via style: rich (see
         async_step_weekly_report) -- the default 'simple' style above is
         completely untouched by this method."""
-        from .utils import _format_time, get_cached_remote_url
+        from .utils import _format_time, fetch_game_assets
 
         title = "🏆 Weekly Gaming Report"
         selected_players = self._cached_weekly.get("players", [])
@@ -1148,11 +1148,26 @@ class GamingNotifier:
         image_url = None
         if include_images:
             top_game = players_stats[0]["top_game"]
-            raw_image_url = get_cached_remote_url(
-                top_game, "hero", require_remote_host=False
-            ) or get_cached_remote_url(top_game, "grid", require_remote_host=False)
+            # Actively fetch rather than passively reading the cache -- the
+            # week's top game isn't necessarily the player's currently
+            # active game, so there's no guarantee its artwork was ever
+            # fetched via the normal real-time pipeline. fetch_game_assets
+            # already checks the cache first, so this costs nothing extra
+            # when art is already cached.
+            assets = await fetch_game_assets(self.hass, top_game)
+            raw_image_url = assets.get("hero") or assets.get("grid")
+            _LOGGER.debug(
+                "Gaming Status: weekly report image lookup for top game '%s' -- "
+                "assets=%s, raw_image_url=%r",
+                top_game,
+                assets,
+                raw_image_url,
+            )
             if raw_image_url:
                 image_url = await self._make_external_url(raw_image_url, top_game)
+                _LOGGER.debug(
+                    "Gaming Status: weekly report image resolved to %r", image_url
+                )
 
         for ep_id in assigned:
             ep_type = self._cached_endpoints.get(ep_id, {}).get("type")
