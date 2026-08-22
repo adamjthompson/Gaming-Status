@@ -82,7 +82,7 @@ from .const import (
     RATING_OVERRIDE_CODES,
     RATING_THRESHOLD_OPTIONS,
 )
-from .device import _raw_owner_slug, safe_owner_slug
+from .device import safe_owner_slug
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -2255,7 +2255,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 for d in dr.async_entries_for_config_entry(
                     device_registry, self._config_entry.entry_id
                 )
-                if d.name == player_name or d.name_by_user == player_name
+                if player_name in (d.name, d.name_by_user)
             ]
             for device in matching_devices:
                 for entry in er.async_entries_for_device(
