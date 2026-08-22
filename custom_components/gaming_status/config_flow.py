@@ -82,7 +82,7 @@ from .const import (
     RATING_OVERRIDE_CODES,
     RATING_THRESHOLD_OPTIONS,
 )
-from .device import safe_owner_slug
+from .device import _raw_owner_slug, safe_owner_slug
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1221,13 +1221,13 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         }
 
         if player_options:
-            schema_dict[
-                vol.Optional("players", default=report.get("players", []))
-            ] = selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=player_options,
-                    multiple=True,
-                    mode=selector.SelectSelectorMode.DROPDOWN,
+            schema_dict[vol.Optional("players", default=report.get("players", []))] = (
+                selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=player_options,
+                        multiple=True,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
                 )
             )
 
@@ -2238,36 +2238,42 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         safe_owner = safe_owner_slug(player_name)
 
         if platforms is None:
-            # Whole player removed -- every entity kind this integration can
-            # create for a player, not just the "sensor.gaming_status_*"
-            # platform sensors (library-scan sensors and the refresh button
-            # use their own naming and were previously left orphaned here).
-            entity_ids = [
-                f"sensor.gaming_status_{safe_owner}_{p}"
-                for p in (
-                    "steam",
-                    "xbox",
-                    "playstation",
-                    "discord",
-                    "custom",
-                    "playnite",
-                    "master",
-                    "pc",
+            # Whole player removed. Guessing today's entity_id/device
+            # identifiers from a freshly recomputed safe_owner_slug() misses
+            # anything registered under a different string -- e.g. a name
+            # that predates the safe_owner_slug fix and still has a stray
+            # device left behind under Home Assistant's own (different)
+            # reslugified identifiers. Match by device ownership and the
+            # literal player_name (set verbatim in player_device_info,
+            # unaffected by any slug) instead, so every device this
+            # integration ever created for this player -- current or
+            # orphaned -- gets found and removed, along with every entity
+            # still attached to it.
+            device_registry = dr.async_get(self.hass)
+            matching_devices = [
+                d
+                for d in dr.async_entries_for_config_entry(
+                    device_registry, self._config_entry.entry_id
                 )
+                if d.name == player_name or d.name_by_user == player_name
             ]
-            entity_ids += [
-                f"sensor.gaming_status_{safe_owner}_library_{p}"
-                for p in ("steam", "xbox", "playstation")
-            ]
-            entity_ids.append(f"sensor.gaming_status_{safe_owner}_library_summary")
-            entity_ids.append(f"button.gaming_status_{safe_owner}_library_refresh")
-        else:
-            entity_ids = [f"sensor.gaming_status_{safe_owner}_{p}" for p in platforms]
-            entity_ids += [
-                f"sensor.gaming_status_{safe_owner}_library_{p}"
-                for p in platforms
-                if p in ("steam", "xbox", "playstation")
-            ]
+            for device in matching_devices:
+                for entry in er.async_entries_for_device(
+                    registry, device.id, include_disabled_entities=True
+                ):
+                    try:
+                        registry.async_remove(entry.entity_id)
+                    except Exception as e:
+                        _LOGGER.warning(f"Could not remove {entry.entity_id}: {e}")
+                device_registry.async_remove_device(device.id)
+            return
+
+        entity_ids = [f"sensor.gaming_status_{safe_owner}_{p}" for p in platforms]
+        entity_ids += [
+            f"sensor.gaming_status_{safe_owner}_library_{p}"
+            for p in platforms
+            if p in ("steam", "xbox", "playstation")
+        ]
 
         for entity_id in entity_ids:
             if registry.async_get(entity_id):
@@ -2275,19 +2281,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     registry.async_remove(entity_id)
                 except Exception as e:
                     _LOGGER.warning(f"Could not remove {entity_id}: {e}")
-
-        if platforms is None:
-            # Also drop the player's HA Device -- cascades removal of any
-            # entity still linked to it (belt-and-suspenders alongside the
-            # explicit per-entity removal above, e.g. for the narrow window
-            # right after upgrading before a reload has attached every
-            # entity to its device for the first time).
-            device_registry = dr.async_get(self.hass)
-            device = device_registry.async_get_device(
-                identifiers={(DOMAIN, safe_owner)}
-            )
-            if device is not None:
-                device_registry.async_remove_device(device.id)
 
     async def _update_and_return(self):
         """Save the updated options to Home Assistant and return to the main menu."""

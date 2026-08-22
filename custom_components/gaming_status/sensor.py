@@ -981,14 +981,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             # same slug and previously duplicated this derivation.
             psn_slug = None
             try:
-                reg_entry = er.async_get(self.hass).async_get(
-                    self._source_entity_id
-                )
-                tk = (
-                    getattr(reg_entry, "translation_key", None)
-                    if reg_entry
-                    else None
-                )
+                reg_entry = er.async_get(self.hass).async_get(self._source_entity_id)
+                tk = getattr(reg_entry, "translation_key", None) if reg_entry else None
                 object_id = self._source_entity_id.split(".")[1]
                 suffix = f"_{tk}" if tk else "_now_playing"
                 if object_id.endswith(suffix):
@@ -3438,7 +3432,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             # online/offline, and kept at its last known value on a
             # transient miss (a sibling entity briefly unavailable) rather
             # than flickering blank.
-            self._cached_gamertag = platform_data.get("gamertag") or self._cached_gamertag
+            self._cached_gamertag = (
+                platform_data.get("gamertag") or self._cached_gamertag
+            )
             self._check_daily_reset()
             now_dt = dt_util.now()
 
@@ -4692,7 +4688,11 @@ class MasterGamingSensor(RestoreSensor):
         new_attrs["psn_gamertag"] = gamertags_by_platform.get("playstation")
         new_attrs["gamertag"] = (
             active_state.attributes.get("gamertag") if active_state else None
-        ) or (most_recent_sensor.attributes.get("gamertag") if most_recent_sensor else None)
+        ) or (
+            most_recent_sensor.attributes.get("gamertag")
+            if most_recent_sensor
+            else None
+        )
 
         if (
             self._attr_native_value == new_state_value

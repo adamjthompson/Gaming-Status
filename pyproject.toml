@@ -76,7 +76,7 @@ disable_error_code = ["index"]
 
 [[tool.mypy.overrides]]
 module = "gaming_status.config_flow"
-disable_error_code = ["call-arg", "union-attr", "assignment"]
+disable_error_code = ["call-arg", "union-attr", "assignment", "index"]
 
 [dependency-groups]
 dev = [

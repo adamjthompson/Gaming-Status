@@ -32,6 +32,7 @@ from .device import (
     resolve_master_entity_id,
     resolve_pc_entity_id,
     resolve_platform_entity_id,
+    safe_owner_slug,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -245,9 +246,7 @@ class GamingNotifier:
             # weekly report, which aggregates multiple players) callers can
             # pass an already-resolved color directly instead.
             hex_color = game_color_override or (
-                state_obj.attributes.get("game_dominant_color", "")
-                if state_obj
-                else ""
+                state_obj.attributes.get("game_dominant_color", "") if state_obj else ""
             )
             if hex_color:
                 return self._hex_to_int(hex_color, default_for_type)
@@ -764,6 +763,8 @@ class GamingNotifier:
             master_state = self.hass.states.get(master_entity)
             if not master_state:
                 continue
+
+            safe_player = safe_owner_slug(player_name)
 
             user_config = self._cached_players.get(player_name, {})
             fallback_dests = list(

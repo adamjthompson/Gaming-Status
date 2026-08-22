@@ -62,7 +62,9 @@ def resolve_registered_entity_id(hass, unique_id: str, guessed_entity_id: str) -
     brand-new sensor on its first-ever setup) -- self-corrects on the next
     reload once it is."""
     registry = er.async_get(hass)
-    return registry.async_get_entity_id("sensor", DOMAIN, unique_id) or guessed_entity_id
+    return (
+        registry.async_get_entity_id("sensor", DOMAIN, unique_id) or guessed_entity_id
+    )
 
 
 def resolve_master_entity_id(hass, player_name: str) -> str:
