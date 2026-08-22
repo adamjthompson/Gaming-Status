@@ -266,6 +266,15 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | play_start_time | Inherited from the most active underlying platform tracker |
 | last_played_game | Title of the most recent game detected across all tracked platforms |
 | last_online_valid_timestamp | Timestamp of the last time detected online |
+| gamertag | The real account display name (Steam persona name, Xbox gamertag, PSN online ID, or Discord display name) of whichever platform is currently active, or the most recently active platform if everything's offline. The `..._pc` sub-master sensor exposes this same attribute, scoped to just its own PC platforms (Steam, Discord) |
+
+**Identity (per platform)**
+| Attribute | Description |
+| --- | --- |
+| steam_gamertag | This player's Steam persona name, if Steam is configured |
+| xbox_gamertag | This player's Xbox gamertag, if Xbox is configured |
+| psn_gamertag | This player's PlayStation Network online ID, if PlayStation is configured |
+| discord_gamertag | This player's Discord display name (server nickname, falling back to their global display name/username), if Discord is configured |
 
 ### Attributes for Platform Sensors
 Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The individual `*_steam`, `*_xbox`, `*_discord`, and `*_playstation` sensors provide the following attibutes:
@@ -288,6 +297,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | game_icon_art | URL of icon art, either local or SteamGridDB |
 | game_dominant_color | The automatically extracted vibrant hex color from the game's artwork, or a manually assigned color |
 | game_content_rating | Rating metadata for the currently active/cached game: `{esrb, pegi, age_floor, descriptors, unrated, source}` (`source` is `"steam_native"`, `"xbox_native"`, `"psn_native"`, `"override"`, or `null` if unrated/never looked up) |
+| gamertag | This player's real account display name for this platform (Steam persona name, Xbox gamertag, PSN online ID, or Discord display name). Always `null` for Playnite and Custom sensors, which have no equivalent identity concept |
 
 **Rich Tracking & Analytics**
 | Attribute | Description |
