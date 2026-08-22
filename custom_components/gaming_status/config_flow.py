@@ -322,7 +322,10 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = {vol.Required("player_name", default="Player 1"): str}
 
         def _get_filtered_selector(
-            integration: str, suffix: str | tuple | None = None, domain: str = "sensor"
+            integration: str,
+            suffix: str | tuple | None = None,
+            domain: str = "sensor",
+            prefix: str | None = None,
         ):
             options = []
             try:
@@ -336,8 +339,12 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                 and getattr(entry, "translation_key", None) != tk_match
                             ):
                                 continue
+                        if prefix and not entry.entity_id.split(".")[1].startswith(
+                            prefix
+                        ):
+                            continue
                         options.append(entry.entity_id)
-                if suffix and not options:
+                if (suffix or prefix) and not options:
                     for entry in registry.entities.values():
                         if entry.domain == domain and entry.platform == integration:
                             options.append(entry.entity_id)
@@ -358,7 +365,9 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
         if "steam" in enabled_platforms:
-            schema[vol.Optional("steam")] = _get_filtered_selector("steam_online", None)
+            schema[vol.Optional("steam")] = _get_filtered_selector(
+                "steam_online", prefix="steam_"
+            )
         if "xbox" in enabled_platforms:
             schema[vol.Optional("xbox")] = _get_filtered_selector("xbox", "_status")
         if "playstation" in enabled_platforms:
@@ -1995,14 +2004,16 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             suffix: str | tuple | None = None,
             current_val: str = "",
             domain: str = "sensor",
+            prefix: str | None = None,
         ):
             options = []
 
             try:
                 registry = er.async_get(self.hass)
                 tk_match = suffix.lstrip("_") if suffix else None
-                # Step 1: Run the strict suffix filter, also matching by translation_key
-                # so non-English locales (e.g. _spielt_gerade for German) are included.
+                # Step 1: Run the strict suffix/prefix filter, also matching by
+                # translation_key so non-English locales (e.g. _spielt_gerade
+                # for German) are included.
                 for entry in registry.entities.values():
                     if entry.domain == domain and entry.platform == integration:
                         if suffix:
@@ -2011,11 +2022,15 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                                 and getattr(entry, "translation_key", None) != tk_match
                             ):
                                 continue
+                        if prefix and not entry.entity_id.split(".")[1].startswith(
+                            prefix
+                        ):
+                            continue
                         options.append(entry.entity_id)
 
                 # Step 2: Safety Net. If strict filtering left us completely empty,
                 # remove the restriction and pull all sensors for this integration.
-                if suffix and not options:
+                if (suffix or prefix) and not options:
                     for entry in registry.entities.values():
                         if entry.domain == domain and entry.platform == integration:
                             options.append(entry.entity_id)
@@ -2053,7 +2068,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
         if "steam" in enabled_platforms:
             schema[_field("steam")] = _get_filtered_selector(
-                "steam_online", None, existing.get("steam", "")
+                "steam_online", None, existing.get("steam", ""), prefix="steam_"
             )
 
         if "xbox" in enabled_platforms:
