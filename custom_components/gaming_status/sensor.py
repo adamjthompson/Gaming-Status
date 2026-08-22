@@ -89,6 +89,7 @@ from .const import (
     ZOMBIE_ATTRIBUTES,
 )
 from .device import (
+    _raw_owner_slug,
     hub_device_info,
     player_device_info,
     resolve_registered_entity_id,
@@ -342,6 +343,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._cached_achievements_earned = None
         self._cached_achievements_total = None
         self._cached_achievements_source = None
+        self._cached_gamertag = None
         self._cached_gamerscore_earned = None
         self._cached_gamerscore_total = None
         self._cached_trophies_earned = None
@@ -821,6 +823,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         ]
 
         if self._gaming_type == "steam":
+            # The persona name is already the tracked entity's own
+            # friendly_name -- steam_online sets it from the same account
+            # data it uses to compute presence, so no extra lookup is
+            # needed here.
+            data["gamertag"] = attrs.get("friendly_name")
             if is_basic_offline:
                 data["is_online"] = False
             elif normalized_state == "snooze":
@@ -938,7 +945,17 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     data["is_online"] = True
                     data["current_game"] = potential_game
 
-            data["gamertag"] = _get_gamertag_from_entity(self._source_entity_id, "xbox")
+            xbox_slug = _get_gamertag_from_entity(self._source_entity_id, "xbox")
+            # The real display name lives on a sibling entity sharing the
+            # same slug (e.g. the tracked "..._status" sensor's slug
+            # "adam" pairs with binary_sensor.adam's own "display_name"
+            # attribute) -- not something this integration fetches itself.
+            # Falls back to the bare slug if that sibling or attribute is
+            # ever missing/renamed, so this degrades instead of going blank.
+            xbox_sibling = self.hass.states.get(f"binary_sensor.{xbox_slug}")
+            data["gamertag"] = (
+                xbox_sibling.attributes.get("display_name") if xbox_sibling else None
+            ) or xbox_slug
 
             # 1. Use Dynamic Registry Avatar
             if self._avatar_entity_id:
@@ -946,44 +963,56 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 if xbox_img and xbox_img.attributes.get("entity_picture"):
                     data["avatar_url"] = xbox_img.attributes.get("entity_picture")
             # 2. Fallback to String Guessing
-            elif data["gamertag"]:
-                safe_tag = data["gamertag"].lower().replace(" ", "_")
-                xbox_img = self.hass.states.get(f"image.{safe_tag}_gamerpic")
+            elif xbox_slug:
+                xbox_img = self.hass.states.get(f"image.{xbox_slug}_gamerpic")
                 if xbox_img and xbox_img.attributes.get("entity_picture"):
                     data["avatar_url"] = xbox_img.attributes.get("entity_picture")
 
         elif self._gaming_type == "playstation":
+            # Locale-aware slug derivation (translation_key, not a
+            # hardcoded suffix) -- shared by the avatar-fallback lookup
+            # below and the online-ID sibling lookup, since both need the
+            # same slug and previously duplicated this derivation.
+            psn_slug = None
+            try:
+                reg_entry = er.async_get(self.hass).async_get(
+                    self._source_entity_id
+                )
+                tk = (
+                    getattr(reg_entry, "translation_key", None)
+                    if reg_entry
+                    else None
+                )
+                object_id = self._source_entity_id.split(".")[1]
+                suffix = f"_{tk}" if tk else "_now_playing"
+                if object_id.endswith(suffix):
+                    psn_slug = object_id[: -len(suffix)]
+                elif object_id.endswith("_now_playing"):
+                    psn_slug = object_id[: -len("_now_playing")]
+            except Exception:
+                pass
+
+            # The real online ID lives on a sibling "..._online_id" sensor
+            # sharing the same slug -- its state (not an attribute) IS the
+            # online ID.
+            if psn_slug:
+                online_id_state = self.hass.states.get(f"sensor.{psn_slug}_online_id")
+                if online_id_state and online_id_state.state not in (
+                    "unknown",
+                    "unavailable",
+                ):
+                    data["gamertag"] = online_id_state.state
+
             # 1. Use Dynamic Registry Avatar
             if self._avatar_entity_id:
                 image_state = self.hass.states.get(self._avatar_entity_id)
                 if image_state and image_state.attributes.get("entity_picture"):
                     data["avatar_url"] = image_state.attributes.get("entity_picture")
-            # 2. Fallback to String Guessing — use translation_key to handle any locale's suffix
-            else:
-                try:
-                    reg_entry = er.async_get(self.hass).async_get(
-                        self._source_entity_id
-                    )
-                    tk = (
-                        getattr(reg_entry, "translation_key", None)
-                        if reg_entry
-                        else None
-                    )
-                    object_id = self._source_entity_id.split(".")[1]
-                    suffix = f"_{tk}" if tk else "_now_playing"
-                    gamertag = None
-                    if object_id.endswith(suffix):
-                        gamertag = object_id[: -len(suffix)]
-                    elif object_id.endswith("_now_playing"):
-                        gamertag = object_id[: -len("_now_playing")]
-                    if gamertag:
-                        image_state = self.hass.states.get(f"image.{gamertag}_avatar")
-                        if image_state and image_state.attributes.get("entity_picture"):
-                            data["avatar_url"] = image_state.attributes.get(
-                                "entity_picture"
-                            )
-                except Exception:
-                    pass
+            # 2. Fallback to String Guessing
+            elif psn_slug:
+                image_state = self.hass.states.get(f"image.{psn_slug}_avatar")
+                if image_state and image_state.attributes.get("entity_picture"):
+                    data["avatar_url"] = image_state.attributes.get("entity_picture")
 
             # State IS the game title by default; unknown/unavailable means not
             # gaming -- unless a PS3 media_player sibling is configured and is
@@ -1676,6 +1705,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         if xbox_suppressed is not None:
             self._attr_extra_state_attributes["xbox_suppressed"] = xbox_suppressed
         self._attr_extra_state_attributes["current_game"] = self._current_game
+        self._attr_extra_state_attributes["gamertag"] = self._cached_gamertag
 
         if secondary:
             self._attr_extra_state_attributes["secondary"] = secondary
@@ -3398,6 +3428,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             platform_data = self._get_platform_data(current_state, attrs)
             if not platform_data:
                 return
+            # Identity data, not game-state data -- updated regardless of
+            # online/offline, and kept at its last known value on a
+            # transient miss (a sibling entity briefly unavailable) rather
+            # than flickering blank.
+            self._cached_gamertag = platform_data.get("gamertag") or self._cached_gamertag
             self._check_daily_reset()
             now_dt = dt_util.now()
 
@@ -4189,6 +4224,7 @@ class MasterGamingSensor(RestoreSensor):
         max_rolling_game = None
         max_calendar_duration = 0
         max_calendar_game = None
+        gamertags_by_platform = {}
 
         for platform_sensor_id, p_key in self._platform_sensors.items():
             platform_state = self.hass.states.get(platform_sensor_id)
@@ -4208,6 +4244,10 @@ class MasterGamingSensor(RestoreSensor):
                 platform_state.state,
                 platform_state.attributes.get("timer_status"),
             )
+
+            gamertag = platform_state.attributes.get("gamertag")
+            if gamertag:
+                gamertags_by_platform[p_key] = gamertag
 
             d_time = platform_state.attributes.get("daily_play_time")
             w_time = platform_state.attributes.get("weekly_play_time")
@@ -4632,6 +4672,20 @@ class MasterGamingSensor(RestoreSensor):
         new_attrs["color_extraction_enabled"] = utils.ENABLE_VIBRANT_COLOR
         new_attrs["achievement_tracking_enabled"] = utils.ENABLE_ACHIEVEMENT_TRACKING
 
+        # Gamertag is a fixed per-platform identity, not tied to whichever
+        # platform/game is currently "active" -- exposed both per-platform
+        # (for cards that know which platform they care about) and as a
+        # single fixed-priority convenience field (for cards with no
+        # platform context at all).
+        new_attrs["steam_gamertag"] = gamertags_by_platform.get("steam")
+        new_attrs["xbox_gamertag"] = gamertags_by_platform.get("xbox")
+        new_attrs["psn_gamertag"] = gamertags_by_platform.get("playstation")
+        new_attrs["gamertag"] = (
+            gamertags_by_platform.get("steam")
+            or gamertags_by_platform.get("xbox")
+            or gamertags_by_platform.get("playstation")
+        )
+
         if (
             self._attr_native_value == new_state_value
             and self._attr_icon == new_icon
@@ -4827,6 +4881,19 @@ class PCGamingSensor(RestoreSensor):
             self.entity_id,
             len(self._pc_entities),
         )
+        # Gamertag is a fixed identity, not tied to whichever platform is
+        # currently "active" -- PC only ever cares about Steam's (per the
+        # user's own stated model; playnite/custom/discord have no
+        # equivalent identity concept), so this is computed once here and
+        # applied unconditionally at the end, independent of which of the
+        # three branches below runs (including the fully-offline one,
+        # which otherwise discards every previous attribute from scratch).
+        steam_entity_id = next(
+            (e for e in self._pc_entities if e.endswith("_steam")), None
+        )
+        steam_state = self.hass.states.get(steam_entity_id) if steam_entity_id else None
+        steam_gamertag = steam_state.attributes.get("gamertag") if steam_state else None
+
         # Snapshot of the previously-published state, so a poll that ends up
         # producing identical output can skip the write -- same no-change
         # guard MasterGamingSensor's equivalent aggregation already has.
@@ -5068,6 +5135,7 @@ class PCGamingSensor(RestoreSensor):
         self._attr_extra_state_attributes["achievement_tracking_enabled"] = (
             utils.ENABLE_ACHIEVEMENT_TRACKING
         )
+        self._attr_extra_state_attributes["gamertag"] = steam_gamertag
 
         if (
             self._attr_native_value == old_native_value
@@ -5247,6 +5315,103 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 )
             except Exception:
                 pass
+
+    # --- SAFE_OWNER_SLUG SANITIZATION MIGRATION (invalid entity_id fix) ---
+    # safe_owner_slug() previously could produce a slug with adjacent/
+    # leading/trailing underscores for a player name with adjacent
+    # punctuation (e.g. "Test (Gamertag)" -> "test__gamertag_") -- an
+    # invalid Home Assistant entity_id that HA silently re-slugifies at
+    # registration today, but has announced it will stop doing (HA
+    # 2027.2.0). Neither migration block above catches this: the first
+    # migrates an even older, pre-safe_owner_slug format; the second only
+    # covers PCGamingSensor. This one covers every remaining entity type
+    # plus the two persisted Store files whose filenames also embed the
+    # slug, using the exact same "detect old, clear a ghost, rename"
+    # shape as the PC block above.
+    def _migrate_uid(domain, old_uid, new_uid, new_entity_id):
+        old_eid = registry.async_get_entity_id(domain, DOMAIN, old_uid)
+        if not old_eid:
+            return
+        ghost = registry.async_get_entity_id(domain, DOMAIN, new_uid)
+        if ghost and ghost != old_eid:
+            registry.async_remove(ghost)
+        try:
+            registry.async_update_entity(
+                old_eid, new_unique_id=new_uid, new_entity_id=new_entity_id
+            )
+        except Exception:
+            pass
+
+    async def _migrate_store_file(old_key, new_key):
+        # Deliberately conservative: copies the data forward but never
+        # deletes the old file, so a subtly-wrong migration can never
+        # lose history -- an orphaned few-KB file left behind is a
+        # non-issue.
+        old_store = Store(hass, 1, old_key)
+        old_data = await old_store.async_load()
+        if old_data is None:
+            return
+        new_store = Store(hass, 1, new_key)
+        if await new_store.async_load() is not None:
+            return
+        await new_store.async_save(old_data)
+
+    for player_name, player_data in players.items():
+        old_safe = _raw_owner_slug(player_name)
+        new_safe = safe_owner_slug(player_name)
+        if old_safe == new_safe:
+            continue
+
+        for platform in PLAYER_PLATFORMS:
+            source_entity_id = player_data.get(platform)
+            if not source_entity_id:
+                continue
+            _migrate_uid(
+                "sensor",
+                f"gaming_status_{old_safe}_{source_entity_id}_tracker_v6",
+                f"gaming_status_{new_safe}_{source_entity_id}_tracker_v6",
+                f"sensor.gaming_status_{new_safe}_{platform}",
+            )
+            await _migrate_store_file(
+                f"gaming_status.{old_safe}_{platform}_history",
+                f"gaming_status.{new_safe}_{platform}_history",
+            )
+
+        _migrate_uid(
+            "sensor",
+            f"gaming_status_{old_safe}_master_v6",
+            f"gaming_status_{new_safe}_master_v6",
+            f"sensor.gaming_status_{new_safe}_master",
+        )
+        _migrate_uid(
+            "sensor",
+            f"gaming_status_{old_safe}_pc_v2",
+            f"gaming_status_{new_safe}_pc_v2",
+            f"sensor.gaming_status_{new_safe}_pc",
+        )
+        _migrate_uid(
+            "sensor",
+            f"gaming_status_{old_safe}_library_summary",
+            f"gaming_status_{new_safe}_library_summary",
+            f"sensor.gaming_status_{new_safe}_library_summary",
+        )
+        for platform in ("steam", "xbox", "playstation"):
+            _migrate_uid(
+                "sensor",
+                f"gaming_status_{old_safe}_library_{platform}",
+                f"gaming_status_{new_safe}_library_{platform}",
+                f"sensor.gaming_status_{new_safe}_library_{platform}",
+            )
+        _migrate_uid(
+            "button",
+            f"gaming_status_{old_safe}_library_refresh",
+            f"gaming_status_{new_safe}_library_refresh",
+            f"button.gaming_status_{new_safe}_library_refresh",
+        )
+        await _migrate_store_file(
+            f"gaming_status_library_{old_safe}",
+            f"gaming_status_library_{new_safe}",
+        )
 
     # --- AUTOMATIC LEGACY SENSOR PURGE (DATABASE & RAM GHOSTS) ---
 

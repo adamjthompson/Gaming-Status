@@ -30,8 +30,24 @@ from .const import DOMAIN, PLATFORM_CONFIG
 HUB_DEVICE_ID = "hub"
 
 
-def safe_owner_slug(player_name: str) -> str:
+def _raw_owner_slug(player_name: str) -> str:
+    """Pre-sanitization slug -- may contain invalid adjacent/leading/
+    trailing underscores (e.g. "Test (Gamertag)" -> "test__gamertag_").
+    Exported only for the one-time migration in sensor.py that detects
+    and fixes already-affected players; every other caller should use
+    safe_owner_slug() instead."""
     return re.sub(r"[^a-z0-9_]", "_", player_name.lower().replace(" ", "_"))
+
+
+def safe_owner_slug(player_name: str) -> str:
+    """Canonical, HA-entity_id-safe slug. Home Assistant's own entity_id
+    validator rejects adjacent/leading/trailing underscores -- producing
+    them here would otherwise be silently "fixed" by HA's own slugify()
+    at first registration today, and will become a hard error in a
+    future release (HA has announced 2027.2.0) -- so this has to get it
+    right the first time, not rely on that safety net."""
+    slug = re.sub(r"_+", "_", _raw_owner_slug(player_name)).strip("_")
+    return slug or "player"  # only reachable for a name that's 100% punctuation
 
 
 def resolve_registered_entity_id(hass, unique_id: str, guessed_entity_id: str) -> str:
