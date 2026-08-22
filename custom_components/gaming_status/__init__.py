@@ -184,6 +184,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     "avatar_url": str(member.display_avatar.with_size(1024).url)
                     if member.display_avatar
                     else None,
+                    "display_name": member.display_name,
                 }
                 hass.bus.async_fire(f"gaming_status_discord_{member.id}", data)
 

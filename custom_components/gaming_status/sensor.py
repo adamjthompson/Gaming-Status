@@ -1176,6 +1176,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 data["avatar_url"] = (
                     f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.png"
                 )
+            data["gamertag"] = discord_data.get("display_name")
 
         if data.get("is_online") and data.get("current_game"):
             # STEP 1 & 2: Get base name, apply manual overrides. Also compute
@@ -3151,7 +3152,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._discord_last_event_at = dt_util.now()
         attrs = {
             "application_id": data["app_id"],
-            "discord_data": {"discord_user": {"id": data["user_id"], "avatar": None}},
+            "discord_data": {
+                "discord_user": {"id": data["user_id"], "avatar": None},
+                "display_name": data.get("display_name"),
+            },
             "entity_picture": data["avatar_url"],
         }
         self.hass.async_create_task(self._unified_update(state, attrs))
@@ -4686,6 +4690,7 @@ class MasterGamingSensor(RestoreSensor):
         new_attrs["steam_gamertag"] = gamertags_by_platform.get("steam")
         new_attrs["xbox_gamertag"] = gamertags_by_platform.get("xbox")
         new_attrs["psn_gamertag"] = gamertags_by_platform.get("playstation")
+        new_attrs["discord_gamertag"] = gamertags_by_platform.get("discord")
         new_attrs["gamertag"] = (
             active_state.attributes.get("gamertag") if active_state else None
         ) or (
@@ -4889,18 +4894,22 @@ class PCGamingSensor(RestoreSensor):
             self.entity_id,
             len(self._pc_entities),
         )
-        # PC only ever has a gamertag to show for Steam -- playnite/custom/
-        # discord have no equivalent identity concept, so it must only be
-        # shown when Steam is actually the winning (active, or most-
-        # recently-active) platform, not unconditionally. winning_platform
-        # is set below by whichever of the three branches actually has one;
-        # it stays None for the fully-offline-with-no-history branch, which
-        # correctly means "no gamertag" too.
-        steam_entity_id = next(
-            (e for e in self._pc_entities if e.endswith("_steam")), None
-        )
-        steam_state = self.hass.states.get(steam_entity_id) if steam_entity_id else None
-        steam_gamertag = steam_state.attributes.get("gamertag") if steam_state else None
+        # Gamertag must only reflect whichever PC platform is actually the
+        # winning (active, or most-recently-active) one -- not shown
+        # unconditionally. Mirrors MasterGamingSensor's own
+        # gamertags_by_platform pattern; playnite/custom naturally
+        # contribute None here since their own _get_platform_data never
+        # sets one. winning_platform is set below by whichever of the three
+        # branches actually has one; it stays None for the
+        # fully-offline-with-no-history branch, which correctly means "no
+        # gamertag" too.
+        gamertags_by_platform = {}
+        for entity_id in self._pc_entities:
+            state = self.hass.states.get(entity_id)
+            if state:
+                gamertags_by_platform[entity_id.split("_")[-1]] = state.attributes.get(
+                    "gamertag"
+                )
         winning_platform = None
 
         # Snapshot of the previously-published state, so a poll that ends up
@@ -5144,8 +5153,8 @@ class PCGamingSensor(RestoreSensor):
         self._attr_extra_state_attributes["achievement_tracking_enabled"] = (
             utils.ENABLE_ACHIEVEMENT_TRACKING
         )
-        self._attr_extra_state_attributes["gamertag"] = (
-            steam_gamertag if winning_platform == "steam" else None
+        self._attr_extra_state_attributes["gamertag"] = gamertags_by_platform.get(
+            winning_platform
         )
 
         if (
