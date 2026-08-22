@@ -4672,19 +4672,21 @@ class MasterGamingSensor(RestoreSensor):
         new_attrs["color_extraction_enabled"] = utils.ENABLE_VIBRANT_COLOR
         new_attrs["achievement_tracking_enabled"] = utils.ENABLE_ACHIEVEMENT_TRACKING
 
-        # Gamertag is a fixed per-platform identity, not tied to whichever
-        # platform/game is currently "active" -- exposed both per-platform
-        # (for cards that know which platform they care about) and as a
-        # single fixed-priority convenience field (for cards with no
-        # platform context at all).
+        # Exposed both per-platform (for cards that know which platform
+        # they care about) and as a single convenience field for cards
+        # with no platform context. The convenience field tracks whoever
+        # is actually active right now (active_state), falling back to
+        # whoever was most recently active (most_recent_sensor) while
+        # offline -- reusing the exact same winner-selection this method
+        # already computed above for game art/rating, rather than a
+        # fixed platform priority, so it matches what a player is (or
+        # was last) actually doing instead of always preferring Steam.
         new_attrs["steam_gamertag"] = gamertags_by_platform.get("steam")
         new_attrs["xbox_gamertag"] = gamertags_by_platform.get("xbox")
         new_attrs["psn_gamertag"] = gamertags_by_platform.get("playstation")
         new_attrs["gamertag"] = (
-            gamertags_by_platform.get("steam")
-            or gamertags_by_platform.get("xbox")
-            or gamertags_by_platform.get("playstation")
-        )
+            active_state.attributes.get("gamertag") if active_state else None
+        ) or (most_recent_sensor.attributes.get("gamertag") if most_recent_sensor else None)
 
         if (
             self._attr_native_value == new_state_value
