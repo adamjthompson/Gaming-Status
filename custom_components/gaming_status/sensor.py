@@ -828,6 +828,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             # data it uses to compute presence, so no extra lookup is
             # needed here.
             data["gamertag"] = attrs.get("friendly_name")
+            _LOGGER.debug(
+                "Gaming Status: %s -- Steam gamertag from %s.friendly_name: %r",
+                self.entity_id,
+                self._source_entity_id,
+                data["gamertag"],
+            )
             if is_basic_offline:
                 data["is_online"] = False
             elif normalized_state == "snooze":
@@ -4883,18 +4889,19 @@ class PCGamingSensor(RestoreSensor):
             self.entity_id,
             len(self._pc_entities),
         )
-        # Gamertag is a fixed identity, not tied to whichever platform is
-        # currently "active" -- PC only ever cares about Steam's (per the
-        # user's own stated model; playnite/custom/discord have no
-        # equivalent identity concept), so this is computed once here and
-        # applied unconditionally at the end, independent of which of the
-        # three branches below runs (including the fully-offline one,
-        # which otherwise discards every previous attribute from scratch).
+        # PC only ever has a gamertag to show for Steam -- playnite/custom/
+        # discord have no equivalent identity concept, so it must only be
+        # shown when Steam is actually the winning (active, or most-
+        # recently-active) platform, not unconditionally. winning_platform
+        # is set below by whichever of the three branches actually has one;
+        # it stays None for the fully-offline-with-no-history branch, which
+        # correctly means "no gamertag" too.
         steam_entity_id = next(
             (e for e in self._pc_entities if e.endswith("_steam")), None
         )
         steam_state = self.hass.states.get(steam_entity_id) if steam_entity_id else None
         steam_gamertag = steam_state.attributes.get("gamertag") if steam_state else None
+        winning_platform = None
 
         # Snapshot of the previously-published state, so a poll that ends up
         # producing identical output can skip the write -- same no-change
@@ -5137,7 +5144,9 @@ class PCGamingSensor(RestoreSensor):
         self._attr_extra_state_attributes["achievement_tracking_enabled"] = (
             utils.ENABLE_ACHIEVEMENT_TRACKING
         )
-        self._attr_extra_state_attributes["gamertag"] = steam_gamertag
+        self._attr_extra_state_attributes["gamertag"] = (
+            steam_gamertag if winning_platform == "steam" else None
+        )
 
         if (
             self._attr_native_value == old_native_value
