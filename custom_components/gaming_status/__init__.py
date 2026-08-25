@@ -157,6 +157,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         try:
             import nextcord
 
+            # Used only to scope on_ready's full-guild sweep below to
+            # players Gaming Status actually tracks -- a server can have far
+            # more members than that, and firing an event per member on
+            # every gateway reconnect for everyone else is pure waste (no
+            # PersistentStatusSensor is ever listening for their id anyway).
+            try:
+                raw_players = json.loads(entry.options.get(OPT_PLAYERS) or "{}")
+            except (TypeError, ValueError):
+                raw_players = {}
+            tracked_discord_ids = {
+                str(p["discord"])
+                for p in raw_players.values()
+                if isinstance(p, dict) and p.get("discord")
+            }
+
             intents = nextcord.Intents.default()
             intents.members = True
             intents.presences = True
@@ -211,7 +226,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.info("Gaming Status Discord Bot Connected!")
                 for guild in bot.guilds:
                     for member in guild.members:
-                        _dispatch(member)
+                        if str(member.id) in tracked_discord_ids:
+                            _dispatch(member)
 
             def _discord_start_done(task):
                 if task.cancelled():

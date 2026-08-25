@@ -70,12 +70,17 @@ class SteamClient:
                         f"Unexpected response body from Steam {path}: {err}"
                     ) from err
         except aiohttp.ClientError as err:
+            # Chaining "from err" would preserve the original, unredacted
+            # exception (whatever aiohttp put in it, potentially including
+            # the full request URL/query string with the API key) as
+            # __cause__ -- suppressed so a full traceback can never surface
+            # it. The redacted message above already conveys what's needed.
             safe_err = str(err).replace(self._api_key, "***")
             raise NetworkError(
                 f"Error communicating with Steam ({path}): {safe_err}"
-            ) from err
+            ) from None
         except TimeoutError as err:
-            raise NetworkError(f"Timed out reaching Steam ({path}): {err}") from err
+            raise NetworkError(f"Timed out reaching Steam ({path}): {err}") from None
 
     async def async_get_owned_games(self, steamid64: str) -> list[dict]:
         """Full-library-scan source for Steam -- returns raw {"appid", "name",

@@ -189,6 +189,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             "current_game_trophies_platinum_total",
             "recent_unlocked_achievements",
             "recent_unlocked_trophies",
+            "gamertag",
+            "play_start_time",
+            "xbox_suppressed",
+            "game_dominant_color",
+            "color_extraction_enabled",
         }
     )
 
@@ -680,7 +685,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 return True
         return False
 
-    def _is_game_active_elsewhere(self, current_game):
+    def _is_game_active_elsewhere(self, current_game, prefetched_states=None):
+        """prefetched_states: optional {entity_id: State|None} a caller has
+        already fetched this update cycle (e.g. discord's console-active
+        check) -- consulted instead of a fresh hass.states.get() for any
+        entity_id it covers, to avoid re-fetching the same sibling state
+        twice in one pass. Falls back to a live fetch for anything not in
+        it, so this is a pure optimization -- identical results either way.
+        """
         if not current_game:
             return False
 
@@ -712,7 +724,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 other_sensor_id = self._desired_entity_id.replace(
                     f"_{self._gaming_type}", f"_{other_platform}"
                 )
-                other_state = self.hass.states.get(other_sensor_id)
+                other_state = (
+                    prefetched_states[other_sensor_id]
+                    if prefetched_states and other_sensor_id in prefetched_states
+                    else self.hass.states.get(other_sensor_id)
+                )
 
                 if other_state and str(other_state.state).lower() not in [
                     "offline",
@@ -762,8 +778,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         """
         if not title:
             return title
-        # 1. Replace registered/trademark symbols with a space
-        clean_title = re.sub(r"[™®©]", " ", str(title))
+        # 1. Replace registered/trademark symbols with a space (reusing the
+        # same precompiled pattern utils._format_game_name_for_display uses,
+        # instead of a second, duplicate, non-precompiled one here)
+        clean_title = utils._TRADEMARK_SYMBOLS_RE.sub(" ", str(title))
         # 2. Replace multiple spaces with a single space and strip trailing whitespace
         clean_title = re.sub(r"\s+", " ", clean_title).strip()
         return clean_title
@@ -1091,12 +1109,18 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 # Suppress Discord if a console is currently active — Discord surfaces stale
                 # console-game data (e.g. the last PS5 game) via its platform integrations,
                 # and that data is unreliable when a console session is live.
+                # Fetched once here (not broken out of early) and reused
+                # below for has_native_xbox_sibling and passed into
+                # _is_game_active_elsewhere -- avoids re-fetching these same
+                # two sibling states two more times later in this method.
                 console_active = False
+                console_states = {}
                 for _cp in ["playstation", "xbox"]:
                     _cid = self._desired_entity_id.replace(
                         f"_{self._gaming_type}", f"_{_cp}"
                     )
                     _cs = self.hass.states.get(_cid)
+                    console_states[_cid] = _cs
                     if _cs and str(_cs.state).lower() not in [
                         "offline",
                         "unavailable",
@@ -1106,7 +1130,6 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         "",
                     ]:
                         console_active = True
-                        break
 
                 # Layer 1 (definitive, no timing involved): Discord's Xbox
                 # account-connection integration always reports this exact,
@@ -1120,7 +1143,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 # available, so still let it through.
                 is_xbox_connection_relay = app_id == DISCORD_XBOX_CONNECTION_APP_ID
                 has_native_xbox_sibling = (
-                    self.hass.states.get(
+                    console_states.get(
                         self._desired_entity_id.replace(
                             f"_{self._gaming_type}", "_xbox"
                         )
@@ -1158,7 +1181,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         )
                     )
 
-                if self._is_game_active_elsewhere(state) or suppress_for_console:
+                if (
+                    self._is_game_active_elsewhere(
+                        state, prefetched_states=console_states
+                    )
+                    or suppress_for_console
+                ):
                     data["is_online"] = False
                 else:
                     data["is_online"] = True
@@ -4119,6 +4147,22 @@ class MasterGamingSensor(RestoreSensor):
             "all_time_total_hours",
             "all_time_session_count",
             "all_time_top_games",
+            "active_platform",
+            "game_dominant_color",
+            "current_game_rating",
+            "play_start_time",
+            "total_daily_hours",
+            "total_weekly_hours",
+            "rolling_weekly_hours",
+            "total_weekly_hours_last_week",
+            "last_played_game",
+            "color_extraction_enabled",
+            "achievement_tracking_enabled",
+            "steam_gamertag",
+            "xbox_gamertag",
+            "psn_gamertag",
+            "discord_gamertag",
+            "gamertag",
         }
     )
 
@@ -4801,6 +4845,15 @@ class PCGamingSensor(RestoreSensor):
             "play_history",
             "recent_sessions",
             "recent_achievements",
+            "active_platform",
+            "last_played_game",
+            "play_start_time",
+            "daily_play_time",
+            "weekly_play_time",
+            "weekly_play_time_last_week",
+            "color_extraction_enabled",
+            "achievement_tracking_enabled",
+            "gamertag",
         }
     )
 
@@ -4894,6 +4947,14 @@ class PCGamingSensor(RestoreSensor):
             self.entity_id,
             len(self._pc_entities),
         )
+        # Fetched once and reused by every loop below instead of re-calling
+        # hass.states.get() for the same handful of entities up to 4 times
+        # per update pass.
+        pc_states = {
+            entity_id: self.hass.states.get(entity_id)
+            for entity_id in self._pc_entities
+        }
+
         # Gamertag must only reflect whichever PC platform is actually the
         # winning (active, or most-recently-active) one -- not shown
         # unconditionally. Mirrors MasterGamingSensor's own
@@ -4904,8 +4965,7 @@ class PCGamingSensor(RestoreSensor):
         # fully-offline-with-no-history branch, which correctly means "no
         # gamertag" too.
         gamertags_by_platform = {}
-        for entity_id in self._pc_entities:
-            state = self.hass.states.get(entity_id)
+        for entity_id, state in pc_states.items():
             if state:
                 gamertags_by_platform[entity_id.split("_")[-1]] = state.attributes.get(
                     "gamertag"
@@ -4925,8 +4985,7 @@ class PCGamingSensor(RestoreSensor):
         most_recent_ts = None
 
         # Entities are passed in strict priority order (custom -> steam -> discord)
-        for entity_id in self._pc_entities:
-            state = self.hass.states.get(entity_id)
+        for entity_id, state in pc_states.items():
             if not state:
                 _LOGGER.debug(
                     "Gaming Status: %s -- %s not found in hass.states",
@@ -5059,8 +5118,7 @@ class PCGamingSensor(RestoreSensor):
 
                 # Fallback to Steam avatar if completely offline and blank, otherwise grab the first available avatar
                 fallback_pic = None
-                for entity_id in self._pc_entities:
-                    state = self.hass.states.get(entity_id)
+                for entity_id, state in pc_states.items():
                     if state and state.attributes.get("entity_picture"):
                         fallback_pic = state.attributes.get("entity_picture")
                         if "steam" in entity_id:
@@ -5077,8 +5135,7 @@ class PCGamingSensor(RestoreSensor):
         merged_sessions = []
         merged_achievements = []
 
-        for entity_id in self._pc_entities:
-            state = self.hass.states.get(entity_id)
+        for state in pc_states.values():
             if not state:
                 continue
             attrs = state.attributes
@@ -5648,6 +5705,22 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         "Gaming Status: [ghost-debug] xbox_ghost_sources = %r", xbox_ghost_sources
     )
 
+    # Snapshot of every key these dicts hold before this pass repopulates
+    # them -- diffed against the post-loop contents below so a renamed
+    # player or a platform whose source entity changed doesn't leave its
+    # old sensor/coordinator object (and everything it holds: cached
+    # history, achievements, etc.) referenced, and thus alive, for the rest
+    # of this HA process's lifetime. A still-configured, unchanged player
+    # is unaffected -- the loop below overwrites their existing keys in
+    # place with a freshly-constructed instance either way.
+    stale_platform_sensor_keys = set(
+        hass.data.get(DOMAIN, {}).get("platform_sensors", {})
+    )
+    stale_master_sensor_keys = set(hass.data.get(DOMAIN, {}).get("master_sensors", {}))
+    stale_library_coordinator_keys = set(
+        hass.data.get(DOMAIN, {}).get("library_coordinators", {})
+    )
+
     for player_name, player_data in players.items():
         exclude_games = player_data.get("exclude_games", [])
         clear_achievements_requested = player_data.get("clear_achievements", False)
@@ -5821,6 +5894,20 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             refresh_button_id = f"button.gaming_status_{safe_owner}_library_refresh"
             if registry.async_get(refresh_button_id):
                 registry.async_remove(refresh_button_id)
+
+    domain_data = hass.data.get(DOMAIN, {})
+    for stale_key in stale_platform_sensor_keys - set(
+        domain_data.get("platform_sensors", {})
+    ):
+        domain_data.get("platform_sensors", {}).pop(stale_key, None)
+    for stale_key in stale_master_sensor_keys - set(
+        domain_data.get("master_sensors", {})
+    ):
+        domain_data.get("master_sensors", {}).pop(stale_key, None)
+    for stale_key in stale_library_coordinator_keys - set(
+        domain_data.get("library_coordinators", {})
+    ):
+        domain_data.get("library_coordinators", {}).pop(stale_key, None)
 
     ents.append(GlobalOnlineCountSensor(hass, players))
     async_add_entities(ents)

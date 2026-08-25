@@ -119,11 +119,39 @@ AGE_FLOOR_LABELS = {
 }
 
 
+# Title Cleanups patterns are user-authored and run synchronously, uncapped,
+# on every observed game title in the real-time tracking hot path -- these
+# two guards catch the obvious ways a pattern could hang that hot path
+# (Python's re module has no built-in per-call timeout). Not foolproof, but
+# closes the common cases at negligible cost for the overwhelming majority
+# of normal, safe patterns.
+MAX_TITLE_CLEANUP_PATTERN_LENGTH = 200
+# A group containing a quantifier, itself immediately followed by another
+# quantifier -- the classic catastrophic-backtracking shape, e.g. "(a+)+",
+# "(a*)*", "(a+){2,}".
+_CATASTROPHIC_BACKTRACKING_RE = re.compile(r"\([^()]*[+*][^()]*\)[+*{]")
+
+
 def compile_title_cleanups():
     """Pre-compile regex patterns for performance."""
     global COMPILED_TITLE_CLEANUPS
     compiled = []
     for pattern in TITLE_CLEANUPS:
+        if len(pattern) > MAX_TITLE_CLEANUP_PATTERN_LENGTH:
+            _LOGGER.warning(
+                "Skipping Title Cleanups pattern over %d characters: %r",
+                MAX_TITLE_CLEANUP_PATTERN_LENGTH,
+                pattern,
+            )
+            continue
+        if _CATASTROPHIC_BACKTRACKING_RE.search(pattern):
+            _LOGGER.warning(
+                "Skipping Title Cleanups pattern with a nested-quantifier "
+                "shape known to cause catastrophic regex backtracking "
+                '(e.g. "(a+)+"): %r',
+                pattern,
+            )
+            continue
         try:
             compiled.append(re.compile(pattern, re.IGNORECASE))
         except re.error as err:
@@ -361,7 +389,11 @@ async def fetch_game_assets(hass, game_name):
             ASSET_URL_CACHE[name] = final_dict
             ASSET_URL_CACHE.move_to_end(name)
             if len(ASSET_URL_CACHE) > MAX_CACHE_SIZE:
-                ASSET_URL_CACHE.popitem(last=False)
+                evicted_name, _ = ASSET_URL_CACHE.popitem(last=False)
+                # Keep this companion negative-cache dict from outliving its
+                # own entry in ASSET_URL_CACHE -- without this it has no
+                # eviction of its own and can grow past MAX_CACHE_SIZE.
+                _ASSET_NOT_FOUND_CHECKED_AT.pop(evicted_name, None)
 
             if any(final_dict.values()):
                 _ASSET_NOT_FOUND_CHECKED_AT.pop(name, None)

@@ -308,6 +308,19 @@ class GamingNotifier:
 
         domain, service = service_str.split(".", 1)
 
+        # Every notification type this integration's config UI offers
+        # (Mobile App/Discord/SMS) maps to a notify.* service -- restricting
+        # to that domain means a stray/malicious endpoint config can never
+        # target an unrelated, more sensitive HA service.
+        if domain != "notify":
+            _LOGGER.warning(
+                "Gaming Status: notification skipped, endpoint '%s' targets "
+                "non-notify domain %r",
+                ep_id,
+                domain,
+            )
+            return False
+
         if not self.hass.services.has_service(domain, service):
             _LOGGER.warning(
                 "Gaming Status: notification skipped, service %s.%s not found",
@@ -1020,7 +1033,9 @@ class GamingNotifier:
                 )
             elif "." in target:
                 domain, service = target.split(".", 1)
-                if self.hass.services.has_service(domain, service):
+                if domain == "notify" and self.hass.services.has_service(
+                    domain, service
+                ):
                     try:
                         await self.hass.services.async_call(
                             domain, service, {"message": message}
