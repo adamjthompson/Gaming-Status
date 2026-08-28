@@ -19,6 +19,7 @@ from homeassistant.components.sensor import (
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import callback
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_interval,
@@ -4199,6 +4200,22 @@ class MasterGamingSensor(RestoreSensor):
             if real_id:
                 self._platform_sensors[real_id] = platform
 
+        # Coalesces a burst of near-simultaneous platform-sensor changes
+        # (e.g. Discord and a console both reporting the same game launch
+        # within a second of each other) into one recompute+state-write
+        # instead of one per contributing platform. immediate=True means a
+        # single, isolated change still updates right away -- only
+        # additional triggers arriving within the cooldown get folded into
+        # one trailing recompute, so the final settled state is still
+        # captured.
+        self._update_debouncer = Debouncer(
+            hass,
+            _LOGGER,
+            cooldown=1.0,
+            immediate=True,
+            function=self._update_master_state_safe,
+        )
+
     @property
     def available(self):
         return True
@@ -4224,11 +4241,12 @@ class MasterGamingSensor(RestoreSensor):
                     self._async_platform_changed,
                 )
             )
+        self.async_on_remove(self._update_debouncer.async_shutdown)
         await self._update_master_state_safe()
 
     @callback
     def _async_platform_changed(self, event):
-        self.hass.async_create_task(self._update_master_state_safe())
+        self.hass.async_create_task(self._update_debouncer.async_call())
 
     async def _update_master_state_safe(self):
         """Wraps _update_master_state so unexpected/malformed data on any
@@ -4879,6 +4897,20 @@ class PCGamingSensor(RestoreSensor):
         self._attr_extra_state_attributes = {}
         self._attr_entity_picture = None
 
+        # Coalesces a burst of near-simultaneous triggers -- from either the
+        # state-change listener or the 30s poll below firing close together
+        # -- into one recompute+state-write instead of one per trigger.
+        # immediate=True means a single, isolated change still updates
+        # right away; see MasterGamingSensor's identical debouncer for the
+        # full rationale.
+        self._update_debouncer = Debouncer(
+            hass,
+            _LOGGER,
+            cooldown=1.0,
+            immediate=True,
+            function=self._update_pc_state_safe,
+        )
+
     async def async_added_to_hass(self):
         """Run when the entity is added to Home Assistant to restore state."""
         await super().async_added_to_hass()
@@ -4903,6 +4935,7 @@ class PCGamingSensor(RestoreSensor):
                 self.hass, self._async_pc_poll, timedelta(seconds=30)
             )
         )
+        self.async_on_remove(self._update_debouncer.async_shutdown)
         await self._update_pc_state_safe()
 
         # FORCE UPDATE: Wait for HA to finish booting, pause 5 seconds, then check platforms again
@@ -4922,11 +4955,11 @@ class PCGamingSensor(RestoreSensor):
 
     @callback
     def _async_pc_changed(self, event):
-        self.hass.async_create_task(self._update_pc_state_safe())
+        self.hass.async_create_task(self._update_debouncer.async_call())
 
     @callback
     def _async_pc_poll(self, now=None):
-        self.hass.async_create_task(self._update_pc_state_safe())
+        self.hass.async_create_task(self._update_debouncer.async_call())
 
     async def _update_pc_state_safe(self):
         """Wraps _update_pc_state so unexpected/malformed data on any one
