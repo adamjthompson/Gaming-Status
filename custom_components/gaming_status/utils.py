@@ -1711,7 +1711,14 @@ def _format_game_name_for_display(game_name):
     # unrenamed even though this same cleanup would have stripped the exact
     # suffix a moment later.
     if " - " in clean_name:
-        clean_name = clean_name.split(" - ")[0].strip()
+        candidate = clean_name.split(" - ")[0].strip()
+        if candidate.count("(") == candidate.count(")"):
+            clean_name = candidate
+        # else: the " - " is nested inside an unclosed parenthetical (e.g.
+        # Xbox's own "(BATTLEMODE - PC)"-style mode annotations) rather
+        # than a genuine title/subtitle separator -- leave the name
+        # untouched instead of guessing, so a Title Override can be
+        # configured against the full, unmangled string if needed.
     clean_name = _TRADEMARK_SYMBOLS_RE.sub("", clean_name).strip()
 
     clean_name = GAME_TITLE_OVERRIDES.get(_normalize_game_name(clean_name), clean_name)
