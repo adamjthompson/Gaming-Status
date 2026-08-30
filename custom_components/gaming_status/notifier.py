@@ -19,6 +19,7 @@ from homeassistant.helpers.network import get_url
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    DEFAULT_SAME_GAME_PREFIX_WORDS,
     DOMAIN,
     OPT_DISCORD_COLORS,
     OPT_ENDPOINTS,
@@ -26,7 +27,9 @@ from .const import (
     OPT_NOTIFY_ARTWORK,
     OPT_PARENTAL,
     OPT_PLAYERS,
+    OPT_SAME_GAME_PREFIX_WORDS,
     OPT_WEEKLY_REPORT,
+    SAME_GAME_HANDOFF_WINDOW_SECONDS,
 )
 from .device import (
     resolve_master_entity_id,
@@ -189,6 +192,8 @@ class GamingNotifier:
             self._unsub_weekly()
         if self._unsub_parental:
             self._unsub_parental()
+        for task in getattr(self, "_pending_end_tasks", {}).values():
+            task.cancel()
 
     # ------------------------------------------------------------------
     # Generic Notification Helpers
@@ -618,8 +623,38 @@ class GamingNotifier:
         now = dt_util.now()
         if not hasattr(self, "_last_start_time"):
             self._last_start_time = {}
+        if not hasattr(self, "_pending_end_tasks"):
+            self._pending_end_tasks = {}
+        if not hasattr(self, "_recent_end"):
+            self._recent_end = {}
 
         if is_start:
+            # SAME-GAME HANDOFF: a recent "finished playing" for this player
+            # (still pending, or already sent) for what's fuzzy-matched as
+            # the same game restarting within the handoff window means this
+            # is one continuous session that briefly changed which platform
+            # was reporting it (e.g. a platform integration outage), not a
+            # real stop+restart -- cancel the pending "finished" notification
+            # if it hasn't gone out yet, and suppress this "started" one
+            # either way.
+            handoff = self._recent_end.get(target_player)
+            if (
+                handoff
+                and (now - handoff["at"]).total_seconds()
+                < SAME_GAME_HANDOFF_WINDOW_SECONDS
+            ):
+                from .utils import _is_same_base_game
+
+                prefix_words = self._entry.options.get(
+                    OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS
+                )
+                if _is_same_base_game(handoff["game"], new_clean, prefix_words):
+                    task = self._pending_end_tasks.pop(target_player, None)
+                    if task:
+                        task.cancel()
+                    self._recent_end.pop(target_player, None)
+                    return
+
             last_start = self._last_start_time.get(target_player)
             # COOLDOWN: If a session just started less than 90 seconds ago, block the duplicate bounce!
             if last_start and (now - last_start).total_seconds() < 90:
@@ -728,37 +763,60 @@ class GamingNotifier:
             )
 
         elif is_end:
-            msg = (
-                f"{target_player} played for {duration_str}"
-                if duration_str
-                else f"{target_player} finished playing"
-            )
-
-            if self._cached_notify_artwork == "none":
-                raw_url = None
-            else:
-                raw_url = old_state.attributes.get(self._cached_notify_artwork)
-                if not raw_url:
-                    raw_url = old_state.attributes.get(
-                        "game_cover_art"
-                    ) or old_state.attributes.get("cached_game_cover")
-
-            image_url = await self._make_external_url(raw_url, old_game)
-
-            # Pass the OLD state so the color is fully preserved!
-            await asyncio.gather(
-                *(
-                    self._send_to_endpoint(
-                        ep_id,
-                        message=msg,
-                        image_url=image_url,
-                        game_title=old_game,
-                        event_type="stop",
-                        state_obj=old_state,
-                    )
-                    for ep_id in end_dests
+            # Held for SAME_GAME_HANDOFF_WINDOW_SECONDS instead of sent
+            # immediately -- a same-game restart on another platform within
+            # that window (handled in the is_start branch above) cancels
+            # this and suppresses the notification entirely, instead of
+            # sending a "finished"/"started" pair for one continuous session.
+            self._recent_end[target_player] = {"game": old_clean, "at": now}
+            task = self.hass.async_create_task(
+                self._send_delayed_end(
+                    target_player, old_state, old_game, duration_str, end_dests
                 )
             )
+            self._pending_end_tasks[target_player] = task
+
+    async def _send_delayed_end(
+        self, target_player, old_state, old_game, duration_str, end_dests
+    ):
+        try:
+            await asyncio.sleep(SAME_GAME_HANDOFF_WINDOW_SECONDS)
+        except asyncio.CancelledError:
+            return
+        self._pending_end_tasks.pop(target_player, None)
+        self._recent_end.pop(target_player, None)
+
+        msg = (
+            f"{target_player} played for {duration_str}"
+            if duration_str
+            else f"{target_player} finished playing"
+        )
+
+        if self._cached_notify_artwork == "none":
+            raw_url = None
+        else:
+            raw_url = old_state.attributes.get(self._cached_notify_artwork)
+            if not raw_url:
+                raw_url = old_state.attributes.get(
+                    "game_cover_art"
+                ) or old_state.attributes.get("cached_game_cover")
+
+        image_url = await self._make_external_url(raw_url, old_game)
+
+        # Pass the OLD state so the color is fully preserved!
+        await asyncio.gather(
+            *(
+                self._send_to_endpoint(
+                    ep_id,
+                    message=msg,
+                    image_url=image_url,
+                    game_title=old_game,
+                    event_type="stop",
+                    state_obj=old_state,
+                )
+                for ep_id in end_dests
+            )
+        )
 
     # ------------------------------------------------------------------
     # Parental controls

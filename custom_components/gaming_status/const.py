@@ -13,6 +13,16 @@ DEFAULT_GAME_TRANSITION_GRACE_SECONDS = 120
 DEFAULT_MIN_SESSION_DURATION = 300
 DEFAULT_MASTER_HANDOFF_GRACE_SECONDS = 300
 
+# How long the notifier holds a "finished playing" notification before
+# actually sending it, in case the same game restarts on a different
+# platform in the meantime (e.g. a brief outage on one platform's own HA
+# integration handing off to another that's tracking the same game) --
+# comfortably covers PersistentStatusSensor's own ~30s recheck cycle with a
+# safety margin. Not user-configurable (fixed, unlike the *_GRACE_SECONDS
+# settings above) -- same_game_prefix_words already provides a way to widen
+# or disable the same-game matching this suppression relies on.
+SAME_GAME_HANDOFF_WINDOW_SECONDS = 45
+
 # Max number of completed sessions retained per sensor for the "recent_sessions" history log
 MAX_RECENT_SESSIONS = 20
 
