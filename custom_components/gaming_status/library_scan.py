@@ -14,26 +14,37 @@ Xbox's title-history call and PSN's full trophy-titles list each already
 return every title's achievement/gamerscore SUMMARY (counts) in one/a
 handful of bulk requests -- no per-title lookup needed for that. Only
 Steam genuinely needs one call per owned game for even the summary
-(Steam's Web API has no bulk equivalent) -- acceptable on a multi-hour
-interval; the per-appid schema is cached forever afterward (see
-utils.STEAM_SCHEMA_CACHE).
+(Steam's Web API has no bulk equivalent); the per-appid schema is cached
+forever afterward (see utils.STEAM_SCHEMA_CACHE), but the achievement
+counts themselves are never cached, so a full scan is still one real
+network call per owned game -- see the Steam budget/rotation note below
+for why that's no longer done in one uninterrupted burst.
 
 Getting real per-achievement UNLOCK DETAIL (name/timestamp, not just
 counts) for recent_achievements IS a genuine per-title cost for Xbox/PSN,
-though -- so this module does have multi-cycle backfill/budgeting
-machinery after all, just confined to that narrower need. A free,
-already-fetched per-title "last activity" timestamp (Xbox:
-title_history.last_time_played; PSN: lastUpdatedDateTime, confirmed to
-specifically track "last trophy earned") lets a normal scan cheaply
-detect which titles changed since last time and only pay for a detail
-call on those (see the _activity_cursor diff logic in _scan_xbox/
-_scan_psn). Separately, a paced, budgeted backfill pass
+though -- so this module has multi-cycle backfill/budgeting machinery for
+that too, just shaped differently. A free, already-fetched per-title "last
+activity" timestamp (Xbox: title_history.last_time_played; PSN:
+lastUpdatedDateTime, confirmed to specifically track "last trophy earned")
+lets a normal scan cheaply detect which titles changed since last time and
+only pay for a detail call on those (see the _activity_cursor diff logic
+in _scan_xbox/_scan_psn). Separately, a paced, budgeted backfill pass
 (async_run_backfill_pass, driven by an independent timer in __init__.py,
 decoupled from this coordinator's own scan interval) walks through titles
 never yet resolved a few at a time, so a large existing library doesn't
 get flooded with per-title calls in one burst just to seed real
-historical data. Steam needs none of this -- its per-game achievement
-call already returns recent_unlocks for free, every scan.
+historical data.
+
+Steam has no equivalent free delta signal to know which games changed --
+its achievement endpoint has to be called to find out. Instead of hitting
+every owned game every scan (a burst of potentially hundreds of
+authenticated calls in under a minute -- exactly the kind of traffic
+pattern that can get a Steam Web API key throttled, which matters doubly
+here since this integration reuses the same key as HA's own steam_online
+integration by default), _scan_steam refreshes a rotating, budget-capped
+slice of the owned-games list each cycle (see TARGET_AGGREGATE_STEAM_SCAN_
+BUDGET in const.py) -- every game still gets refreshed eventually, just
+spread across multiple scan cycles instead of one burst.
 """
 
 from __future__ import annotations
@@ -53,6 +64,7 @@ from .const import (
     LIBRARY_BACKFILL_MAX_ATTEMPTS,
     PLATFORM_CONFIG,
     PSN_LIBRARY_BACKFILL_BUDGET_PER_CYCLE,
+    TARGET_AGGREGATE_STEAM_SCAN_BUDGET,
     XBOX_LIBRARY_BACKFILL_BUDGET_PER_CYCLE,
 )
 from .device import safe_owner_slug
@@ -147,6 +159,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         platform_sources,
         scan_interval_hours,
         excluded_games=None,
+        steam_scan_budget=None,
     ):
         safe_owner = safe_owner_slug(owner_name)
         super().__init__(
@@ -165,6 +178,19 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         self._excluded_normalized = {
             _normalize_game_name(g) for g in (excluded_games or [])
         }
+        # Per-cycle cap on how many owned Steam games get a live achievement
+        # refresh in one _scan_steam pass -- see const.py's
+        # TARGET_AGGREGATE_STEAM_SCAN_BUDGET for the full rationale. Falls
+        # back to the un-scaled target if the caller doesn't pass one (e.g.
+        # a future direct instantiation outside async_setup_entry).
+        self._steam_scan_budget = (
+            steam_scan_budget or TARGET_AGGREGATE_STEAM_SCAN_BUDGET
+        )
+        # Round-robin position into the owned-games list for the NEXT
+        # _scan_steam pass -- persisted (see async_load_stored/
+        # _async_update_data) so a restart resumes where it left off
+        # instead of always favoring whichever games sort first.
+        self._steam_scan_offset = 0
         self._store = Store(
             hass, _STORAGE_VERSION, f"gaming_status_library_{safe_owner}"
         )
@@ -175,8 +201,10 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         self._art_cache = {}
         # {"xbox"|"playstation": {title_id: iso_timestamp}} -- per-title
         # "last known activity" cursor for delta detection (see _scan_xbox/
-        # _scan_psn). Steam needs none: its per-game achievement call
-        # already returns recent_unlocks at zero extra cost every scan.
+        # _scan_psn). Steam has no equivalent timestamp signal -- its
+        # budget-capped round-robin (_steam_scan_offset above) is a
+        # different, simpler mechanism for the same underlying problem
+        # (bounding how much work one scan does).
         self._activity_cursor = {"xbox": {}, "playstation": {}}
         # {"xbox"|"playstation": {title_id: True}} -- which titles have
         # ever had their real per-achievement/trophy unlock DETAIL
@@ -211,6 +239,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 "xbox": {},
                 "playstation": {},
             }
+            self._steam_scan_offset = stored.get("steam_scan_offset") or 0
             self.data = stored.get("data")
 
     async def async_schedule_or_refresh(self):
@@ -280,6 +309,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 "activity_cursor": self._activity_cursor,
                 "backfill_done": self._backfill_done,
                 "backfill_attempts": self._backfill_attempts,
+                "steam_scan_offset": self._steam_scan_offset,
             }
         )
         return result
@@ -422,6 +452,32 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         # Tracked regardless of exclusion, so an excluded game is never
         # carried forward by the "missing title" fallback below.
         seen_ids = set()
+
+        # Only a rotating, budget-capped slice of the owned-games list gets
+        # a live achievement fetch this cycle -- everything else falls back
+        # to its last known counts below, exactly like a failed fetch would.
+        # Every game still gets refreshed eventually, just spread across
+        # multiple scan cycles instead of one burst (see const.py's
+        # TARGET_AGGREGATE_STEAM_SCAN_BUDGET for the full rationale).
+        budget = self._steam_scan_budget
+        # Sorted by appid for a stable rotation order -- GetOwnedGames isn't
+        # guaranteed to return the same order every call, and an unstable
+        # order would let some games drift in and out of the "due" slice
+        # unevenly instead of every game getting a fair, predictable turn.
+        rotation_order = sorted(owned_games, key=lambda g: str(g.get("appid") or ""))
+        due_appids = {
+            str(
+                rotation_order[(self._steam_scan_offset + i) % len(rotation_order)].get(
+                    "appid"
+                )
+            )
+            for i in range(min(budget, len(rotation_order)))
+        }
+        if rotation_order:
+            self._steam_scan_offset = (self._steam_scan_offset + budget) % len(
+                rotation_order
+            )
+
         for game in owned_games:
             appid = game.get("appid")
             name = game.get("name")
@@ -440,10 +496,13 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             # right now) shows its raw, un-overridden platform title in
             # recent_achievements and the Library sensor's games list.
             name = utils._format_game_name_for_display(name)
-            result = await utils.fetch_steam_achievements(
-                self.hass, steamid64, api_key, appid
-            )
             previous = previous_games.get(str(appid))
+            if str(appid) in due_appids:
+                result = await utils.fetch_steam_achievements(
+                    self.hass, steamid64, api_key, appid
+                )
+            else:
+                result = None
             if result is not None:
                 earned = result.get("earned", 0)
                 total = result.get("total", 0)
@@ -458,21 +517,24 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                     previous.get("_activity_ts") if previous else None
                 )
             else:
-                # Fetch failed -- keep this game's last known counts rather
-                # than reporting 0/0 for it this cycle. Only a brand-new,
-                # never-successfully-scanned game has nothing to fall back
-                # to, in which case 0/0 is the best available answer.
+                # Either not due for a live refresh this cycle (budget), or
+                # the fetch genuinely failed -- either way, keep this game's
+                # last known counts rather than reporting 0/0 for it. Only a
+                # brand-new, never-successfully-scanned game has nothing to
+                # fall back to, in which case 0/0 is the best available
+                # answer.
                 earned = previous.get("achievements_earned", 0) if previous else 0
                 total = previous.get("achievements_total", 0) if previous else 0
                 activity_ts = previous.get("_activity_ts") if previous else None
-                _LOGGER.debug(
-                    "Gaming Status: Steam achievement fetch failed for %s (appid %s) -- "
-                    "keeping last known count (%s/%s) instead of zeroing it",
-                    name,
-                    appid,
-                    earned,
-                    total,
-                )
+                if str(appid) in due_appids:
+                    _LOGGER.debug(
+                        "Gaming Status: Steam achievement fetch failed for %s (appid %s) -- "
+                        "keeping last known count (%s/%s) instead of zeroing it",
+                        name,
+                        appid,
+                        earned,
+                        total,
+                    )
             art = await self._async_art_for(name)
             # Steam's per-game achievement call already returns
             # recent_unlocks at zero extra cost (unlike Xbox/PSN) -- feed
@@ -990,6 +1052,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 "activity_cursor": self._activity_cursor,
                 "backfill_done": self._backfill_done,
                 "backfill_attempts": self._backfill_attempts,
+                "steam_scan_offset": self._steam_scan_offset,
             }
         )
 

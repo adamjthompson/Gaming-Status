@@ -57,6 +57,7 @@ from .const import (
     MAX_RECENT_ACHIEVEMENT_UNLOCKS,
     MAX_RECENT_SESSIONS,
     MIN_ACHIEVEMENT_RECHECK_SECONDS,
+    MIN_STEAM_SCAN_BUDGET_PER_PLAYER,
     OPT_ACHIEVEMENT_RECHECK_SECONDS,
     OPT_AWAY_GRACE_PERIOD,
     OPT_CACHE_MAX_DAYS,
@@ -87,6 +88,7 @@ from .const import (
     PLATFORM_CONFIG,
     PLATFORM_PRIORITY,
     PLAYER_PLATFORMS,
+    TARGET_AGGREGATE_STEAM_SCAN_BUDGET,
     ZOMBIE_ATTRIBUTES,
 )
 from .device import (
@@ -5355,6 +5357,16 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     utils.CACHE_MAX_DAYS = opts.get(OPT_CACHE_MAX_DAYS, DEFAULT_CACHE_MAX_DAYS)
     global_exclusions = _load_opt_json(opts, OPT_GLOBAL_EXCLUSIONS, [])
     players = _load_opt_json(opts, OPT_PLAYERS, {})
+    # Shrinks each player's Steam library-scan budget as more Steam-tracked
+    # players are configured, so the AGGREGATE burst against the shared
+    # Steam rate limiter (see utils._get_rate_limiter) stays roughly
+    # constant regardless of household size -- see const.py for the full
+    # rationale.
+    total_steam_players = sum(1 for p in players.values() if p.get("steam"))
+    steam_scan_budget = max(
+        MIN_STEAM_SCAN_BUDGET_PER_PLAYER,
+        TARGET_AGGREGATE_STEAM_SCAN_BUDGET // max(1, total_steam_players),
+    )
 
     from .const import OPT_ENABLE_PARENTAL
 
@@ -5888,6 +5900,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 library_platform_sources,
                 scan_interval_hours,
                 excluded_games=list(global_exclusions) + list(exclude_games),
+                steam_scan_budget=steam_scan_budget,
             )
             await coordinator.async_load_stored()
             hass.data.setdefault(DOMAIN, {}).setdefault("library_coordinators", {})[

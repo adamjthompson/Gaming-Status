@@ -64,6 +64,29 @@ XBOX_LIBRARY_BACKFILL_BUDGET_PER_CYCLE = 8
 # PSN caller sharing the bucket, including a different player's real-time
 # recheck while they're actively playing something right now.
 PSN_LIBRARY_BACKFILL_BUDGET_PER_CYCLE = 5
+
+# Steam has no free delta signal (no last-played cursor like Xbox/PSN) --
+# its achievement endpoint has to be called for a game to know whether
+# anything changed, so a full scan previously hit EVERY owned game back to
+# back, once per scan interval. For a large library that's a burst of
+# hundreds of authenticated Steam Web API calls in under a minute -- a
+# traffic pattern that can trigger Valve-side anti-abuse throttling on the
+# key independent of total daily volume, and since this integration reuses
+# the SAME key as Home Assistant's own steam_online integration by default
+# (see resolve_steam_credentials), that throttling can knock steam_online
+# itself offline too. _scan_steam instead refreshes a rotating, capped
+# slice of the owned-games list each cycle (round-robin via a persisted
+# offset) -- every game still gets refreshed eventually, just spread across
+# multiple scan cycles instead of one burst.
+#
+# The Steam rate limiter bucket is shared across every tracked player on
+# the install (see utils._get_rate_limiter), so a fixed per-player budget
+# would make the AGGREGATE burst grow with player count. Scaling the
+# per-player budget down as more Steam-tracked players are configured
+# keeps the total burst across the whole install roughly constant instead.
+TARGET_AGGREGATE_STEAM_SCAN_BUDGET = 40
+MIN_STEAM_SCAN_BUDGET_PER_PLAYER = 10
+
 # Independent of the user-configurable OPT_LIBRARY_SCAN_INTERVAL_HOURS
 # (1-24h) -- backfill progress must not be held hostage to a user
 # deliberately setting a long interval to minimize steady-state API volume.
