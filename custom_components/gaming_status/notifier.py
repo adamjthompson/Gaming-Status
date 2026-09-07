@@ -549,11 +549,24 @@ class GamingNotifier:
             if temp_state and temp_state.state.lower() not in (
                 ["offline", "unknown", "unavailable"] + self._cached_exclusions
             ):
-                if (
-                    " ".join(str(temp_state.state).split()).lower().strip()
-                    != expected_clean
-                ):
-                    return None  # Player switched to a different game during the wait, abort notification
+                current_clean = " ".join(str(temp_state.state).split()).lower().strip()
+                if current_clean != expected_clean:
+                    from .utils import _is_same_base_game
+
+                    prefix_words = self._entry.options.get(
+                        OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS
+                    )
+                    if not _is_same_base_game(
+                        expected_clean, current_clean, prefix_words
+                    ):
+                        return None  # Player switched to a different game during the wait, abort notification
+                    # Same base game, just a punctuation/formatting self-
+                    # correction (e.g. a colon appearing/disappearing as the
+                    # platform's own presence data settles a moment after
+                    # the initial detection) -- accept it and keep polling
+                    # instead of treating a cosmetic correction as a real
+                    # game switch.
+                    expected_clean = current_clean
 
                 refreshed_state = temp_state
 
