@@ -34,11 +34,11 @@ With Gaming Status, you can set up global notification destinations (like a spec
 
 ### Destination Settings
 
-* **Name:** A friendly identifier for this notification method (e.g., "Adam's iPhone" or "Family Discord").
+* **Name:** A friendly identifier for this notification method (e.g., "Player1's iPhone" or "Family Discord").
 * **Notification Type:** * `Discord`: Sends a rich embed message complete with the game's title, session duration, and the selected artwork.
     * `Mobile App`: Sends a Rich Notification directly to your iOS/Android Home Assistant app, featuring the game's art directly on your lock screen!
     * `SMS`: Sends a clean, text-only alert suitable for standard mobile text messages.
-* **Notifier:** A dynamic dropdown containing all available Home Assistant notify services (e.g., `notify.mobile_app_adams_iphone`, `notify.discord_bot`, or `notify.twilio`).
+* **Notifier:** A dynamic dropdown containing all available Home Assistant notify services (e.g., `notify.mobile_app_player1s_iphone`, `notify.discord_bot`, or `notify.twilio`).
 * **Target ID:** The routing ID for the message. 
     * *For Discord:* Paste a Server Channel ID to post publicly to a group, or a specific User ID to send a private Direct Message.
     * *For SMS:* Paste the target phone number.

@@ -56,8 +56,8 @@ def resolve_registered_entity_id(hass, unique_id: str, guessed_entity_id: str) -
     from the player's name. Home Assistant silently re-slugifies (via its
     own slugify()) any assigned entity_id containing adjacent/leading/
     trailing underscores -- which safe_owner_slug's output can produce for
-    names with adjacent punctuation, e.g. "Phil (ItchyKiller23)" ->
-    "phil__itchykiller23_" -- permanently diverging from the guess from
+    names with adjacent punctuation, e.g. "Player1 (Gamertag)" ->
+    "player1__gamertag_" -- permanently diverging from the guess from
     then on. Falls back to the guess only if nothing is registered yet (a
     brand-new sensor on its first-ever setup) -- self-corrects on the next
     reload once it is."""

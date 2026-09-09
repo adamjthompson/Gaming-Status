@@ -4,7 +4,7 @@ rename_game:
   fields:
     player:
       required: true
-      example: "Adam"
+      example: "Player1"
       selector:
         text:
     platform:
@@ -29,7 +29,7 @@ delete_game:
   fields:
     player:
       required: true
-      example: "Adam"
+      example: "Player1"
       selector:
         text:
     platform:
@@ -49,7 +49,7 @@ delete_session:
   fields:
     player:
       required: true
-      example: "Adam"
+      example: "Player1"
       selector:
         text:
     platform:
@@ -75,7 +75,7 @@ add_session:
   fields:
     player:
       required: true
-      example: "Adam"
+      example: "Player1"
       selector:
         text:
     platform:
@@ -109,7 +109,7 @@ reassign_session:
     from_player:
       required: true
       description: The player the session is currently attributed to.
-      example: "Adam"
+      example: "Player1"
       selector:
         text:
     from_platform:
@@ -131,7 +131,7 @@ reassign_session:
     to_player:
       required: true
       description: The player this session should be attributed to instead.
-      example: "Josh"
+      example: "Player2"
       selector:
         text:
     to_platform:

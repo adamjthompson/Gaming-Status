@@ -374,7 +374,7 @@ Renames a game across a player's stored history (recent sessions, daily/weekly b
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `player` | Yes | The player's configured name, e.g. `Adam` |
+| `player` | Yes | The player's configured name, e.g. `Player1` |
 | `platform` | No | Limit the rename to one platform (`steam`, `xbox`, `playstation`, `playnite`, `custom`, `discord`). Omit to apply across all of the player's platforms |
 | `old_name` | Yes | The exact game name currently stored, e.g. `DOOM Eternal In the menu` |
 | `new_name` | Yes | The name to rename it to, e.g. `DOOM Eternal` |
@@ -384,7 +384,7 @@ Permanently purges every trace of a named game from a player's stored history â€
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `player` | Yes | The player's configured name, e.g. `Adam` |
+| `player` | Yes | The player's configured name, e.g. `Player1` |
 | `platform` | No | Limit the deletion to one platform. Omit to purge across all of the player's platforms |
 | `game` | Yes | The exact game name to delete |
 

@@ -975,7 +975,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             xbox_slug = _get_gamertag_from_entity(self._source_entity_id, "xbox")
             # The real display name lives on a sibling entity sharing the
             # same slug (e.g. the tracked "..._status" sensor's slug
-            # "adam" pairs with binary_sensor.adam's own "display_name"
+            # "player1" pairs with binary_sensor.player1's own "display_name"
             # attribute) -- not something this integration fetches itself.
             # Falls back to the bare slug if that sibling or attribute is
             # ever missing/renamed, so this degrades instead of going blank.
