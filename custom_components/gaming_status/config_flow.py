@@ -1166,6 +1166,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             report["include_zero_hours"] = user_input.get("include_zero_hours", False)
             report["include_images"] = user_input.get("include_images", True)
             report["show_top_game"] = user_input.get("show_top_game", True)
+            report["top_games_count"] = user_input.get("top_games_count", 1)
             report["show_rank_numbers"] = user_input.get("show_rank_numbers", True)
             report["show_total_summary"] = user_input.get("show_total_summary", True)
             self._options[OPT_WEEKLY_REPORT] = _dump_json(report)
@@ -1212,6 +1213,15 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 "show_top_game", default=report.get("show_top_game", True)
             ): bool,
+            vol.Optional(
+                "top_games_count", default=report.get("top_games_count", 1)
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1,
+                    max=5,
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
             vol.Optional(
                 "show_rank_numbers", default=report.get("show_rank_numbers", True)
             ): bool,

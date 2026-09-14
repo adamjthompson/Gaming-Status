@@ -1165,9 +1165,9 @@ class GamingNotifier:
 
     async def _trigger_weekly_report_rich(self, assigned) -> None:
         """Leaderboard-style weekly report: players ranked by last week's
-        hours, each shown with their top game -- a real Discord embed (with
-        artwork) for Discord destinations, and a sorted plain-text version
-        for everything else. Opt-in via style: rich (see
+        hours, each shown with their top game(s) -- a real Discord embed
+        (with artwork) for Discord destinations, and a sorted plain-text
+        version for everything else. Opt-in via style: rich (see
         async_step_weekly_report) -- the default 'simple' style above is
         completely untouched by this method."""
         from .utils import _format_time, fetch_game_assets
@@ -1177,6 +1177,13 @@ class GamingNotifier:
         include_zero_hours = self._cached_weekly.get("include_zero_hours", False)
         include_images = self._cached_weekly.get("include_images", True)
         show_top_game = self._cached_weekly.get("show_top_game", True)
+        # Clamped defensively even though the config-flow NumberSelector
+        # already enforces 1-5 -- a stale/hand-edited options value should
+        # degrade to something sane rather than produce an empty or
+        # absurdly long games list.
+        top_games_count = max(
+            1, min(5, int(self._cached_weekly.get("top_games_count", 1) or 1))
+        )
         show_rank_numbers = self._cached_weekly.get("show_rank_numbers", True)
         show_total_summary = self._cached_weekly.get("show_total_summary", True)
 
@@ -1199,16 +1206,18 @@ class GamingNotifier:
             if hours <= 0 and not include_zero_hours:
                 continue
             # raw_rolling_breakdown is the trailing 7-day window, already
-            # sorted descending by hours -- its first key is a close (not
-            # exact) proxy for "top game last week," the same known
+            # sorted descending by hours -- its keys are a close (not
+            # exact) proxy for "top games last week," the same known
             # rolling-vs-calendar-week tradeoff already accepted elsewhere
-            # (see the Library card's "Recently Played" sort).
+            # (see the Library card's "Recently Played" sort). Always
+            # gathered (regardless of show_top_game) since the top-ranked
+            # player's #1 game also drives the embed artwork/color below.
             rolling = attrs.get("raw_rolling_breakdown") or {}
-            top_game = (
-                next(iter(rolling), None) or attrs.get("last_played_game") or "Unknown"
-            )
+            top_games = list(rolling.items())[:top_games_count]
+            if not top_games:
+                top_games = [(attrs.get("last_played_game") or "Unknown", None)]
             players_stats.append(
-                {"name": player_name, "hours": hours, "top_game": top_game}
+                {"name": player_name, "hours": hours, "top_games": top_games}
             )
 
         players_stats.sort(key=lambda p: p["hours"], reverse=True)
@@ -1221,25 +1230,37 @@ class GamingNotifier:
                 )
             return
 
-        # Shared per-player line builder so the Discord and plain-text
+        # Shared per-player block builder so the Discord and plain-text
         # formats stay consistent by construction -- same fields shown or
-        # hidden in both, only the markdown/punctuation differs.
-        def _player_line(i, p, bold_name, dash):
+        # hidden in both, only the header's bold markdown differs. Each
+        # block is itself multi-line when show_top_game is on: a header
+        # line, then one indented "- Game (time)" line per top game.
+        def _player_block(i, p, bold_name):
             name_part = f"{i + 1}. {p['name']}" if show_rank_numbers else p["name"]
+            header = f"{name_part} ({_format_time(p['hours'] * 3600)})"
             if bold_name:
-                name_part = f"**{name_part}**"
-            parts = [name_part, f" {dash} {_format_time(p['hours'] * 3600)}"]
+                header = f"**{header}**"
+            lines = [header]
             if show_top_game:
-                parts.append(f" {dash} {p['top_game']}")
-            return "".join(parts)
+                for game_name, game_hours in p["top_games"]:
+                    if game_hours is not None:
+                        lines.append(
+                            f"   - {game_name} ({_format_time(game_hours * 3600)})"
+                        )
+                    else:
+                        lines.append(f"   - {game_name}")
+            return "\n".join(lines)
 
-        discord_message = "\n".join(
-            _player_line(i, p, bold_name=True, dash="—")
-            for i, p in enumerate(players_stats)
+        # A blank line between players reads much better once each one can
+        # span multiple lines -- but stay tight (today's exact spacing)
+        # when top games aren't shown, since every block is then just one
+        # line again.
+        block_separator = "\n\n" if show_top_game else "\n"
+        discord_message = block_separator.join(
+            _player_block(i, p, bold_name=True) for i, p in enumerate(players_stats)
         )
-        plain_message = "\n".join(
-            _player_line(i, p, bold_name=False, dash="-")
-            for i, p in enumerate(players_stats)
+        plain_message = block_separator.join(
+            _player_block(i, p, bold_name=False) for i, p in enumerate(players_stats)
         )
 
         if show_total_summary:
@@ -1252,7 +1273,7 @@ class GamingNotifier:
             discord_message += f"\n\n{total_line}"
             plain_message += f"\n{total_line}"
 
-        top_game = players_stats[0]["top_game"]
+        top_game = players_stats[0]["top_games"][0][0]
 
         image_url = None
         if include_images:
