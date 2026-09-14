@@ -165,6 +165,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             "rolling_weekly_breakdown",
             "rolling_longest_session_details",
             "calendar_weekly_breakdown",
+            "calendar_weekly_breakdown_last_week",
             "calendar_longest_session_details",
             "last_played_game",
             "daily_play_time",
@@ -403,6 +404,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._daily_play_time = 0
         self._weekly_play_time = 0
         self._weekly_play_time_last_week = 0
+        # Per-game analog of _weekly_play_time_last_week -- a snapshot of
+        # the just-ended calendar week's full per-game breakdown, captured
+        # at the exact moment _check_daily_reset detects the week boundary
+        # crossing (not reconstructed later from play_history on demand,
+        # which isn't retained long enough to do that reliably past the
+        # first day or two of a new week).
+        self._calendar_weekly_breakdown_last_week = {}
         self._play_history = {}
         self._recent_sessions = []
         # Cross-game, cross-session achievement/trophy unlock history --
@@ -516,6 +524,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 "last_weekly_reset": self._last_weekly_reset,
                 "last_session_play_time": self._last_session_play_time,
                 "weekly_game_breakdown": self._weekly_game_breakdown,
+                "calendar_weekly_breakdown_last_week": (
+                    self._calendar_weekly_breakdown_last_week
+                ),
                 "longest_session_details": self._longest_session_details,
                 "session_ticks": self._session_ticks_persistent,
                 "blocked_seconds": self._active_elsewhere_blocked_seconds,
@@ -612,6 +623,35 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._mark_history_changed()
 
         if self._last_weekly_reset != current_week_str:
+            # Snapshot the just-ended calendar week's full per-game
+            # breakdown before resetting -- computed from play_history
+            # (already up to date: the daily-reset block above, which runs
+            # first on the exact same boundary crossing, has already
+            # archived the outgoing week's final day into it). Sunday-
+            # anchored via the same formula as _compute_derived_history_
+            # stats's week_start, computed fresh here (not reused from
+            # there) so it's correct even if _check_daily_reset first
+            # notices the new week a few days late (e.g. after a brief HA
+            # outage spanning the boundary).
+            this_week_start = local_now.date() - timedelta(
+                days=(local_now.date().weekday() + 1) % 7
+            )
+            outgoing_week_start = this_week_start - timedelta(days=7)
+            outgoing_breakdown = {}
+            for date_str, day_data in self._play_history.items():
+                if not isinstance(day_data, dict):
+                    continue
+                try:
+                    d = parser.parse(date_str).date()
+                except Exception:
+                    d = None
+                if d is not None and outgoing_week_start <= d < this_week_start:
+                    for game, secs in day_data.get("game_breakdown", {}).items():
+                        outgoing_breakdown[game] = (
+                            outgoing_breakdown.get(game, 0) + secs
+                        )
+            self._calendar_weekly_breakdown_last_week = outgoing_breakdown
+
             self._weekly_play_time_last_week = self._weekly_play_time
             self._weekly_play_time = 0
             self._last_weekly_reset = current_week_str
@@ -1622,7 +1662,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
     def _compute_derived_history_stats(self, local_today, today_longest):
         """Pure rebuild of the derived history stats; cached by _write_common_attributes."""
-        week_start = local_today - timedelta(days=local_today.weekday())
+        # Sunday-anchored, matching total_weekly_hours's own week boundary
+        # (strftime("%U") in _check_daily_reset) and this integration's own
+        # documented "Calendar (Since Sunday)" behavior -- date.weekday()
+        # is Monday=0, so the naive `- timedelta(days=weekday())` this
+        # replaced was actually Monday-anchored, silently disagreeing with
+        # both of those for any Sunday or Monday.
+        week_start = local_today - timedelta(days=(local_today.weekday() + 1) % 7)
         rolling_breakdown = dict(self._weekly_game_breakdown)
         calendar_breakdown = dict(self._weekly_game_breakdown)
         rolling_longest = dict(today_longest)
@@ -1844,6 +1890,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         )
         self._attr_extra_state_attributes["calendar_weekly_breakdown"] = (
             derived.calendar_breakdown
+        )
+        self._attr_extra_state_attributes["calendar_weekly_breakdown_last_week"] = (
+            self._calendar_weekly_breakdown_last_week
         )
         self._attr_extra_state_attributes["longest_session_details"] = today_longest
         self._attr_extra_state_attributes["rolling_longest_session_details"] = (
@@ -2535,6 +2584,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 internal.get("last_session_play_time", 0)
             )
             self._weekly_game_breakdown = internal.get("weekly_game_breakdown", {})
+            self._calendar_weekly_breakdown_last_week = internal.get(
+                "calendar_weekly_breakdown_last_week", {}
+            )
             self._longest_session_details = internal.get(
                 "longest_session_details", {"game": None, "duration": 0}
             )
@@ -4142,6 +4194,7 @@ class MasterGamingSensor(RestoreSensor):
             "calendar_longest_session",
             "raw_rolling_breakdown",
             "raw_calendar_breakdown",
+            "raw_calendar_breakdown_last_week",
             "play_history",
             "game_content_rating",
             "rating_exceeded",
@@ -4283,6 +4336,7 @@ class MasterGamingSensor(RestoreSensor):
         # Trackers for the new Dual-Window Rich Data attributes
         master_rolling_breakdown = {}
         master_calendar_breakdown = {}
+        master_calendar_breakdown_last_week = {}
         master_history = {}
         master_recent_sessions = []
         master_recent_achievements = []
@@ -4348,6 +4402,16 @@ class MasterGamingSensor(RestoreSensor):
             for game, duration in c_breakdown.items():
                 master_calendar_breakdown[game] = (
                     master_calendar_breakdown.get(game, 0) + duration
+                )
+
+            # Aggregate last calendar week's breakdown (same shape as
+            # calendar_weekly_breakdown above, one week behind)
+            cl_breakdown = platform_state.attributes.get(
+                "calendar_weekly_breakdown_last_week", {}
+            )
+            for game, duration in cl_breakdown.items():
+                master_calendar_breakdown_last_week[game] = (
+                    master_calendar_breakdown_last_week.get(game, 0) + duration
                 )
 
             # Aggregate per-day game history
@@ -4482,6 +4546,17 @@ class MasterGamingSensor(RestoreSensor):
             k: round(v / 3600, 2) for k, v in sort_calendar.items() if v >= 60
         }  # For Charting
 
+        sort_calendar_last_week = dict(
+            sorted(
+                master_calendar_breakdown_last_week.items(),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+        )
+        raw_calendar_breakdown_last_week = {
+            k: round(v / 3600, 2) for k, v in sort_calendar_last_week.items() if v >= 60
+        }  # Exact per-game match for total_weekly_hours_last_week -- used by the weekly report
+
         # 2. Platform Split (Percentages)
         platform_split = {}
         if total_weekly_seconds > 0:
@@ -4596,6 +4671,7 @@ class MasterGamingSensor(RestoreSensor):
                 "calendar_weekly_breakdown": fmt_calendar_breakdown,
                 "raw_rolling_breakdown": raw_rolling_breakdown,
                 "raw_calendar_breakdown": raw_calendar_breakdown,
+                "raw_calendar_breakdown_last_week": raw_calendar_breakdown_last_week,
                 "platform_split": platform_split,
                 "longest_session": rolling_longest_text,
                 "rolling_longest_session": rolling_longest_text,
@@ -4642,6 +4718,7 @@ class MasterGamingSensor(RestoreSensor):
                 "calendar_weekly_breakdown": fmt_calendar_breakdown,
                 "raw_rolling_breakdown": raw_rolling_breakdown,
                 "raw_calendar_breakdown": raw_calendar_breakdown,
+                "raw_calendar_breakdown_last_week": raw_calendar_breakdown_last_week,
                 "platform_split": platform_split,
                 "longest_session": rolling_longest_text,
                 "rolling_longest_session": rolling_longest_text,
@@ -4689,6 +4766,7 @@ class MasterGamingSensor(RestoreSensor):
                 "calendar_weekly_breakdown": fmt_calendar_breakdown,
                 "raw_rolling_breakdown": raw_rolling_breakdown,
                 "raw_calendar_breakdown": raw_calendar_breakdown,
+                "raw_calendar_breakdown_last_week": raw_calendar_breakdown_last_week,
                 "platform_split": platform_split,
                 "longest_session": rolling_longest_text,
                 "rolling_longest_session": rolling_longest_text,

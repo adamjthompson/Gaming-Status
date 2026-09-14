@@ -1205,15 +1205,17 @@ class GamingNotifier:
             )
             if hours <= 0 and not include_zero_hours:
                 continue
-            # raw_rolling_breakdown is the trailing 7-day window, already
-            # sorted descending by hours -- its keys are a close (not
-            # exact) proxy for "top games last week," the same known
-            # rolling-vs-calendar-week tradeoff already accepted elsewhere
-            # (see the Library card's "Recently Played" sort). Always
-            # gathered (regardless of show_top_game) since the top-ranked
-            # player's #1 game also drives the embed artwork/color below.
-            rolling = attrs.get("raw_rolling_breakdown") or {}
-            top_games = list(rolling.items())[:top_games_count]
+            # raw_calendar_breakdown_last_week is the exact same completed-
+            # week window as total_weekly_hours_last_week above (both
+            # Sunday-anchored, both snapshotted at the same week-rollover
+            # moment) -- unlike the rolling 7-day breakdown this used to
+            # read, which could include a slice of the CURRENT week too,
+            # making the per-game list disagree with the header total.
+            # Always gathered (regardless of show_top_game) since the
+            # top-ranked player's #1 game also drives the embed
+            # artwork/color below.
+            last_week_breakdown = attrs.get("raw_calendar_breakdown_last_week") or {}
+            top_games = list(last_week_breakdown.items())[:top_games_count]
             if not top_games:
                 top_games = [(attrs.get("last_played_game") or "Unknown", None)]
             players_stats.append(
