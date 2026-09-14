@@ -566,6 +566,30 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             },
         }
 
+    def _breakdown_for_date_range(self, start_inclusive, end_exclusive):
+        """Sum per-game seconds from self._play_history for archived
+        calendar days in [start_inclusive, end_exclusive) -- shared by the
+        weekly-rollover snapshot and the one-time backfill for a sensor
+        whose Store predates calendar_weekly_breakdown_last_week existing.
+        Only ever sees archived (already-ended) days, never today's still-
+        live _weekly_game_breakdown -- correct for both callers, since by
+        the time the rollover snapshot runs the outgoing week's final day
+        has already been archived into play_history (see
+        _check_daily_reset), and the backfill only ever targets a fully-
+        completed prior week."""
+        breakdown = {}
+        for date_str, day_data in self._play_history.items():
+            if not isinstance(day_data, dict):
+                continue
+            try:
+                d = parser.parse(date_str).date()
+            except Exception:
+                d = None
+            if d is not None and start_inclusive <= d < end_exclusive:
+                for game, secs in day_data.get("game_breakdown", {}).items():
+                    breakdown[game] = breakdown.get(game, 0) + secs
+        return breakdown
+
     def _check_daily_reset(self):
         now = dt_util.now()
         local_now = dt_util.as_local(now)
@@ -637,20 +661,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 days=(local_now.date().weekday() + 1) % 7
             )
             outgoing_week_start = this_week_start - timedelta(days=7)
-            outgoing_breakdown = {}
-            for date_str, day_data in self._play_history.items():
-                if not isinstance(day_data, dict):
-                    continue
-                try:
-                    d = parser.parse(date_str).date()
-                except Exception:
-                    d = None
-                if d is not None and outgoing_week_start <= d < this_week_start:
-                    for game, secs in day_data.get("game_breakdown", {}).items():
-                        outgoing_breakdown[game] = (
-                            outgoing_breakdown.get(game, 0) + secs
-                        )
-            self._calendar_weekly_breakdown_last_week = outgoing_breakdown
+            self._calendar_weekly_breakdown_last_week = self._breakdown_for_date_range(
+                outgoing_week_start, this_week_start
+            )
 
             self._weekly_play_time_last_week = self._weekly_play_time
             self._weekly_play_time = 0
@@ -2587,6 +2600,31 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._calendar_weekly_breakdown_last_week = internal.get(
                 "calendar_weekly_breakdown_last_week", {}
             )
+            if (
+                not self._calendar_weekly_breakdown_last_week
+                and self._last_weekly_reset
+            ):
+                # One-time backfill for a sensor whose Store predates this
+                # field -- reconstructs the most recently completed
+                # calendar week from whatever play_history still retains,
+                # so the weekly report's per-game list works right away
+                # instead of staying empty until the next real week
+                # rollover naturally populates it. Best-effort: if play_
+                # history's 8-day retention has already dropped part of
+                # that week by the time this runs, the reconstruction is
+                # simply incomplete for those early days -- no worse than
+                # not having it at all, and it's overwritten for real at
+                # the next actual rollover regardless. Gated on
+                # _last_weekly_reset already being set so a brand-new
+                # player with no history yet doesn't get a pointless empty
+                # computation.
+                today = dt_util.as_local(dt_util.now()).date()
+                this_week_start = today - timedelta(days=(today.weekday() + 1) % 7)
+                self._calendar_weekly_breakdown_last_week = (
+                    self._breakdown_for_date_range(
+                        this_week_start - timedelta(days=7), this_week_start
+                    )
+                )
             self._longest_session_details = internal.get(
                 "longest_session_details", {"game": None, "duration": 0}
             )
