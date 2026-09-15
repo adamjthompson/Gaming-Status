@@ -647,6 +647,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._mark_history_changed()
 
         if self._last_weekly_reset != current_week_str:
+            _LOGGER.debug(
+                "Gaming Status: %s -- weekly rollover firing: "
+                "last_weekly_reset=%r -> current_week_str=%r",
+                self.entity_id,
+                self._last_weekly_reset,
+                current_week_str,
+            )
             # Snapshot the just-ended calendar week's full per-game
             # breakdown before resetting -- computed from play_history
             # (already up to date: the daily-reset block above, which runs
@@ -2600,6 +2607,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._calendar_weekly_breakdown_last_week = internal.get(
                 "calendar_weekly_breakdown_last_week", {}
             )
+            _LOGGER.debug(
+                "Gaming Status: %s -- restore: calendar_weekly_breakdown_last_week "
+                "from store=%r, last_weekly_reset=%r, play_history dates=%r",
+                self.entity_id,
+                self._calendar_weekly_breakdown_last_week,
+                self._last_weekly_reset,
+                sorted(self._play_history.keys()),
+            )
             if (
                 not self._calendar_weekly_breakdown_last_week
                 and self._last_weekly_reset
@@ -2620,10 +2635,24 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 # computation.
                 today = dt_util.as_local(dt_util.now()).date()
                 this_week_start = today - timedelta(days=(today.weekday() + 1) % 7)
+                outgoing_week_start = this_week_start - timedelta(days=7)
                 self._calendar_weekly_breakdown_last_week = (
-                    self._breakdown_for_date_range(
-                        this_week_start - timedelta(days=7), this_week_start
-                    )
+                    self._breakdown_for_date_range(outgoing_week_start, this_week_start)
+                )
+                _LOGGER.debug(
+                    "Gaming Status: %s -- backfill ran: today=%s, "
+                    "range=[%s, %s), result=%r",
+                    self.entity_id,
+                    today,
+                    outgoing_week_start,
+                    this_week_start,
+                    self._calendar_weekly_breakdown_last_week,
+                )
+            else:
+                _LOGGER.debug(
+                    "Gaming Status: %s -- backfill skipped (already populated, "
+                    "or _last_weekly_reset is falsy)",
+                    self.entity_id,
                 )
             self._longest_session_details = internal.get(
                 "longest_session_details", {"game": None, "duration": 0}
