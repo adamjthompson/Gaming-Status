@@ -1143,6 +1143,26 @@ class GamingNotifier:
             or not self._cached_weekly.get("enabled")
         ):
             return
+        await self._send_weekly_report()
+
+    async def async_send_weekly_report_now(self) -> None:
+        """Manual, on-demand send -- e.g. from the "Send Weekly Report Now"
+        button (button.py). Deliberately bypasses the day-of-week check and
+        the weekly report's own "enabled" toggle (so it can be used to
+        preview the report's exact current formatting/destinations before
+        committing to a schedule), matching this codebase's existing
+        convention that a deliberate manual request always forces the real
+        action (see LibraryScanRefreshButton). Still respects the global
+        notifications master switch -- a manual test send shouldn't bypass
+        that safety switch."""
+        if not self._enable_notifications:
+            return
+        await self._send_weekly_report()
+
+    async def _send_weekly_report(self) -> None:
+        """Shared body for both the scheduled and manual send paths --
+        everything after the "should this run at all" gating, which
+        differs between the two callers above."""
         assigned = self._cached_weekly.get("destinations", [])
 
         if self._cached_weekly.get("style") == "rich":

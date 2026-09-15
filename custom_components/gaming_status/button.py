@@ -32,37 +32,40 @@ from .const import (
     OPT_ENABLE_LIBRARY_SCAN,
     OPT_ENABLED_PLATFORMS,
     OPT_PLAYERS,
+    OPT_WEEKLY_REPORT,
 )
-from .device import player_device_info, safe_owner_slug
+from .device import hub_device_info, player_device_info, safe_owner_slug
 from .sensor import _load_opt_json
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     opts = config_entry.options
-    if not (
-        opts.get(OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING)
-        and opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN)
-    ):
-        return
-
-    players = _load_opt_json(opts, OPT_PLAYERS, {})
-    enabled_platforms = opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
-
     entities = []
-    for player_name, player_data in players.items():
-        has_library_platform = any(
-            player_data.get(platform)
-            for platform in ("steam", "xbox", "playstation")
-            if platform in enabled_platforms
-        )
-        if not has_library_platform:
-            continue
-        safe_owner = safe_owner_slug(player_name)
-        platforms = [p for p in enabled_platforms if player_data.get(p)]
-        device_info = player_device_info(player_name, safe_owner, platforms)
-        entities.append(
-            LibraryScanRefreshButton(hass, safe_owner, player_name, device_info)
-        )
+
+    if opts.get(
+        OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING
+    ) and opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN):
+        players = _load_opt_json(opts, OPT_PLAYERS, {})
+        enabled_platforms = opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
+
+        for player_name, player_data in players.items():
+            has_library_platform = any(
+                player_data.get(platform)
+                for platform in ("steam", "xbox", "playstation")
+                if platform in enabled_platforms
+            )
+            if not has_library_platform:
+                continue
+            safe_owner = safe_owner_slug(player_name)
+            platforms = [p for p in enabled_platforms if player_data.get(p)]
+            device_info = player_device_info(player_name, safe_owner, platforms)
+            entities.append(
+                LibraryScanRefreshButton(hass, safe_owner, player_name, device_info)
+            )
+
+    weekly_report = _load_opt_json(opts, OPT_WEEKLY_REPORT, {})
+    if weekly_report.get("enabled"):
+        entities.append(WeeklyReportSendButton(hass))
 
     async_add_entities(entities)
 
@@ -94,3 +97,30 @@ class LibraryScanRefreshButton(ButtonEntity):
         )
         if coordinator:
             await coordinator.async_request_refresh()
+
+
+class WeeklyReportSendButton(ButtonEntity):
+    """One global button (not per-player, since the weekly report itself
+    covers every included player in one message) -- lets a user preview
+    the report's exact current formatting/destinations on demand, instead
+    of waiting for its next scheduled day/time. Lives on the shared hub
+    device alongside the other integration-wide entities, matching how
+    binary_sensor.py's "anyone gaming" entity is scoped."""
+
+    _attr_should_poll = False
+    _attr_icon = "mdi:email-send"
+
+    def __init__(self, hass):
+        self.hass = hass
+        self._attr_unique_id = "gaming_status_send_weekly_report_now"
+        self.entity_id = "button.gaming_status_send_weekly_report_now"
+        self._attr_name = "Send Weekly Report Now"
+        self._attr_device_info = hub_device_info()
+
+    async def async_press(self) -> None:
+        # Looked up lazily, same reasoning as LibraryScanRefreshButton
+        # above -- by the time a user can press a button in the UI,
+        # __init__.py has long since finished setting up the notifier.
+        notifier = self.hass.data.get(DOMAIN, {}).get("notifier")
+        if notifier:
+            await notifier.async_send_weekly_report_now()

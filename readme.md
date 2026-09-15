@@ -224,6 +224,7 @@ Upon restart, the integration will instantly read your settings and generate the
 | button.gaming_status_XXXXX_library_refresh | Button | *(Requires Full Game Library Scan)* Manually triggers an immediate full library rescan for this player, bypassing the normal scan interval |
 | sensor.gaming_status_players_online | Sensor | Global sensor that tracks the total number of players currently online |
 | binary_sensor.gaming_status_anyone_gaming | Binary Sensor | Useful for showing or hiding cards |
+| button.gaming_status_send_weekly_report_now | Button | *(Requires [Weekly Report](docs/notifications.md) to be enabled)* Manually sends the weekly report immediately, using its current settings and destinations -- handy for previewing the exact formatting without waiting for its scheduled day/time |
 
 ### Attributes for Master Sensors
 Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The `*_master` sensors provide the following attibutes:
