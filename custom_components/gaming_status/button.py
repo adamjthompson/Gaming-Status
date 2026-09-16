@@ -108,7 +108,7 @@ class WeeklyReportSendButton(ButtonEntity):
     binary_sensor.py's "anyone gaming" entity is scoped."""
 
     _attr_should_poll = False
-    _attr_icon = "mdi:email-send"
+    _attr_icon = "mdi:calendar"
 
     def __init__(self, hass):
         self.hass = hass
