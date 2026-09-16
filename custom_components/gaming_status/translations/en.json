@@ -119,14 +119,18 @@
           "notify_end_destinations": "Session End Notification(s)",
           "suppresses_xbox_sensors": "Suppress other players' Xbox sensors",
           "exclude_games": "Games to exclude (one per line)",
-          "clear_achievements": "Clear achievement/trophy history"
+          "clear_achievements": "Clear achievement/trophy history",
+          "enable_achievement_tracking": "Enable Achievement/Trophy Tracking",
+          "enable_library_scan": "Enable Full Game Library Scan"
         },
         "data_description": {
           "notify_start_destinations": "Select notification method(s) when this player starts gaming.",
           "notify_end_destinations": "Select notification method(s) when this player stops gaming.",
           "suppresses_xbox_sensors": "When this player is confirmed playing on any of their own sensors, block the selected Xbox sensor(s) from also claiming the same game.",
           "exclude_games": "Game titles to ignore for this player, one per line.",
-          "clear_achievements": "Use with caution: Permanently deletes this player's entire recorded achievement/trophy unlock history, across every platform. Applies once on the next reload, then automatically switches back off. This cannot be undone."
+          "clear_achievements": "Use with caution: Permanently deletes this player's entire recorded achievement/trophy unlock history, across every platform. Applies once on the next reload, then automatically switches back off. This cannot be undone.",
+          "enable_achievement_tracking": "Only takes effect if 'Enable Achievement/Trophy Tracking' is also on under Achievements & Ratings. Turn off for a player you don't need this data for, to reduce API calls.",
+          "enable_library_scan": "Only takes effect if 'Enable Full Game Library Scan' is also on under Achievements & Ratings. Turn off for a player you don't need this data for, to reduce API calls."
         }
       },
       "notifications": {
@@ -135,8 +139,14 @@
         "data": {
           "endpoint_choice": "Notification Menu",
           "endpoints": "Notification Methods",
-          "notify_artwork": "Notification Artwork Style",
           "weekly_report": "Weekly Report Settings"
+        }
+      },
+      "notification_artwork": {
+        "title": "Notification Artwork",
+        "description": "Choose which artwork type attaches to session and weekly report notifications.",
+        "data": {
+          "notify_artwork": "Notification Artwork Style"
         }
       },
       "add_endpoint": {

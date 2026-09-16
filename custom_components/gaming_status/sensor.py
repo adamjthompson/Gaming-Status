@@ -216,6 +216,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         device_info=None,
         clear_achievements_requested=False,
         config_entry=None,
+        achievement_tracking_enabled=True,
     ):
 
         # --- SILENT AUTO-CORRECTION FOR CONSOLES ---
@@ -380,6 +381,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # future restart.
         self._clear_achievements_requested = clear_achievements_requested
         self._config_entry = config_entry
+        # Per-player override of the global achievement/trophy tracking
+        # toggle -- already ANDed with the global flag by the caller
+        # (async_setup_entry), so this single attribute is the correct,
+        # final gate for every behavioral check in this class.
+        self._achievement_tracking_enabled = achievement_tracking_enabled
 
         self._current_game = None
         self._play_start_time = None
@@ -1008,7 +1014,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             data["xbox_min_age_attr"] = sibling_state.attributes.get(
                                 "min_age"
                             )
-                        if utils.ENABLE_ACHIEVEMENT_TRACKING:
+                        if self._achievement_tracking_enabled:
                             data["xbox_gamerscore_attr"] = sibling_state.attributes.get(
                                 "gamerscore"
                             )
@@ -2555,18 +2561,18 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # _fetch_native_rating's xbox branch, alongside the free sibling-
         # entity min_age read that needs no credential), so both resolve if
         # either toggle is on.
-        if self._gaming_type == "steam" and utils.ENABLE_ACHIEVEMENT_TRACKING:
+        if self._gaming_type == "steam" and self._achievement_tracking_enabled:
             self._steam_api_key, self._steam_id64 = utils.resolve_steam_credentials(
                 self.hass, self._source_entity_id
             )
         elif self._gaming_type == "playstation" and (
-            utils.ENABLE_NATIVE_RATINGS or utils.ENABLE_ACHIEVEMENT_TRACKING
+            utils.ENABLE_NATIVE_RATINGS or self._achievement_tracking_enabled
         ):
             self._psn_npsso, self._psn_account_id = utils.resolve_psn_credentials(
                 self.hass, self._source_entity_id
             )
         elif self._gaming_type == "xbox" and (
-            utils.ENABLE_NATIVE_RATINGS or utils.ENABLE_ACHIEVEMENT_TRACKING
+            utils.ENABLE_NATIVE_RATINGS or self._achievement_tracking_enabled
         ):
             (
                 self._xbox_config_entry,
@@ -3489,7 +3495,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         + int(delta_seconds)
                     )
 
-                    if utils.ENABLE_ACHIEVEMENT_TRACKING and self._gaming_type in (
+                    if self._achievement_tracking_enabled and self._gaming_type in (
                         "steam",
                         "playstation",
                     ):
@@ -3758,7 +3764,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             and not self._rating_fetch_attempted
                         )
                         or (
-                            utils.ENABLE_ACHIEVEMENT_TRACKING
+                            self._achievement_tracking_enabled
                             and not self._achievements_fetch_attempted
                         )
                     )
@@ -3828,7 +3834,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 # refreshed every update rather than gated by
                 # _achievements_fetch_attempted, since the official Xbox
                 # integration's sibling sensor already keeps it current.
-                if utils.ENABLE_ACHIEVEMENT_TRACKING and self._gaming_type == "xbox":
+                if self._achievement_tracking_enabled and self._gaming_type == "xbox":
                     gs_earned, gs_total = _parse_fraction_attr(
                         platform_data.get("xbox_gamerscore_attr")
                     )
@@ -3838,7 +3844,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 # --- Native achievement/trophy enrichment (steam/xbox/playstation, opt-in) ---
                 if (
                     normalized_new
-                    and utils.ENABLE_ACHIEVEMENT_TRACKING
+                    and self._achievement_tracking_enabled
                     and not self._achievements_fetch_attempted
                     and self._gaming_type in ("steam", "xbox", "playstation")
                 ):
@@ -4298,11 +4304,13 @@ class MasterGamingSensor(RestoreSensor):
         same_game_prefix_words=DEFAULT_SAME_GAME_PREFIX_WORDS,
         handoff_grace_seconds=DEFAULT_MASTER_HANDOFF_GRACE_SECONDS,
         device_info=None,
+        achievement_tracking_enabled=True,
     ):
         self.hass = hass
         self._parental_rules = parental_rules or {}
         self._same_game_prefix_words = same_game_prefix_words
         self._handoff_grace_seconds = handoff_grace_seconds
+        self._achievement_tracking_enabled = achievement_tracking_enabled
         safe_owner = safe_owner_slug(name)
         self._attr_name = f"{name} Gaming Status"
         self._attr_unique_id = f"gaming_status_{safe_owner}_master_v6"
@@ -4885,7 +4893,7 @@ class MasterGamingSensor(RestoreSensor):
             master_all_time_seconds_by_game, 10
         )
         new_attrs["color_extraction_enabled"] = utils.ENABLE_VIBRANT_COLOR
-        new_attrs["achievement_tracking_enabled"] = utils.ENABLE_ACHIEVEMENT_TRACKING
+        new_attrs["achievement_tracking_enabled"] = self._achievement_tracking_enabled
 
         # Exposed both per-platform (for cards that know which platform
         # they care about) and as a single convenience field for cards
@@ -5030,11 +5038,13 @@ class PCGamingSensor(RestoreSensor):
         same_game_prefix_words=DEFAULT_SAME_GAME_PREFIX_WORDS,
         handoff_grace_seconds=DEFAULT_MASTER_HANDOFF_GRACE_SECONDS,
         device_info=None,
+        achievement_tracking_enabled=True,
     ):
         self.hass = hass
         self._pc_entities = pc_entities
         self._same_game_prefix_words = same_game_prefix_words
         self._handoff_grace_seconds = handoff_grace_seconds
+        self._achievement_tracking_enabled = achievement_tracking_enabled
         safe_owner = safe_owner_slug(name)
         self._attr_name = f"{name} PC"
         self._attr_unique_id = f"gaming_status_{safe_owner}_pc_v2"
@@ -5388,7 +5398,7 @@ class PCGamingSensor(RestoreSensor):
             utils.ENABLE_VIBRANT_COLOR
         )
         self._attr_extra_state_attributes["achievement_tracking_enabled"] = (
-            utils.ENABLE_ACHIEVEMENT_TRACKING
+            self._achievement_tracking_enabled
         )
         self._attr_extra_state_attributes["gamertag"] = gamertags_by_platform.get(
             winning_platform
@@ -5507,7 +5517,15 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     # Steam rate limiter (see utils._get_rate_limiter) stays roughly
     # constant regardless of household size -- see const.py for the full
     # rationale.
-    total_steam_players = sum(1 for p in players.values() if p.get("steam"))
+    total_steam_players = sum(
+        1
+        for p in players.values()
+        if p.get("steam")
+        and p.get(
+            "enable_library_scan",
+            opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN),
+        )
+    )
     steam_scan_budget = max(
         MIN_STEAM_SCAN_BUDGET_PER_PLAYER,
         TARGET_AGGREGATE_STEAM_SCAN_BUDGET // max(1, total_steam_players),
@@ -5914,6 +5932,19 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     for player_name, player_data in players.items():
         exclude_games = player_data.get("exclude_games", [])
         clear_achievements_requested = player_data.get("clear_achievements", False)
+        # Per-player override of the two global toggles above -- defaults
+        # to the current global value when never explicitly set, so an
+        # existing install sees zero behavior change until a player is
+        # deliberately opted out.
+        player_achievement_tracking_enabled = utils.ENABLE_ACHIEVEMENT_TRACKING and (
+            player_data.get(
+                "enable_achievement_tracking", utils.ENABLE_ACHIEVEMENT_TRACKING
+            )
+        )
+        player_library_scan_enabled = player_data.get(
+            "enable_library_scan",
+            opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN),
+        )
         rules = parental_rules.get(player_name, {})
         safe_owner = safe_owner_slug(player_name)
         device_info = player_device_info(
@@ -5963,6 +5994,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     device_info=device_info,
                     clear_achievements_requested=clear_achievements_requested,
                     config_entry=config_entry,
+                    achievement_tracking_enabled=player_achievement_tracking_enabled,
                 )
                 ents.append(sensor_entity)
                 # Resolve the real, already-registered entity_id via the
@@ -6003,6 +6035,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     active_settings["SAME_GAME_PREFIX_WORDS"],
                     active_settings["MASTER_HANDOFF_GRACE_SECONDS"],
                     device_info=device_info,
+                    achievement_tracking_enabled=player_achievement_tracking_enabled,
                 )
             )
         else:
@@ -6019,6 +6052,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             active_settings["SAME_GAME_PREFIX_WORDS"],
             active_settings["MASTER_HANDOFF_GRACE_SECONDS"],
             device_info=device_info,
+            achievement_tracking_enabled=player_achievement_tracking_enabled,
         )
         ents.append(master_sensor)
         hass.data.setdefault(DOMAIN, {}).setdefault("master_sensors", {})[
@@ -6034,6 +6068,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING
             )
             and opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN)
+            and player_library_scan_enabled
             and library_platform_sources
         ):
             scan_interval_hours = opts.get(

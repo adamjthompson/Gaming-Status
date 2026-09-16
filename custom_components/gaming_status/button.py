@@ -56,6 +56,11 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             )
             if not has_library_platform:
                 continue
+            if not player_data.get(
+                "enable_library_scan",
+                opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN),
+            ):
+                continue
             safe_owner = safe_owner_slug(player_name)
             platforms = [p for p in enabled_platforms if player_data.get(p)]
             device_info = player_device_info(player_name, safe_owner, platforms)

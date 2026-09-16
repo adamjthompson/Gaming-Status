@@ -854,6 +854,16 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 e.strip() for e in exclude_raw.splitlines() if e.strip()
             ]
             existing["clear_achievements"] = user_input.get("clear_achievements", False)
+            existing["enable_achievement_tracking"] = user_input.get(
+                "enable_achievement_tracking",
+                self._options.get(
+                    OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING
+                ),
+            )
+            existing["enable_library_scan"] = user_input.get(
+                "enable_library_scan",
+                self._options.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN),
+            )
 
             # Only update destinations if the UI actually displayed them
             if notifications_enabled:
@@ -920,6 +930,25 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     "clear_achievements",
                     default=existing.get("clear_achievements", False),
                 ): bool,
+                vol.Optional(
+                    "enable_achievement_tracking",
+                    default=existing.get(
+                        "enable_achievement_tracking",
+                        self._options.get(
+                            OPT_ENABLE_ACHIEVEMENT_TRACKING,
+                            DEFAULT_ENABLE_ACHIEVEMENT_TRACKING,
+                        ),
+                    ),
+                ): bool,
+                vol.Optional(
+                    "enable_library_scan",
+                    default=existing.get(
+                        "enable_library_scan",
+                        self._options.get(
+                            OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN
+                        ),
+                    ),
+                ): bool,
             }
         )
 
@@ -938,16 +967,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         endpoints = _endpoints(opts)
 
         if user_input is not None:
-            # 1. Save the new artwork selection FIRST
-            opts[OPT_NOTIFY_ARTWORK] = user_input.get(
-                OPT_NOTIFY_ARTWORK, "game_cover_art"
-            )
-            self._options = opts
-
-            # 2. Then handle the routing
             selection = user_input.get("endpoint_choice")
-            if selection == "__save_settings__":
-                return await self._update_and_return()
             if selection == "__add_new__":
                 self._editing_endpoint = None
                 return await self.async_step_add_endpoint()
@@ -955,19 +975,26 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 return await self.async_step_discord_colors()
             if selection == "__weekly_report__":
                 return await self.async_step_weekly_report()
+            if selection == "__notification_artwork__":
+                return await self.async_step_notification_artwork()
             if selection in endpoints:
                 self._editing_endpoint = selection
                 return await self.async_step_edit_endpoint()
 
             return await self._update_and_return()
 
-        # Build the new dropdown choices with a dedicated Save option
+        # Pure navigation menu -- this dropdown only routes to other steps;
+        # each destination step (including Notification Artwork) saves its
+        # own settings and returns via _update_and_return().
         choices = [
             selector.SelectOptionDict(
-                value="__save_settings__", label="Save Artwork Setting"
+                value="__save_settings__", label="-- Return to Main Menu --"
             ),
             selector.SelectOptionDict(
                 value="__add_new__", label="➕ Add New Notification"
+            ),
+            selector.SelectOptionDict(
+                value="__notification_artwork__", label="Notification Artwork"
             ),
             selector.SelectOptionDict(
                 value="__discord_colors__", label="Discord Notification Colors"
@@ -993,6 +1020,24 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                             options=choices, mode=selector.SelectSelectorMode.DROPDOWN
                         )
                     ),
+                }
+            ),
+        )
+
+    async def async_step_notification_artwork(self, user_input=None):
+        opts = self._options
+
+        if user_input is not None:
+            opts[OPT_NOTIFY_ARTWORK] = user_input.get(
+                OPT_NOTIFY_ARTWORK, "game_cover_art"
+            )
+            self._options = opts
+            return await self._update_and_return()
+
+        return self.async_show_form(
+            step_id="notification_artwork",
+            data_schema=vol.Schema(
+                {
                     vol.Optional(
                         OPT_NOTIFY_ARTWORK,
                         default=opts.get(OPT_NOTIFY_ARTWORK, "game_cover_art"),
