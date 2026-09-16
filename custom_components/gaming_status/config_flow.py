@@ -988,9 +988,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         # own settings and returns via _update_and_return().
         choices = [
             selector.SelectOptionDict(
-                value="__save_settings__", label="-- Return to Main Menu --"
-            ),
-            selector.SelectOptionDict(
                 value="__add_new__", label="➕ Add New Notification"
             ),
             selector.SelectOptionDict(
@@ -1014,7 +1011,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             data_schema=vol.Schema(
                 {
                     vol.Required(
-                        "endpoint_choice", default="__save_settings__"
+                        "endpoint_choice", default="__add_new__"
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=choices, mode=selector.SelectSelectorMode.DROPDOWN
