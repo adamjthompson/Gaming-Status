@@ -217,6 +217,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         clear_achievements_requested=False,
         config_entry=None,
         achievement_tracking_enabled=True,
+        multi_steam_account_household=False,
     ):
 
         # --- SILENT AUTO-CORRECTION FOR CONSOLES ---
@@ -368,6 +369,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # for every enrichment fetch for this sensor's lifetime.
         self._steam_api_key = None
         self._steam_id64 = None
+        # Tri-state -- see utils.resolve_steam_credentials' is_confirmed_owner
+        # docstring. Only ever meaningfully False when
+        # self._multi_steam_account_household is also True (set below).
+        self._steam_confirmed_owner = None
         self._psn_npsso = None
         self._psn_account_id = None
         self._xbox_config_entry = None
@@ -386,6 +391,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # (async_setup_entry), so this single attribute is the correct,
         # final gate for every behavioral check in this class.
         self._achievement_tracking_enabled = achievement_tracking_enabled
+        # Only matters for Steam -- see utils.resolve_steam_credentials'
+        # is_confirmed_owner docstring for the full rationale (only a real
+        # cross-contamination risk once 2+ distinct Steam accounts are
+        # configured across the whole household).
+        self._multi_steam_account_household = multi_steam_account_household
 
         self._current_game = None
         self._play_start_time = None
@@ -2562,9 +2572,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # entity min_age read that needs no credential), so both resolve if
         # either toggle is on.
         if self._gaming_type == "steam" and self._achievement_tracking_enabled:
-            self._steam_api_key, self._steam_id64 = utils.resolve_steam_credentials(
-                self.hass, self._source_entity_id
-            )
+            (
+                self._steam_api_key,
+                self._steam_id64,
+                self._steam_confirmed_owner,
+            ) = utils.resolve_steam_credentials(self.hass, self._source_entity_id)
         elif self._gaming_type == "playstation" and (
             utils.ENABLE_NATIVE_RATINGS or self._achievement_tracking_enabled
         ):
@@ -3339,11 +3351,21 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 and self._steam_id64
                 and self._cached_steam_appid
             ):
+                # A confirmed non-owner Steam account will 401/403 on every
+                # single fetch, permanently -- never a real "earned" number,
+                # so skip the call entirely and record it as unknown rather
+                # than a misleading 0. See utils.resolve_steam_credentials'
+                # is_confirmed_owner docstring.
+                treat_as_restricted = (
+                    self._multi_steam_account_household
+                    and self._steam_confirmed_owner is False
+                )
                 result = await utils.fetch_steam_achievements(
                     self.hass,
                     self._steam_id64,
                     self._steam_api_key,
                     self._cached_steam_appid,
+                    skip_earned=treat_as_restricted,
                 )
                 if (
                     result
@@ -3858,11 +3880,16 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             and platform_data.get("steam_appid")
                         ):
                             self._cached_steam_appid = platform_data["steam_appid"]
+                            treat_as_restricted = (
+                                self._multi_steam_account_household
+                                and self._steam_confirmed_owner is False
+                            )
                             result = await utils.fetch_steam_achievements(
                                 self.hass,
                                 self._steam_id64,
                                 self._steam_api_key,
                                 platform_data["steam_appid"],
+                                skip_earned=treat_as_restricted,
                             )
                             if (
                                 result
@@ -5522,14 +5549,29 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         for p in players.values()
         if p.get("steam")
         and p.get(
-            "enable_library_scan",
-            opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN),
+            "enable_library_scan_steam",
+            p.get(
+                "enable_library_scan",
+                opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN),
+            ),
         )
     )
     steam_scan_budget = max(
         MIN_STEAM_SCAN_BUDGET_PER_PLAYER,
         TARGET_AGGREGATE_STEAM_SCAN_BUDGET // max(1, total_steam_players),
     )
+    # Every player with a configured Steam source, regardless of scan/
+    # tracking toggles -- unlike total_steam_players above, this is about
+    # whether Steam's per-account achievement-data restriction can actually
+    # cross-contaminate anyone's data, not about API call budgeting. With
+    # only one Steam account in the whole household there's nothing else to
+    # cross-contaminate with, so an unprovable/legacy credential resolution
+    # stays safe to trust (see utils.resolve_steam_credentials's
+    # is_confirmed_owner docstring).
+    distinct_steam_accounts = len(
+        {p.get("steam") for p in players.values() if p.get("steam")}
+    )
+    multi_steam_account_household = distinct_steam_accounts > 1
 
     from .const import OPT_ENABLE_PARENTAL
 
@@ -5697,6 +5739,86 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             f"gaming_status_library_{old_safe}",
             f"gaming_status_library_{new_safe}",
         )
+
+    # --- STEAM NON-OWNER ACHIEVEMENT CLEANUP MIGRATION ---
+    # Steam's GetPlayerAchievements only reliably returns real data for the
+    # API key's own account (see utils.resolve_steam_credentials's
+    # is_confirmed_owner docstring) -- for a confirmed non-owner (a
+    # family-shared friend tracked as a separate player, in a household
+    # with 2+ distinct Steam accounts configured), any already-persisted
+    # achievements_earned/percent value may be poisoned by a since-fixed
+    # credential-resolution edge case that could have resolved that
+    # player's entity to a DIFFERENT account's real steamid. Runs every
+    # reload (idempotent, cheap no-op for the overwhelming majority of
+    # players -- same convention as the three migration blocks above), and
+    # deliberately wipes rather than tries to selectively preserve
+    # entries, since nothing distinguishes a legitimate value from a
+    # poisoned one after the fact.
+    if multi_steam_account_household:
+        from .library_scan import _aggregate as _library_aggregate
+
+        for player_name, player_data in players.items():
+            steam_entity_id = player_data.get("steam")
+            if not steam_entity_id:
+                continue
+            _, _, is_confirmed_owner = utils.resolve_steam_credentials(
+                hass, steam_entity_id
+            )
+            if is_confirmed_owner is not False:
+                continue
+            safe_owner = safe_owner_slug(player_name)
+
+            # Library-scan Store: null every Steam game's earned/percent,
+            # then re-run the same pure aggregation the coordinator itself
+            # uses so the pre-computed summary/total fields (which the
+            # coordinator won't otherwise recompute until its next full
+            # scan, possibly hours away) are consistent immediately too,
+            # rather than only the individual game entries.
+            library_store = Store(hass, 1, f"gaming_status_library_{safe_owner}")
+            library_stored = await library_store.async_load()
+            library_data = (
+                (library_stored or {}).get("data") if library_stored else None
+            )
+            if library_data:
+                steam_games = (
+                    library_data.get("platforms", {}).get("steam", {}) or {}
+                ).get("games", [])
+                changed = False
+                for g in steam_games:
+                    if (
+                        g.get("achievements_earned") is not None
+                        or g.get("percent") is not None
+                    ):
+                        g["achievements_earned"] = None
+                        g["percent"] = None
+                        changed = True
+                if changed:
+                    raw_by_platform = {
+                        platform: {"games": platform_data.get("games", [])}
+                        for platform, platform_data in library_data.get(
+                            "platforms", {}
+                        ).items()
+                    }
+                    library_stored["data"] = _library_aggregate(raw_by_platform)
+                    await library_store.async_save(library_stored)
+
+            # Real-time per-platform Store: no marker distinguishes a
+            # legitimate entry from a poisoned one, and a confirmed
+            # non-owner has never had any legitimate real-time achievement
+            # data to begin with (the restriction has always applied) --
+            # so a full reset, not a selective one, per the user's own
+            # confirmed choice.
+            realtime_store = Store(hass, 1, f"gaming_status.{safe_owner}_steam_history")
+            realtime_stored = await realtime_store.async_load()
+            if realtime_stored and (
+                realtime_stored.get("recent_achievements")
+                or realtime_stored.get("cached_achievements_earned") is not None
+                or realtime_stored.get("cached_achievements_total") is not None
+            ):
+                realtime_stored["recent_achievements"] = []
+                realtime_stored["cached_achievements_earned"] = None
+                realtime_stored["cached_achievements_total"] = None
+                await realtime_store.async_save(realtime_stored)
 
     # --- AUTOMATIC LEGACY SENSOR PURGE (DATABASE & RAM GHOSTS) ---
 
@@ -5932,18 +6054,41 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     for player_name, player_data in players.items():
         exclude_games = player_data.get("exclude_games", [])
         clear_achievements_requested = player_data.get("clear_achievements", False)
-        # Per-player override of the two global toggles above -- defaults
-        # to the current global value when never explicitly set, so an
-        # existing install sees zero behavior change until a player is
-        # deliberately opted out.
-        player_achievement_tracking_enabled = utils.ENABLE_ACHIEVEMENT_TRACKING and (
+        # Per-player, per-platform override of the two global toggles above
+        # -- defaults to the player's own old flat (all-platforms-combined)
+        # value if ever set, else the current global value, so an existing
+        # install sees zero behavior change until a specific platform is
+        # deliberately opted out. Kept as one dict per feature (steam/xbox/
+        # playstation keys) so a player can disable just the one platform
+        # giving them trouble without affecting their others.
+        player_achievement_tracking_by_platform = {
+            p: utils.ENABLE_ACHIEVEMENT_TRACKING
+            and player_data.get(
+                f"enable_achievement_tracking_{p}",
+                player_data.get(
+                    "enable_achievement_tracking", utils.ENABLE_ACHIEVEMENT_TRACKING
+                ),
+            )
+            for p in ("steam", "xbox", "playstation")
+        }
+        player_library_scan_by_platform = {
+            p: player_data.get(
+                f"enable_library_scan_{p}",
+                player_data.get(
+                    "enable_library_scan",
+                    opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN),
+                ),
+            )
+            for p in ("steam", "xbox", "playstation")
+        }
+        # Fallback value for platforms with no per-platform achievement
+        # concept at all (custom/playnite/discord) -- mirrors the old flat
+        # value's own fallback chain, just without a platform key to look
+        # up.
+        player_achievement_tracking_fallback = utils.ENABLE_ACHIEVEMENT_TRACKING and (
             player_data.get(
                 "enable_achievement_tracking", utils.ENABLE_ACHIEVEMENT_TRACKING
             )
-        )
-        player_library_scan_enabled = player_data.get(
-            "enable_library_scan",
-            opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN),
         )
         rules = parental_rules.get(player_name, {})
         safe_owner = safe_owner_slug(player_name)
@@ -5994,7 +6139,10 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     device_info=device_info,
                     clear_achievements_requested=clear_achievements_requested,
                     config_entry=config_entry,
-                    achievement_tracking_enabled=player_achievement_tracking_enabled,
+                    achievement_tracking_enabled=player_achievement_tracking_by_platform.get(
+                        platform, player_achievement_tracking_fallback
+                    ),
+                    multi_steam_account_household=multi_steam_account_household,
                 )
                 ents.append(sensor_entity)
                 # Resolve the real, already-registered entity_id via the
@@ -6017,7 +6165,11 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 if platform in ["playnite", "custom", "steam", "discord"]:
                     pc_platforms_present.append(real_entity_id)
 
-                if platform in ("steam", "xbox", "playstation"):
+                if platform in (
+                    "steam",
+                    "xbox",
+                    "playstation",
+                ) and player_library_scan_by_platform.get(platform):
                     library_platform_sources[platform] = entity_id
 
         # Spawn PC Sub-Master if any PC platforms exist
@@ -6035,7 +6187,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     active_settings["SAME_GAME_PREFIX_WORDS"],
                     active_settings["MASTER_HANDOFF_GRACE_SECONDS"],
                     device_info=device_info,
-                    achievement_tracking_enabled=player_achievement_tracking_enabled,
+                    achievement_tracking_enabled=any(
+                        player_achievement_tracking_by_platform.values()
+                    ),
                 )
             )
         else:
@@ -6052,7 +6206,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             active_settings["SAME_GAME_PREFIX_WORDS"],
             active_settings["MASTER_HANDOFF_GRACE_SECONDS"],
             device_info=device_info,
-            achievement_tracking_enabled=player_achievement_tracking_enabled,
+            achievement_tracking_enabled=any(
+                player_achievement_tracking_by_platform.values()
+            ),
         )
         ents.append(master_sensor)
         hass.data.setdefault(DOMAIN, {}).setdefault("master_sensors", {})[
@@ -6068,7 +6224,6 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING
             )
             and opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN)
-            and player_library_scan_enabled
             and library_platform_sources
         ):
             scan_interval_hours = opts.get(
@@ -6081,6 +6236,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 scan_interval_hours,
                 excluded_games=list(global_exclusions) + list(exclude_games),
                 steam_scan_budget=steam_scan_budget,
+                multi_steam_account_household=multi_steam_account_household,
             )
             await coordinator.async_load_stored()
             hass.data.setdefault(DOMAIN, {}).setdefault("library_coordinators", {})[

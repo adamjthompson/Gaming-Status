@@ -160,6 +160,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         scan_interval_hours,
         excluded_games=None,
         steam_scan_budget=None,
+        multi_steam_account_household=False,
     ):
         safe_owner = safe_owner_slug(owner_name)
         super().__init__(
@@ -186,6 +187,15 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         self._steam_scan_budget = (
             steam_scan_budget or TARGET_AGGREGATE_STEAM_SCAN_BUDGET
         )
+        # Only when 2+ distinct Steam accounts are configured across the
+        # whole household does Steam's per-account achievement-data
+        # restriction (see utils.resolve_steam_credentials's
+        # is_confirmed_owner) actually risk showing one player's real data
+        # under another's profile -- with a single Steam account there's
+        # nothing else to cross-contaminate with, so an unprovable/legacy
+        # credential resolution is safe to just trust, same as before this
+        # fix existed.
+        self._multi_steam_account_household = multi_steam_account_household
         # Round-robin position into the owned-games list for the NEXT
         # _scan_steam pass -- persisted (see async_load_stored/
         # _async_update_data) so a restart resumes where it left off
@@ -421,11 +431,22 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         return art
 
     async def _scan_steam(self, source_entity_id):
-        api_key, steamid64 = utils.resolve_steam_credentials(
+        api_key, steamid64, is_confirmed_owner = utils.resolve_steam_credentials(
             self.hass, source_entity_id
         )
         if not api_key or not steamid64:
             return {"games": [], "error": "not_configured"}
+        # Steam's GetPlayerAchievements only reliably returns real data for
+        # the API key's own account -- for any OTHER confirmed account, that
+        # restriction is PERMANENT (every fetch, forever), not transient, so
+        # this player's games must never show a real-looking earned count/
+        # percent (whether fresh or carried forward from a stale/poisoned
+        # value) -- see utils.resolve_steam_credentials's is_confirmed_owner
+        # docstring for the full tri-state rationale, and the module-level
+        # gate on _multi_steam_account_household in __init__.
+        treat_as_restricted = (
+            self._multi_steam_account_household and is_confirmed_owner is False
+        )
 
         owned_games, fetch_error = await utils.fetch_steam_owned_games(
             self.hass, api_key, steamid64
@@ -497,14 +518,23 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             # recent_achievements and the Library sensor's games list.
             name = utils._format_game_name_for_display(name)
             previous = previous_games.get(str(appid))
-            if str(appid) in due_appids:
+            if treat_as_restricted:
+                # Never subject to the budget-rotation gate below -- this
+                # never calls GetPlayerAchievements at all (skip_earned),
+                # so it costs no per-account API call either way, and it
+                # must run every cycle so a restricted game can never sit
+                # on a stale/carried-forward earned count.
+                result = await utils.fetch_steam_achievements(
+                    self.hass, steamid64, api_key, appid, skip_earned=True
+                )
+            elif str(appid) in due_appids:
                 result = await utils.fetch_steam_achievements(
                     self.hass, steamid64, api_key, appid
                 )
             else:
                 result = None
             if result is not None:
-                earned = result.get("earned", 0)
+                earned = result.get("earned")
                 total = result.get("total", 0)
                 # Steam's own analog to Xbox's last-played timestamp / PSN's
                 # last-trophy-earned timestamp -- lets the Near Completion
@@ -516,6 +546,16 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 activity_ts = result.get("last_achievement_at") or (
                     previous.get("_activity_ts") if previous else None
                 )
+            elif treat_as_restricted:
+                # A restricted game should only reach here on a genuine
+                # fetch failure (e.g. a transient schema-lookup error) --
+                # never fall back to a real-looking 0, carry forward
+                # whatever's already there (already None for a confirmed
+                # non-owner, per this same logic on every prior cycle, or
+                # None for a brand-new never-scanned game).
+                earned = previous.get("achievements_earned") if previous else None
+                total = previous.get("achievements_total") if previous else None
+                activity_ts = previous.get("_activity_ts") if previous else None
             else:
                 # Either not due for a live refresh this cycle (budget), or
                 # the fetch genuinely failed -- either way, keep this game's
@@ -559,7 +599,11 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                     "id": str(appid),
                     "achievements_earned": earned,
                     "achievements_total": total,
-                    "percent": _percent(earned, total),
+                    # None (not 0.0%) whenever earned itself is unknown --
+                    # _percent would otherwise either crash on None or need
+                    # its own null-handling; this keeps that helper's
+                    # contract simple for every other caller.
+                    "percent": _percent(earned, total) if earned is not None else None,
                     # playtime_forever is already part of the GetOwnedGames
                     # response fetch_steam_owned_games returns -- no extra call.
                     "playtime_hours": round(
@@ -1284,8 +1328,19 @@ def _aggregate(raw_by_platform):
             platform_errors[platform] = raw["error"]
 
         summary = {
-            "achievements_earned": sum(g.get("achievements_earned", 0) for g in games),
-            "achievements_total": sum(g.get("achievements_total", 0) for g in games),
+            # dict.get(key, default) only substitutes the default when the
+            # KEY is absent -- a present achievements_earned/total value of
+            # None (a Steam game with achievement data confirmed
+            # unavailable for a non-owner account, see _scan_steam) would
+            # otherwise pass straight through and crash sum(). `or 0`
+            # collapses both "key absent" and "key present but None" to a
+            # 0 contribution.
+            "achievements_earned": sum(
+                (g.get("achievements_earned") or 0) for g in games
+            ),
+            "achievements_total": sum(
+                (g.get("achievements_total") or 0) for g in games
+            ),
             "game_count": len(games),
             "games": games,
         }
@@ -1312,14 +1367,24 @@ def _aggregate(raw_by_platform):
         platform_summaries[platform] = summary
         all_games.extend(games)
 
-    percents = [g.get("percent", 0) for g in all_games]
+    # Excludes (rather than coerces to 0) games with unknown percent -- a
+    # restricted non-owner Steam game shouldn't silently deflate everyone
+    # else's average_completion_percent.
+    percents = [p for p in (g.get("percent") for g in all_games) if p is not None]
 
     return {
         "total_achievements_earned": sum(
-            g.get("achievements_earned", 0) for g in all_games
+            (g.get("achievements_earned") or 0) for g in all_games
         ),
         "total_achievements_possible": sum(
-            g.get("achievements_total", 0) for g in all_games
+            (g.get("achievements_total") or 0) for g in all_games
+        ),
+        # How many games across every platform have achievement data
+        # confirmed unavailable (a restricted Steam account) rather than
+        # genuinely zero -- lets the frontend show "N games unavailable"
+        # context instead of silently under-reporting totals.
+        "achievements_unknown_count": sum(
+            1 for g in all_games if g.get("achievements_earned") is None
         ),
         "total_gamerscore": sum(
             g.get("gamerscore_earned", 0)

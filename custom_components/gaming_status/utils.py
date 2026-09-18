@@ -792,9 +792,10 @@ _STEAM_ENTITY_UNIQUE_ID_PREFIX = "sensor.steam_"
 
 
 def resolve_steam_credentials(hass, source_entity_id):
-    """Returns (api_key, steamid64), reusing steam_online's own config entry
-    (entry.data[CONF_API_KEY], a stable/public ConfigEntry field) if present,
-    falling back to the manual Advanced Settings override. Never raises.
+    """Returns (api_key, steamid64, is_confirmed_owner), reusing steam_online's
+    own config entry (entry.data[CONF_API_KEY], a stable/public ConfigEntry
+    field) if present, falling back to the manual Advanced Settings override.
+    Never raises.
 
     steam_online has two incompatible generations for tracking friends:
     -- 2026.8+ (not yet in any shipped stable release as of this writing):
@@ -811,7 +812,27 @@ def resolve_steam_credentials(hass, source_entity_id):
        own steamid) would silently resolve every tracked friend to the
        account owner's own Steam data -- so parse the entity's own
        unique_id first, and only fall back to the owner's id if that
-       fails (e.g. a genuinely unresolvable/legacy entity)."""
+       fails (e.g. a genuinely unresolvable/legacy entity).
+
+    is_confirmed_owner is tri-state, since Steam's own API restriction
+    (GetPlayerAchievements only reliably returns real per-achievement data
+    for the account that owns the API key -- see steam_client.py's 401/403
+    handling) makes this distinction load-bearing, not cosmetic:
+    -- True: steam_id64 is confirmed to BE the API key's own account
+       (either directly parsed as such, or a fallback that literally reuses
+       the owner's own id) -- achievement data will genuinely resolve.
+    -- False: steam_id64 is confirmed to be a DIFFERENT tracked account (a
+       2026.8+ subentry, which only ever exists for a friend, or a parsed
+       entity id that doesn't match the owner's) -- achievement data for
+       this account will permanently 401/403, never just transiently.
+    -- None: ownership can't be determined at all -- e.g. a manually pasted
+       Advanced Settings API key override with no steam_online entry
+       backing it, so there's no HA-knowable "owner" to compare against.
+    Callers should only treat False specially when more than one distinct
+    Steam account is actually configured across all players -- with only
+    one Steam account in the whole household, there's no other account's
+    data to cross-contaminate with, so an unprovable/legacy resolution is
+    safe to just trust as today."""
     from homeassistant.const import CONF_API_KEY
 
     from .const import HA_STEAM_ONLINE_DOMAIN
@@ -822,9 +843,12 @@ def resolve_steam_credentials(hass, source_entity_id):
         )
         api_key = None
         steam_id64 = None
+        is_confirmed_owner = None
         if owning_entry and owning_entry.domain == HA_STEAM_ONLINE_DOMAIN:
             api_key = owning_entry.data.get(CONF_API_KEY)
             steam_id64 = subentry_unique_id
+            if steam_id64:
+                is_confirmed_owner = False
             if (
                 not steam_id64
                 and entry
@@ -832,8 +856,10 @@ def resolve_steam_credentials(hass, source_entity_id):
                 and entry.unique_id.startswith(_STEAM_ENTITY_UNIQUE_ID_PREFIX)
             ):
                 steam_id64 = entry.unique_id[len(_STEAM_ENTITY_UNIQUE_ID_PREFIX) :]
+                is_confirmed_owner = steam_id64 == owning_entry.unique_id
             if not steam_id64:
                 steam_id64 = owning_entry.unique_id
+                is_confirmed_owner = True
         if not api_key:
             api_key = STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE
             steam_id64 = (
@@ -841,14 +867,14 @@ def resolve_steam_credentials(hass, source_entity_id):
                 or subentry_unique_id
                 or (owning_entry.unique_id if owning_entry else None)
             )
-        return api_key, steam_id64
+        return api_key, steam_id64, is_confirmed_owner
     except Exception:
         _LOGGER.debug(
             "[Gaming Status] Steam credential resolution failed for %s",
             source_entity_id,
             exc_info=True,
         )
-        return None, None
+        return None, None, None
 
 
 def resolve_psn_credentials(hass, source_entity_id):
@@ -1174,7 +1200,9 @@ async def _fetch_native_rating(hass, platform, platform_context):
 RECENT_UNLOCKS_LIMIT = 10
 
 
-async def fetch_steam_achievements(hass, steamid64, api_key, appid):
+async def fetch_steam_achievements(
+    hass, steamid64, api_key, appid, *, skip_earned=False
+):
     """Earned/total achievement counts, plus a bounded newest-first
     recent-unlocks list, for one game on one Steam account. Never raises --
     returns None on any failure (missing key, network error, or Steam's own
@@ -1188,6 +1216,15 @@ async def fetch_steam_achievements(hass, steamid64, api_key, appid):
     recent_unlocks is essentially free: GetPlayerAchievements already
     returns each achievement's `unlocktime`, previously fetched and
     discarded after summing -- no new API call versus before.
+
+    skip_earned=True never calls GetPlayerAchievements at all -- used for a
+    steamid64 confirmed NOT to be the API key's own account, where that call
+    is guaranteed to 401/403 every time (a permanent restriction, not a
+    transient failure -- see resolve_steam_credentials' is_confirmed_owner).
+    Returns "earned": None (never 0, which would misleadingly look like a
+    real "not yet unlocked" answer) while "total" still reflects the real,
+    unrestricted schema total -- GetSchemaForGame is public data, not
+    subject to this restriction.
     """
     if not steamid64 or not api_key or not appid:
         return None
@@ -1207,6 +1244,14 @@ async def fetch_steam_achievements(hass, steamid64, api_key, appid):
             STEAM_SCHEMA_CACHE.move_to_end(appid)
             if len(STEAM_SCHEMA_CACHE) > MAX_ENRICHMENT_CACHE_SIZE:
                 STEAM_SCHEMA_CACHE.popitem(last=False)
+
+        if skip_earned:
+            return {
+                "earned": None,
+                "total": total,
+                "recent_unlocks": [],
+                "last_achievement_at": None,
+            }
 
         if not total:
             return {

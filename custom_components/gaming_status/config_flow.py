@@ -854,16 +854,36 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 e.strip() for e in exclude_raw.splitlines() if e.strip()
             ]
             existing["clear_achievements"] = user_input.get("clear_achievements", False)
-            existing["enable_achievement_tracking"] = user_input.get(
-                "enable_achievement_tracking",
-                self._options.get(
-                    OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING
-                ),
-            )
-            existing["enable_library_scan"] = user_input.get(
-                "enable_library_scan",
-                self._options.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN),
-            )
+            # Per-platform, not the old single flat toggle -- only write a
+            # key for a platform this player actually has configured (keeps
+            # the saved dict clean if a platform is later removed/re-added).
+            # The old flat "enable_achievement_tracking"/"enable_library_scan"
+            # keys are intentionally left untouched/unwritten from here on --
+            # they still work as the fallback tier for any per-platform key
+            # that's never been explicitly set (see the schema defaults
+            # below), so an existing player's prior choice isn't lost.
+            for platform in ("steam", "xbox", "playstation"):
+                if not existing.get(platform):
+                    continue
+                existing[f"enable_achievement_tracking_{platform}"] = user_input.get(
+                    f"enable_achievement_tracking_{platform}",
+                    existing.get(
+                        "enable_achievement_tracking",
+                        self._options.get(
+                            OPT_ENABLE_ACHIEVEMENT_TRACKING,
+                            DEFAULT_ENABLE_ACHIEVEMENT_TRACKING,
+                        ),
+                    ),
+                )
+                existing[f"enable_library_scan_{platform}"] = user_input.get(
+                    f"enable_library_scan_{platform}",
+                    existing.get(
+                        "enable_library_scan",
+                        self._options.get(
+                            OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN
+                        ),
+                    ),
+                )
 
             # Only update destinations if the UI actually displayed them
             if notifications_enabled:
@@ -930,27 +950,48 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     "clear_achievements",
                     default=existing.get("clear_achievements", False),
                 ): bool,
-                vol.Optional(
-                    "enable_achievement_tracking",
-                    default=existing.get(
-                        "enable_achievement_tracking",
-                        self._options.get(
-                            OPT_ENABLE_ACHIEVEMENT_TRACKING,
-                            DEFAULT_ENABLE_ACHIEVEMENT_TRACKING,
-                        ),
-                    ),
-                ): bool,
-                vol.Optional(
-                    "enable_library_scan",
-                    default=existing.get(
-                        "enable_library_scan",
-                        self._options.get(
-                            OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN
-                        ),
-                    ),
-                ): bool,
             }
         )
+
+        # One checkbox pair per platform this player actually has
+        # configured (same truthy test as xbox_options above) -- lets a
+        # user disable just the one platform giving them trouble (e.g. a
+        # Steam-family friend's account, permanently restricted from real
+        # achievement data -- see utils.resolve_steam_credentials) without
+        # collateral damage to their other platforms, unlike the old single
+        # flat toggle that covered all of them together.
+        for platform in ("steam", "xbox", "playstation"):
+            if not existing.get(platform):
+                continue
+            schema_dict[
+                vol.Optional(
+                    f"enable_achievement_tracking_{platform}",
+                    default=existing.get(
+                        f"enable_achievement_tracking_{platform}",
+                        existing.get(
+                            "enable_achievement_tracking",
+                            self._options.get(
+                                OPT_ENABLE_ACHIEVEMENT_TRACKING,
+                                DEFAULT_ENABLE_ACHIEVEMENT_TRACKING,
+                            ),
+                        ),
+                    ),
+                )
+            ] = bool
+            schema_dict[
+                vol.Optional(
+                    f"enable_library_scan_{platform}",
+                    default=existing.get(
+                        f"enable_library_scan_{platform}",
+                        existing.get(
+                            "enable_library_scan",
+                            self._options.get(
+                                OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN
+                            ),
+                        ),
+                    ),
+                )
+            ] = bool
 
         return self.async_show_form(
             step_id="player_details",

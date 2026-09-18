@@ -49,17 +49,26 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         enabled_platforms = opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
 
         for player_name, player_data in players.items():
-            has_library_platform = any(
-                player_data.get(platform)
-                for platform in ("steam", "xbox", "playstation")
-                if platform in enabled_platforms
+            # Per-platform, not the old single flat toggle -- a coordinator
+            # (and thus a refresh button worth having) now exists as soon
+            # as at least one of this player's platforms has library scan
+            # enabled, matching sensor.py's own per-platform gate on
+            # library_platform_sources. The button itself still refreshes
+            # ALL of a player's enabled platforms together -- the
+            # coordinator it presses is the thing that's already
+            # pre-filtered per-platform, not this eligibility check.
+            has_any_enabled = any(
+                player_data.get(
+                    f"enable_library_scan_{p}",
+                    player_data.get(
+                        "enable_library_scan",
+                        opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN),
+                    ),
+                )
+                for p in ("steam", "xbox", "playstation")
+                if p in enabled_platforms and player_data.get(p)
             )
-            if not has_library_platform:
-                continue
-            if not player_data.get(
-                "enable_library_scan",
-                opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN),
-            ):
+            if not has_any_enabled:
                 continue
             safe_owner = safe_owner_slug(player_name)
             platforms = [p for p in enabled_platforms if player_data.get(p)]
