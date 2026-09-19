@@ -109,6 +109,7 @@ from .utils import (
     _normalize_game_name,
     _parse_relative_time_from_status,
     _safe_parse_datetime,
+    cache_file_prefix,
     get_base_game_name,
     safe_url,
     top_n_games,
@@ -3974,8 +3975,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     except Exception:
                         base_url = ""
                     res = {}
-                    s_name = re.sub(r"[^a-z0-9]", "_", str(game_name_display).lower())
-                    s_name = re.sub(r"_+", "_", s_name).strip("_")
+                    # Must be the exact same derivation fetch_game_assets used
+                    # when it WROTE these files -- see cache_file_prefix for why
+                    # a local copy of the slug regex here silently broke every
+                    # title with a mid-word apostrophe.
+                    s_name = cache_file_prefix(game_name_display)
                     for sfx in ["grid", "hero", "logo", "icon"]:
                         for e in sorted(utils._SAFE_IMAGE_EXTENSIONS):
                             f_path = self.hass.config.path(

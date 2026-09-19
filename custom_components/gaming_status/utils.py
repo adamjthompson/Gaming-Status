@@ -298,8 +298,10 @@ async def fetch_game_assets(hass, game_name):
             "icon": CUSTOM_ICON_MAP,
         }
 
-        safe_file_prefix = re.sub(r"[^a-z0-9]", "_", cache_key)
-        safe_file_prefix = re.sub(r"_+", "_", safe_file_prefix).strip("_")
+        # cache_key is already _normalize_game_name'd, but go through the
+        # shared helper anyway so the writer and every reader can never
+        # derive a different filename from the same title.
+        safe_file_prefix = cache_file_prefix(cache_key)
 
         for asset_type, map_dict in override_maps.items():
             # Safety net: re-normalize keys in case older un-migrated data exists in the dictionary
@@ -1787,6 +1789,29 @@ def _normalize_game_name(game_name):
         return ""
     clean = _NORMALIZE_GAME_NAME_RE.sub("", str(game_name).lower())
     return " ".join(clean.split())
+
+
+def cache_file_prefix(game_name):
+    """The on-disk filename stem for a game's cached artwork, e.g.
+    "marvels_guardians_of_the_galaxy" -> ..._grid.png/_hero.jpg/etc.
+
+    Deliberately shared by the writer (fetch_game_assets, which saves the
+    files) and every reader (sensor.py's _scan_local_disk, which finds them
+    again to serve local fallbacks and extract the dominant colour) -- these
+    were previously two separate copies of the same regex applied to
+    DIFFERENT inputs, and the mismatch was invisible for almost every title.
+
+    Normalizing FIRST is the load-bearing part. _normalize_game_name deletes
+    apostrophes outright, while the slug regex below would turn one into an
+    underscore, so "Marvel's Guardians of the Galaxy" resolved to
+    "marvels_..." when written but "marvel_s_..." when read back. Punctuation
+    sitting next to a space (a colon, a paren) happens to collapse to the
+    same thing either way, which is why only mid-word apostrophes -- letters
+    on both sides, nothing to collapse with -- ever diverged: those games
+    silently never got a dominant colour, with no error logged anywhere.
+    """
+    slug = re.sub(r"[^a-z0-9]", "_", _normalize_game_name(game_name))
+    return re.sub(r"_+", "_", slug).strip("_")
 
 
 def _is_same_base_game(name_a, name_b, prefix_words):
