@@ -229,6 +229,36 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         # resolves reaches LIBRARY_BACKFILL_MAX_ATTEMPTS and gets given up
         # on (see _backfill_platform) instead of retrying forever.
         self._backfill_attempts = {"xbox": {}, "playstation": {}}
+        # {platform: source_entity_id} that produced the PERSISTED scan
+        # result, as opposed to _platform_sources (what's configured right
+        # now). async_schedule_or_refresh compares the two to notice that
+        # this player's scan scope changed since that data was captured --
+        # None means the stored file predates this being recorded, which
+        # that method handles with its own fallback.
+        self._stored_platform_sources = None
+
+    def _store_payload(self, data):
+        """The complete persisted shape, defined in exactly one place.
+
+        Both writers (a finished scan in _async_update_data, and a
+        backfill pass in async_run_backfill_pass) save the WHOLE dict
+        rather than read-modify-writing it, so any field defined in only
+        one of them would be silently wiped by the other the next time it
+        ran -- the backfill timer fires every 15 minutes (see
+        __init__.py's _library_backfill_tick), so that loss would be
+        quick and invisible. Funnelling both through here makes that
+        class of bug structurally impossible."""
+        return {
+            "data": data,
+            "art_cache": self._art_cache,
+            "activity_cursor": self._activity_cursor,
+            "backfill_done": self._backfill_done,
+            "backfill_attempts": self._backfill_attempts,
+            "steam_scan_offset": self._steam_scan_offset,
+            # Copied, not referenced -- keeps the persisted payload
+            # independent of the live dict handed in at construction.
+            "platform_sources": dict(self._platform_sources),
+        }
 
     async def async_load_stored(self):
         """Restore the last scan's result + resolved-art cache immediately
@@ -236,6 +266,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         immediate rescan across every tracked player at once."""
         stored = await self._store.async_load()
         if stored:
+            self._stored_platform_sources = stored.get("platform_sources")
             self._art_cache = stored.get("art_cache") or {}
             self._activity_cursor = stored.get("activity_cursor") or {
                 "xbox": {},
@@ -272,7 +303,48 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             elapsed = (dt_util.now() - last_synced).total_seconds()
             remaining = self.update_interval.total_seconds() - elapsed
 
-        if remaining <= 0:
+        # The freshness check above is purely time-based, so on its own it
+        # can't tell that this player is now tracking a DIFFERENT set of
+        # platforms than the persisted result covers. Without this, newly
+        # enabling a platform (or re-pointing one at a different source
+        # entity) leaves that platform's library sensor empty until the
+        # whole interval happens to elapse -- up to 12h by default, with
+        # no indication anything is pending.
+        #
+        # Self-limiting by construction: a real scan always writes a
+        # platforms entry for every configured platform, even one whose
+        # own scan failed outright (see _scan_platform_safely/_aggregate),
+        # so this can force at most one extra scan per actual scope
+        # change and can never loop.
+        # Checked unconditionally rather than only as a fallback: it's the
+        # question that actually matters ("do we have data for everything
+        # we're supposed to?"), it covers a Store file written before
+        # platform_sources was recorded, and it closes a narrow race where
+        # a backfill pass (which shares this file, on its own 15-minute
+        # timer) persists the NEW scope while `data` is still the old
+        # pre-rescan result -- which would otherwise look settled after a
+        # restart and silently reinstate the very gap this guards against.
+        scanned_platforms = set((self.data or {}).get("platforms") or {})
+        scope_changed = set(self._platform_sources) != scanned_platforms
+        if not scope_changed and self._stored_platform_sources is not None:
+            # Same platforms, but one may have been re-pointed at a
+            # different source entity (e.g. a profile deleted and
+            # recreated) -- the data would then describe the wrong
+            # account, which a key-only comparison can't see.
+            scope_changed = self._stored_platform_sources != self._platform_sources
+
+        if remaining <= 0 or scope_changed:
+            if scope_changed and remaining > 0:
+                _LOGGER.info(
+                    "Gaming Status: library scan scope changed for %s (scanned %s, "
+                    "now tracking %s) -- rescanning now instead of waiting out the "
+                    "remaining %.0fs, so a newly-added platform isn't left without "
+                    "data until the next scheduled scan.",
+                    self._owner_name,
+                    self._stored_platform_sources or sorted(scanned_platforms),
+                    self._platform_sources,
+                    remaining,
+                )
             await self.async_refresh()
         else:
             _LOGGER.debug(
@@ -312,16 +384,11 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             )
 
         result = _aggregate(raw_by_platform)
-        await self._store.async_save(
-            {
-                "data": result,
-                "art_cache": self._art_cache,
-                "activity_cursor": self._activity_cursor,
-                "backfill_done": self._backfill_done,
-                "backfill_attempts": self._backfill_attempts,
-                "steam_scan_offset": self._steam_scan_offset,
-            }
-        )
+        await self._store.async_save(self._store_payload(result))
+        # This scan's scope is now what's persisted -- keeps the
+        # scope-change check in async_schedule_or_refresh accurate without
+        # needing to re-read the file.
+        self._stored_platform_sources = dict(self._platform_sources)
         return result
 
     async def _scan_platform_safely(
@@ -1089,16 +1156,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 self._owner_name,
                 total_resolved,
             )
-        await self._store.async_save(
-            {
-                "data": self.data,
-                "art_cache": self._art_cache,
-                "activity_cursor": self._activity_cursor,
-                "backfill_done": self._backfill_done,
-                "backfill_attempts": self._backfill_attempts,
-                "steam_scan_offset": self._steam_scan_offset,
-            }
-        )
+        await self._store.async_save(self._store_payload(self.data))
 
     async def _backfill_platform(self, platform, budget):
         games = self.data.get("platforms", {}).get(platform, {}).get("games", [])
