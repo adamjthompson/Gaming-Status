@@ -119,26 +119,34 @@
           "notify_end_destinations": "Session End Notification(s)",
           "suppresses_xbox_sensors": "Suppress other players' Xbox sensors",
           "exclude_games": "Games to exclude (one per line)",
-          "clear_achievements": "Clear Achievement/Trophy History",
-          "enable_achievement_tracking_steam": "Enable Achievement Tracking (Steam)",
-          "enable_achievement_tracking_xbox": "Enable Achievement Tracking (Xbox)",
-          "enable_achievement_tracking_playstation": "Enable Achievement Tracking (PlayStation)",
-          "enable_library_scan_steam": "Enable Full Game Library Scan (Steam)",
-          "enable_library_scan_xbox": "Enable Full Game Library Scan (Xbox)",
-          "enable_library_scan_playstation": "Enable Full Game Library Scan (PlayStation)"
+          "clear_achievements": "Clear Achievement/Trophy History"
         },
         "data_description": {
           "notify_start_destinations": "Select notification method(s) when this player starts gaming.",
           "notify_end_destinations": "Select notification method(s) when this player stops gaming.",
           "suppresses_xbox_sensors": "When this player is confirmed playing on any of their own sensors, block the selected Xbox sensor(s) from also claiming the same game.",
           "exclude_games": "Game titles to ignore for this player, one per line.",
-          "clear_achievements": "Use with caution: Permanently deletes this player's entire recorded achievement/trophy unlock history, across every platform. Applies once on the next reload, then automatically switches back off. This cannot be undone.",
-          "enable_achievement_tracking_steam": "Only takes effect if 'Enable Achievement/Trophy Tracking' is also on under Achievements & Ratings. Turn off for this platform if you don't need this data for it, to reduce API calls.",
-          "enable_achievement_tracking_xbox": "Only takes effect if 'Enable Achievement/Trophy Tracking' is also on under Achievements & Ratings. Turn off for this platform if you don't need this data for it, to reduce API calls.",
-          "enable_achievement_tracking_playstation": "Only takes effect if 'Enable Achievement/Trophy Tracking' is also on under Achievements & Ratings. Turn off for this platform if you don't need this data for it, to reduce API calls.",
-          "enable_library_scan_steam": "Only takes effect if 'Enable Full Game Library Scan' is also on under Achievements & Ratings. Turn off for this platform if you don't need this data for it, to reduce API calls.",
-          "enable_library_scan_xbox": "Only takes effect if 'Enable Full Game Library Scan' is also on under Achievements & Ratings. Turn off for this platform if you don't need this data for it, to reduce API calls.",
-          "enable_library_scan_playstation": "Only takes effect if 'Enable Full Game Library Scan' is also on under Achievements & Ratings. Turn off for this platform if you don't need this data for it, to reduce API calls."
+          "clear_achievements": "Use with caution: Permanently deletes this player's entire recorded achievement/trophy unlock history, across every platform. Applies once on the next reload, then automatically switches back off. This cannot be undone."
+        },
+        "sections": {
+          "achievement_tracking_section": {
+            "name": "Achievement Tracking",
+            "description": "Only shown when 'Enable Achievement/Trophy Tracking' is on under Achievements & Ratings. Turn off a platform this player doesn't need this data for, to reduce API calls.",
+            "data": {
+              "enable_achievement_tracking_steam": "Steam",
+              "enable_achievement_tracking_xbox": "Xbox",
+              "enable_achievement_tracking_playstation": "PlayStation"
+            }
+          },
+          "library_scan_section": {
+            "name": "Full Game Library Scan",
+            "description": "Only shown when 'Enable Full Game Library Scan' is on under Achievements & Ratings. Turn off a platform this player doesn't need this data for, to reduce API calls.",
+            "data": {
+              "enable_library_scan_steam": "Steam",
+              "enable_library_scan_xbox": "Xbox",
+              "enable_library_scan_playstation": "PlayStation"
+            }
+          }
         }
       },
       "notifications": {

@@ -10,6 +10,7 @@ import time
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import section
 from homeassistant.helpers import device_registry as dr, entity_registry as er, selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.network import NoURLAvailableError, get_url
@@ -854,36 +855,55 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 e.strip() for e in exclude_raw.splitlines() if e.strip()
             ]
             existing["clear_achievements"] = user_input.get("clear_achievements", False)
-            # Per-platform, not the old single flat toggle -- only write a
-            # key for a platform this player actually has configured (keeps
-            # the saved dict clean if a platform is later removed/re-added).
-            # The old flat "enable_achievement_tracking"/"enable_library_scan"
-            # keys are intentionally left untouched/unwritten from here on --
-            # they still work as the fallback tier for any per-platform key
-            # that's never been explicitly set (see the schema defaults
-            # below), so an existing player's prior choice isn't lost.
+            # Per-platform, grouped under two collapsible Sections (see the
+            # schema below) rather than the old single flat toggle -- only
+            # write a key for a platform this player actually has configured
+            # (keeps the saved dict clean if a platform is later removed/
+            # re-added). A Section's own fields land NESTED under its own
+            # key in user_input, not flattened -- see
+            # https://developers.home-assistant.io/docs/data_entry_flow_index/#sections.
+            # Each whole section is only present in the schema (and
+            # therefore only ever appears in user_input) when its matching
+            # global toggle is on -- reading OPT_ENABLE_ACHIEVEMENT_TRACKING/
+            # OPT_ENABLE_LIBRARY_SCAN here is safe (not the "same form,
+            # unsaved checkbox" limitation that forces other fields in this
+            # integration to stay always-visible) since those are genuinely
+            # separate, already-saved steps, not co-located on this same
+            # form -- same pattern as async_step_parental_player's
+            # ratings_enabled gate. When a section is hidden, its platforms'
+            # existing values are left completely untouched below.
+            achievement_section_input = (
+                user_input.get("achievement_tracking_section") or {}
+            )
+            library_section_input = user_input.get("library_scan_section") or {}
+            achievement_tracking_globally_enabled = self._options.get(
+                OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING
+            )
+            library_scan_globally_enabled = self._options.get(
+                OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN
+            )
             for platform in ("steam", "xbox", "playstation"):
                 if not existing.get(platform):
                     continue
-                existing[f"enable_achievement_tracking_{platform}"] = user_input.get(
-                    f"enable_achievement_tracking_{platform}",
-                    existing.get(
-                        "enable_achievement_tracking",
-                        self._options.get(
-                            OPT_ENABLE_ACHIEVEMENT_TRACKING,
-                            DEFAULT_ENABLE_ACHIEVEMENT_TRACKING,
-                        ),
-                    ),
-                )
-                existing[f"enable_library_scan_{platform}"] = user_input.get(
-                    f"enable_library_scan_{platform}",
-                    existing.get(
-                        "enable_library_scan",
-                        self._options.get(
-                            OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN
-                        ),
-                    ),
-                )
+                if achievement_tracking_globally_enabled:
+                    existing[f"enable_achievement_tracking_{platform}"] = (
+                        achievement_section_input.get(
+                            f"enable_achievement_tracking_{platform}",
+                            existing.get(
+                                "enable_achievement_tracking",
+                                achievement_tracking_globally_enabled,
+                            ),
+                        )
+                    )
+                if library_scan_globally_enabled:
+                    existing[f"enable_library_scan_{platform}"] = (
+                        library_section_input.get(
+                            f"enable_library_scan_{platform}",
+                            existing.get(
+                                "enable_library_scan", library_scan_globally_enabled
+                            ),
+                        )
+                    )
 
             # Only update destinations if the UI actually displayed them
             if notifications_enabled:
@@ -953,45 +973,64 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             }
         )
 
-        # One checkbox pair per platform this player actually has
-        # configured (same truthy test as xbox_options above) -- lets a
+        # Two collapsible Sections (see
+        # https://developers.home-assistant.io/docs/data_entry_flow_index/#sections),
+        # each with one simple checkbox per platform this player actually
+        # has configured (same truthy test as xbox_options above) -- lets a
         # user disable just the one platform giving them trouble (e.g. a
         # Steam-family friend's account, permanently restricted from real
         # achievement data -- see utils.resolve_steam_credentials) without
         # collateral damage to their other platforms, unlike the old single
-        # flat toggle that covered all of them together.
+        # flat toggle that covered all of them together. A whole section is
+        # only shown at all when its matching global toggle
+        # (OPT_ENABLE_ACHIEVEMENT_TRACKING/OPT_ENABLE_LIBRARY_SCAN) is on --
+        # safe to gate on here since that's a genuinely separate,
+        # already-saved step (Achievements & Ratings), not this same form.
+        achievement_tracking_globally_enabled = self._options.get(
+            OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING
+        )
+        library_scan_globally_enabled = self._options.get(
+            OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN
+        )
+        achievement_fields = {}
+        library_fields = {}
         for platform in ("steam", "xbox", "playstation"):
             if not existing.get(platform):
                 continue
-            schema_dict[
-                vol.Optional(
-                    f"enable_achievement_tracking_{platform}",
-                    default=existing.get(
+            if achievement_tracking_globally_enabled:
+                achievement_fields[
+                    vol.Optional(
                         f"enable_achievement_tracking_{platform}",
-                        existing.get(
-                            "enable_achievement_tracking",
-                            self._options.get(
-                                OPT_ENABLE_ACHIEVEMENT_TRACKING,
-                                DEFAULT_ENABLE_ACHIEVEMENT_TRACKING,
+                        default=existing.get(
+                            f"enable_achievement_tracking_{platform}",
+                            existing.get(
+                                "enable_achievement_tracking",
+                                achievement_tracking_globally_enabled,
                             ),
                         ),
-                    ),
-                )
-            ] = bool
-            schema_dict[
-                vol.Optional(
-                    f"enable_library_scan_{platform}",
-                    default=existing.get(
+                    )
+                ] = bool
+            if library_scan_globally_enabled:
+                library_fields[
+                    vol.Optional(
                         f"enable_library_scan_{platform}",
-                        existing.get(
-                            "enable_library_scan",
-                            self._options.get(
-                                OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN
+                        default=existing.get(
+                            f"enable_library_scan_{platform}",
+                            existing.get(
+                                "enable_library_scan", library_scan_globally_enabled
                             ),
                         ),
-                    ),
-                )
-            ] = bool
+                    )
+                ] = bool
+
+        if achievement_fields:
+            schema_dict[vol.Required("achievement_tracking_section")] = section(
+                vol.Schema(achievement_fields), {"collapsed": False}
+            )
+        if library_fields:
+            schema_dict[vol.Required("library_scan_section")] = section(
+                vol.Schema(library_fields), {"collapsed": False}
+            )
 
         return self.async_show_form(
             step_id="player_details",
