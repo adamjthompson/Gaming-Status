@@ -730,11 +730,70 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         # Tracked regardless of exclusion, so an excluded title is never
         # carried forward by the "missing title" fallback below.
         seen_ids = set()
+        dumped_raw_model = False
         for title in titles:
             name = getattr(title, "name", None)
             title_id = str(getattr(title, "title_id", "") or "")
             if title_id:
                 seen_ids.add(title_id)
+
+            # --- DIAGNOSTIC: unread title-history fields ---------------
+            # This scan reads only 4 of the ~23 fields the title-history
+            # API returns per title, and the ones it ignores are the only
+            # candidates for telling a genuine Xbox title apart from a
+            # non-Xbox PC game that Xbox merely OBSERVED running (the Xbox
+            # app/Game Bar registers e.g. an Epic launch as "played").
+            # Most promising is title_history.visible -- what Xbox's own
+            # "hide from my history" feature sets, which would let a user
+            # express this in Microsoft's UI instead of via a list here.
+            #
+            # Deliberately placed BEFORE the exclusion check below, so an
+            # already-excluded title still shows up in the dump.
+            #
+            # Guarded, so this costs nothing unless debug is switched on,
+            # and wrapped, so an unexpected attribute type can never break
+            # a scan over a purely informational line.
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                try:
+                    if not dumped_raw_model:
+                        dumped_raw_model = True
+                        # The whole model for one title, once per scan.
+                        # python-xbox is a FORK of xbox-webapi-python, so
+                        # the field names below are inferred rather than
+                        # verified -- if they all come back None, this is
+                        # what shows whether the data is genuinely absent
+                        # or just named something else.
+                        _LOGGER.debug(
+                            "Gaming Status: [xbox-fields] raw model for %r -> %r",
+                            name,
+                            title,
+                        )
+                    th = getattr(title, "title_history", None)
+                    gp = getattr(title, "game_pass", None)
+                    _LOGGER.debug(
+                        "Gaming Status: [xbox-fields] %s | id=%s devices=%r pfn=%r "
+                        "type=%r media_item_type=%r visible=%r can_hide=%r "
+                        "is_game_pass=%r detail=%s",
+                        name,
+                        title_id,
+                        getattr(title, "devices", None),
+                        getattr(title, "pfn", None),
+                        getattr(title, "type", None),
+                        getattr(title, "media_item_type", None),
+                        getattr(th, "visible", None),
+                        getattr(th, "can_hide", None),
+                        getattr(gp, "is_game_pass", None),
+                        "present" if getattr(title, "detail", None) else "None",
+                    )
+                except Exception as e:
+                    # Worth surfacing rather than swallowing: if reading
+                    # these attributes throws, that's itself a finding
+                    # about the model's real shape.
+                    _LOGGER.debug(
+                        "Gaming Status: [xbox-fields] dump failed for %r: %s", name, e
+                    )
+            # --- END DIAGNOSTIC ---------------------------------------
+
             if not name or _normalize_game_name(name) in self._excluded_normalized:
                 continue
             # Apply the user's Title Overrides + display cleanup, matching
