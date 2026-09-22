@@ -1529,6 +1529,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         else:
             self._current_game = new_game_name
             self._play_start_time = now.isoformat()
+            # Seed the "last seen genuinely online" stamp at session start.
+            # It is otherwise only ever advanced by the 30s tick, so a session
+            # that ends before its first tick was compared against the
+            # PREVIOUS session's stamp -- typically hours old -- which fails
+            # can_start_grace and closes it instantly with no grace period at
+            # all. That is what steered the flicker-burst incident into the
+            # branch that cleared _temp_offline_start.
+            self._last_online_valid_timestamp = now.isoformat()
             self._session_ticks_persistent = {}
             self._active_elsewhere_blocked_seconds = {}
             prev_game = self._last_played_game
@@ -3567,10 +3575,63 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     "SESSION_START_CONFIRM_SECONDS", 0
                 ):
                     self.hass.async_create_task(self._trigger_source_update())
-            if self._attr_native_value.lower() != "offline" and not self._current_game:
-                self._current_game = self._attr_native_value
-                if not self._play_start_time:
-                    self._play_start_time = now_dt.isoformat()
+            # --- SOURCE RECONCILE ---
+            # Ask the source what it actually says, whenever either check
+            # below needs to know. Deliberately NOT gated on
+            # _temp_offline_start: that gating is precisely why neither
+            # self-heal above could rescue a session that reached "Running"
+            # without ever entering grace -- both were dead, the source was
+            # quiet, and nothing could ever correct it.
+            #
+            # Discord is skipped because it has no state entity to re-read
+            # (_trigger_source_update early-returns for it), so probing here
+            # would look handled while doing nothing.
+            believes_playing = bool(self._current_game and self._play_start_time)
+            orphan_display = (
+                self._attr_native_value.lower() != "offline" and not self._current_game
+            )
+            source_reports_game = None
+            if self._gaming_type != "discord" and (believes_playing or orphan_display):
+                src = self.hass.states.get(self._source_entity_id)
+                if src is not None:
+                    # _get_platform_data is the canonical "what is the source
+                    # reporting" derivation -- the same one _unified_update
+                    # itself uses -- so these two can never disagree about
+                    # what counts as a game. Deriving it from src.state here
+                    # would miss the exclusion handling it applies.
+                    probe = self._get_platform_data(src.state, src.attributes)
+                    source_reports_game = bool(
+                        probe.get("is_online") and probe.get("current_game")
+                    )
+
+            if believes_playing and source_reports_game is False:
+                # Hand off to _unified_update rather than ending the session
+                # here. It owns the grace state machine (so a genuine brief
+                # dropout still gets its full window), the end-of-session
+                # bookkeeping, and the consistency write that clears
+                # _attr_native_value alongside _current_game. Calling
+                # _handle_game_transition(None) directly would leave
+                # _attr_native_value as the game name for the block below to
+                # re-adopt on the very next tick -- trading one stuck session
+                # for an endless series of 30-second ones.
+                self.hass.async_create_task(self._trigger_source_update())
+
+            if orphan_display:
+                if source_reports_game is False:
+                    # _current_game is the authoritative session field;
+                    # _attr_native_value is display output. Adopting a session
+                    # FROM the display string is what let a stale publish
+                    # manufacture one out of nothing. Correct the display
+                    # instead.
+                    self._attr_native_value = "Offline"
+                else:
+                    # Source corroborates, or couldn't be probed (discord, or
+                    # a missing source entity) -- keep the original
+                    # restart-recovery behaviour rather than discarding a
+                    # session on incomplete information.
+                    self._current_game = self._attr_native_value
+                    if not self._play_start_time:
+                        self._play_start_time = now_dt.isoformat()
             if self._current_game and not self._play_start_time:
                 self._play_start_time = now_dt.isoformat()
             timer_status = "Inactive"
@@ -3756,6 +3817,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             game_cover = None
             secondary = ""
             pending_hold = False
+            # Stays None on the offline path; set once this invocation has
+            # settled on a game, so the publish at the bottom can tell
+            # whether it has since been superseded by a newer one.
+            current_game_normalized = None
             if platform_data.get("current_game"):
                 raw_game_name = platform_data["current_game"]
                 raw_game_name = self._apply_title_override(raw_game_name)
@@ -4309,10 +4374,38 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 # a live session without closing it properly.
                 display_state = "Offline"
                 game_cover = None
+            # A superseded invocation must publish nothing. display_state was
+            # frozen before this method's ~9 awaits (artwork, ratings), so an
+            # invocation that suspended mid-pipeline can resume AFTER a later
+            # one already ended the session -- and would then write the stale
+            # game name back into _attr_native_value while leaving
+            # _current_game as the newer invocation left it. That divergence
+            # is what the 30s tick used to turn into a session with no source
+            # behind it, running forever. The existing post-await guards above
+            # don't catch it: they compare against self._current_game, and
+            # _normalize_game_name(None) returns "", so they quietly evaluate
+            # False and fall through to here.
+            #
+            # Scoped to game publishes only. The Offline path must always be
+            # allowed through -- it's the write that actually heals the
+            # divergence, by clearing _attr_native_value and both session
+            # fields together. pending_hold is likewise an intentional
+            # Offline publish, not a stale one.
+            if (
+                not pending_hold
+                and current_game_normalized is not None
+                and display_state != "Offline"
+                and _normalize_game_name(self._current_game) != current_game_normalized
+            ):
+                return
             self._attr_native_value = display_state
             if display_state == "Offline":
                 self._current_game = None
                 self._play_start_time = None
+                # Never leave a stale play_start_time attribute behind:
+                # _write_common_attributes' recovery path will hand it back
+                # and resurrect a session that has already ended.
+                self._attr_extra_state_attributes.pop("play_start_time", None)
             entity_pic = self._local_avatar_path
             if not entity_pic and platform_data.get("avatar_url"):
                 entity_pic = platform_data.get("avatar_url")
