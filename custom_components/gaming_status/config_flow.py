@@ -506,6 +506,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_ENABLED_PLATFORMS,
             DEFAULT_MASTER_HANDOFF_GRACE_SECONDS,
             DEFAULT_REMOVE_DISABLED_SENSORS,
+            DEFAULT_SESSION_START_CONFIRM_SECONDS,
             DEFAULT_USE_CACHE,
             OPT_ENABLE_NOTIFICATIONS,
             OPT_ENABLE_PARENTAL,
@@ -513,6 +514,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             OPT_ENABLED_PLATFORMS,
             OPT_MASTER_HANDOFF_GRACE,
             OPT_REMOVE_DISABLED_SENSORS,
+            OPT_SESSION_START_CONFIRM,
             OPT_USE_CACHE,
         )
 
@@ -557,6 +559,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             )
             opts[OPT_MASTER_HANDOFF_GRACE] = user_input.get(
                 OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS
+            )
+            opts[OPT_SESSION_START_CONFIRM] = user_input.get(
+                OPT_SESSION_START_CONFIRM, DEFAULT_SESSION_START_CONFIRM_SECONDS
             )
             opts[OPT_RESET_HISTORY] = user_input.get(
                 OPT_RESET_HISTORY, DEFAULT_RESET_HISTORY
@@ -673,6 +678,13 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     OPT_MASTER_HANDOFF_GRACE,
                     default=opts.get(
                         OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS
+                    ),
+                ): vol.All(int, vol.Range(min=0)),
+                vol.Optional(
+                    OPT_SESSION_START_CONFIRM,
+                    default=opts.get(
+                        OPT_SESSION_START_CONFIRM,
+                        DEFAULT_SESSION_START_CONFIRM_SECONDS,
                     ),
                 ): vol.All(int, vol.Range(min=0)),
                 vol.Optional(

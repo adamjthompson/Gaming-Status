@@ -21,6 +21,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import (
+    async_call_later,
     async_track_state_change_event,
     async_track_time_interval,
 )
@@ -50,6 +51,7 @@ from .const import (
     DEFAULT_MIN_SESSION_DURATION,
     DEFAULT_RESET_HISTORY,
     DEFAULT_SAME_GAME_PREFIX_WORDS,
+    DEFAULT_SESSION_START_CONFIRM_SECONDS,
     DEFAULT_USE_CACHE,
     DISCORD_XBOX_CONNECTION_APP_ID,
     DOMAIN,
@@ -81,6 +83,7 @@ from .const import (
     OPT_RATING_OVERRIDES,
     OPT_RESET_HISTORY,
     OPT_SAME_GAME_PREFIX_WORDS,
+    OPT_SESSION_START_CONFIRM,
     OPT_TITLE_CLEANUPS,
     OPT_TITLE_OVERRIDES,
     OPT_TRANSITION_GRACE,
@@ -306,6 +309,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             "GAME_TRANSITION_GRACE_SECONDS": DEFAULT_GAME_TRANSITION_GRACE_SECONDS,
             "MIN_SESSION_DURATION": DEFAULT_MIN_SESSION_DURATION,
             "SAME_GAME_PREFIX_WORDS": DEFAULT_SAME_GAME_PREFIX_WORDS,
+            "SESSION_START_CONFIRM_SECONDS": DEFAULT_SESSION_START_CONFIRM_SECONDS,
+            # Not read by this class today (only Master/PC use it, and they
+            # take it as a scalar), but kept in sync with the real dict in
+            # async_setup_entry -- this fallback is `or`-based, not merged
+            # per-key, so any key missing here is a KeyError waiting for the
+            # first caller that omits active_settings.
+            "MASTER_HANDOFF_GRACE_SECONDS": DEFAULT_MASTER_HANDOFF_GRACE_SECONDS,
         }
 
         self._attr_native_value = "Offline"
@@ -450,6 +460,17 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._backup_last_played_game = None
         self._backup_last_game_stopped_timestamp = None
         self._temp_offline_start = None
+        # Session-start confirmation (SESSION_START_CONFIRM_SECONDS, 0 = off).
+        # A newly seen game is held here instead of starting a session, until
+        # the source is re-read and still reports it. Deliberately NOT stored
+        # in _current_game: _unified_update clears that whenever the published
+        # state is "Offline", which is exactly what this holds it at.
+        # Deliberately not persisted either -- a pending game that didn't
+        # confirm before a restart is simply re-detected from live source
+        # state by async_added_to_hass's own forced update.
+        self._pending_game = None
+        self._pending_first_seen = None
+        self._pending_unsub = None
         self._daily_play_time_yesterday = 0
         self._last_reset_date = None
         self._last_weekly_reset = None
@@ -1316,6 +1337,59 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 data["current_game"] = self._sanitize_game_title(fully_cleaned)
 
         return data
+
+    def _cancel_pending_recheck(self):
+        if self._pending_unsub is not None:
+            self._pending_unsub()
+            self._pending_unsub = None
+
+    def _clear_pending_session_start(self):
+        self._pending_game = None
+        self._pending_first_seen = None
+        self._cancel_pending_recheck()
+
+    @callback
+    def _async_pending_recheck(self, _now):
+        # Re-READ the source rather than waiting for it to tell us again:
+        # plenty of sources (MQTT, a webhook-driven custom sensor) report a
+        # game exactly once and then go quiet, so requiring a second inbound
+        # event would mean their sessions never start at all.
+        self._pending_unsub = None
+        self.hass.async_create_task(self._trigger_source_update())
+
+    def _session_start_pending(self, game_name_display, now_dt):
+        """True while a newly detected game still has to hold long enough to
+        be believed. Filters brief flickers from unreliable sources, which
+        would otherwise each create a phantom session, a notification, and
+        (once the offline grace period holds them) recorded play time.
+
+        Discord is exempt by necessity, not preference: it's driven by bus
+        events rather than a state entity, and _trigger_source_update
+        deliberately early-returns for it -- so a pending Discord game would
+        have nothing to re-read and would never confirm.
+        """
+        window = self._active_settings.get("SESSION_START_CONFIRM_SECONDS", 0) or 0
+        if window <= 0 or self._gaming_type == "discord":
+            return False
+
+        normalized = _normalize_game_name(game_name_display)
+        if self._pending_game is None or (
+            _normalize_game_name(self._pending_game) != normalized
+        ):
+            # First sighting, or the source changed its mind mid-window --
+            # either way the clock starts now.
+            self._pending_game = game_name_display
+            self._pending_first_seen = now_dt
+            self._cancel_pending_recheck()
+            # +1s so the re-read lands just AFTER the window has elapsed,
+            # rather than racing the >= comparison below.
+            self._pending_unsub = async_call_later(
+                self.hass, window + 1, self._async_pending_recheck
+            )
+            return True
+
+        # Still pending until it has held for the full window.
+        return (now_dt - self._pending_first_seen).total_seconds() < window
 
     def _handle_game_transition(self, new_game_name, explicit_end_time=None):
         now = dt_util.now()
@@ -3194,6 +3268,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 self.hass, self._update_play_time, timedelta(seconds=30)
             )
         )
+        # This class has no async_will_remove_from_hass, so teardown goes
+        # through async_on_remove like everything else here. Cancels whatever
+        # pending-confirmation one-shot happens to be armed at the time.
+        self.async_on_remove(self._cancel_pending_recheck)
 
         if self._gaming_type == "discord":
             self.async_on_remove(
@@ -3480,6 +3558,15 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 time_in_limbo = (now_dt - self._temp_offline_start).total_seconds()
                 if time_in_limbo > self._active_settings["GRACE_PERIOD_SECONDS"]:
                     self.hass.async_create_task(self._trigger_source_update())
+            # Backstop for the session-start confirmation timer: if that
+            # one-shot was ever lost, a pending game would otherwise sit
+            # unconfirmed forever. Mirrors the limbo self-heal directly above.
+            if self._pending_first_seen is not None:
+                pending_for = (now_dt - self._pending_first_seen).total_seconds()
+                if pending_for >= self._active_settings.get(
+                    "SESSION_START_CONFIRM_SECONDS", 0
+                ):
+                    self.hass.async_create_task(self._trigger_source_update())
             if self._attr_native_value.lower() != "offline" and not self._current_game:
                 self._current_game = self._attr_native_value
                 if not self._play_start_time:
@@ -3668,6 +3755,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             display_state = "Offline"
             game_cover = None
             secondary = ""
+            pending_hold = False
             if platform_data.get("current_game"):
                 raw_game_name = platform_data["current_game"]
                 raw_game_name = self._apply_title_override(raw_game_name)
@@ -3705,14 +3793,35 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         else:
                             self._handle_game_transition(game_name_display)
                             new_transition = True
+                    elif self._current_game is None and self._session_start_pending(
+                        game_name_display, now_dt
+                    ):
+                        # Newly detected game that hasn't held long enough to
+                        # be believed yet -- start nothing and publish
+                        # nothing. Scoped to a cold start (no session in
+                        # progress) on purpose: see the comment at the
+                        # pending_hold override before this method publishes.
+                        pending_hold = True
                     else:
+                        confirmed_first_seen = self._pending_first_seen
+                        self._clear_pending_session_start()
                         self._handle_game_transition(game_name_display)
+                        if confirmed_first_seen is not None:
+                            # Backdate to the FIRST sighting so the
+                            # confirmation window isn't charged against the
+                            # player. The tick-reconciliation gap in
+                            # _handle_game_transition's close path credits the
+                            # seconds that never got ticked.
+                            self._play_start_time = confirmed_first_seen.isoformat()
                         new_transition = True
-                    self._temp_game_lost_time = None
+                    if not pending_hold:
+                        self._temp_game_lost_time = None
                 else:
+                    self._clear_pending_session_start()
                     self._current_game = game_name_display
                     self._temp_game_lost_time = None
-                display_state = game_name_display
+                if not pending_hold:
+                    display_state = game_name_display
                 # Captured once game_name_display has settled for this
                 # invocation, and compared via its normalized form in every
                 # post-await guard below -- a concurrent invocation that
@@ -4123,6 +4232,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             else:
                 display_state = "Offline"
                 game_cover = None
+                # The source stopped reporting a game, so any half-confirmed
+                # one is void. Without this the stale first-seen timestamp
+                # would survive, and the same title reappearing much later
+                # would satisfy the window instantly instead of restarting it.
+                self._clear_pending_session_start()
                 if self._current_game:
                     if self._temp_offline_start:
                         limit_to_check = self._active_settings["GRACE_PERIOD_SECONDS"]
@@ -4186,6 +4300,15 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         secondary = f"Last seen {time_ago}"
                 else:
                     secondary = "Offline"
+            if pending_hold:
+                # A newly seen game is still being confirmed: stay Offline and
+                # show no artwork for it. Only ever reachable with no session
+                # in progress (see the cold-start condition on the gate), so
+                # the _current_game/_play_start_time reset just below is a
+                # no-op here rather than something that could silently discard
+                # a live session without closing it properly.
+                display_state = "Offline"
+                game_cover = None
             self._attr_native_value = display_state
             if display_state == "Offline":
                 self._current_game = None
@@ -5462,6 +5585,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         "MIN_SESSION_DURATION": opts.get(OPT_MIN_SESSION, DEFAULT_MIN_SESSION_DURATION),
         "SAME_GAME_PREFIX_WORDS": opts.get(
             OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS
+        ),
+        "SESSION_START_CONFIRM_SECONDS": opts.get(
+            OPT_SESSION_START_CONFIRM, DEFAULT_SESSION_START_CONFIRM_SECONDS
         ),
         "MASTER_HANDOFF_GRACE_SECONDS": opts.get(
             OPT_MASTER_HANDOFF_GRACE, DEFAULT_MASTER_HANDOFF_GRACE_SECONDS

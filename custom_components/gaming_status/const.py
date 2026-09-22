@@ -12,6 +12,12 @@ DEFAULT_AWAY_GRACE_PERIOD_SECONDS = 600
 DEFAULT_GAME_TRANSITION_GRACE_SECONDS = 120
 DEFAULT_MIN_SESSION_DURATION = 300
 DEFAULT_MASTER_HANDOFF_GRACE_SECONDS = 300
+# 0 = disabled, matching how MASTER_HANDOFF_GRACE/SAME_GAME_PREFIX_WORDS
+# already use 0 as their off switch. Off by default so an existing install
+# sees no change: this delays every genuine session start by the configured
+# number of seconds, which is only worth paying if a source actually
+# flickers (see PersistentStatusSensor's pending-confirmation logic).
+DEFAULT_SESSION_START_CONFIRM_SECONDS = 0
 
 # How long the notifier holds a "finished playing" notification before
 # actually sending it, in case the same game restarts on a different
@@ -154,6 +160,7 @@ OPT_MIN_SESSION = "min_session_duration"
 OPT_SAME_GAME_PREFIX_WORDS = "same_game_prefix_words"
 DEFAULT_SAME_GAME_PREFIX_WORDS = 2
 OPT_MASTER_HANDOFF_GRACE = "master_handoff_grace_seconds"
+OPT_SESSION_START_CONFIRM = "session_start_confirm_seconds"
 
 OPT_ENABLED_PLATFORMS = "enabled_platforms"
 DEFAULT_ENABLED_PLATFORMS = [
