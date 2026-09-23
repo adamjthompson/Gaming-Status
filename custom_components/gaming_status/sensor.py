@@ -55,6 +55,8 @@ from .const import (
     DEFAULT_USE_CACHE,
     DISCORD_XBOX_CONNECTION_APP_ID,
     DOMAIN,
+    GSA_LAUNCHER_ICONS,
+    GSA_NATIVE_LAUNCHERS,
     MASTER_RECENT_ACHIEVEMENTS_RESERVED_PER_PLATFORM,
     MAX_RECENT_ACHIEVEMENT_UNLOCKS,
     MAX_RECENT_SESSIONS,
@@ -88,8 +90,6 @@ from .const import (
     OPT_TITLE_OVERRIDES,
     OPT_TRANSITION_GRACE,
     OPT_USE_CACHE,
-    GSA_LAUNCHER_ICONS,
-    GSA_NATIVE_LAUNCHERS,
     PLATFORM_CONFIG,
     PLATFORM_PRIORITY,
     PLAYER_PLATFORMS,
@@ -1465,10 +1465,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 or norm_gsa_game in self._exclude_games
                 or str(gsa_game).lower().strip()
                 in ("offline", "none", "unavailable", "unknown", "")
-            ):
-                data["is_online"] = False
-            elif self._is_game_active_elsewhere(
-                gsa_game, defer_to=_gsa_native_platform(launcher)
+                or self._is_game_active_elsewhere(
+                    gsa_game, defer_to=_gsa_native_platform(launcher)
+                )
             ):
                 data["is_online"] = False
             else:
@@ -1774,9 +1773,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             0,
                             {
                                 "game": self._current_game,
-                                "platform": self._platform_label(
-                                    self._current_game
-                                ),
+                                "platform": self._platform_label(self._current_game),
                                 # Raw platform key, since "platform" is a
                                 # display label (a Gaming Status Agent
                                 # session is labelled with its launcher).
@@ -2830,9 +2827,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             0,
             {
                 "game": clean_title,
-                "platform": self._platform_label(
-                    clean_title, fallback_to_last=False
-                ),
+                "platform": self._platform_label(clean_title, fallback_to_last=False),
                 "platform_key": self._platform_key_for(
                     clean_title, fallback_to_last=False
                 ),

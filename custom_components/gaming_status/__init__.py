@@ -65,10 +65,10 @@ async def _async_migrate_custom_to_gsa(hass: HomeAssistant, config_entry: Config
     migrated_players = {}
     for player_name, player_data in players.items():
         if isinstance(player_data, dict) and "custom" in player_data:
-            player_data = dict(player_data)
-            player_data["gsa"] = player_data.pop("custom")
-            migrated_players[player_name] = player_data["gsa"]
-        players[player_name] = player_data
+            migrated = dict(player_data)
+            migrated["gsa"] = migrated.pop("custom")
+            migrated_players[player_name] = migrated["gsa"]
+            players[player_name] = migrated
     if isinstance(raw_players, str):
         new_options[OPT_PLAYERS] = json.dumps(players)
     else:
@@ -86,7 +86,9 @@ async def _async_migrate_custom_to_gsa(hass: HomeAssistant, config_entry: Config
         # unique_id is keyed on the source entity, not the platform, so only
         # the entity_id carries the old platform name.
         old_eid = registry.async_get_entity_id(
-            "sensor", DOMAIN, f"gaming_status_{safe_owner}_{source_entity_id}_tracker_v6"
+            "sensor",
+            DOMAIN,
+            f"gaming_status_{safe_owner}_{source_entity_id}_tracker_v6",
         )
         new_eid = f"sensor.gaming_status_{safe_owner}_gsa"
         if old_eid and old_eid != new_eid and not registry.async_get(new_eid):
