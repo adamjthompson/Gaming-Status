@@ -7,17 +7,18 @@ Below are additional setup options as well as descriptions of each.
 ## Player Profiles
 This section maps a friendly display name to the underlying Home Assistant sensors tracking that person, but it can also hold user-specific rules.
 
-**Platform Keys:** Add the entity IDs for Steam, Xbox, PlayStation, or custom sensors. You can include as few or as many as a user owns. *Note the following default platform integration sensor naming conventions:*
+**Platform Keys:** Add the entity IDs for Steam, Xbox, PlayStation, Playnite, or Gaming Status Agent sensors. You can include as few or as many as a user owns. *Note the following default platform integration sensor naming conventions:*
 
 - **Steam:** sensor.steam_playername
 - **Xbox:** sensor.playername_status
 - **PlayStation:** sensor.playername_online_status
+- **Gaming Status Agent:** sensor.gsa_profilename
 
 **Ghosted-by:** A list of master sensor IDs. If the current user is playing the exact same game as someone in this list, the current user's Xbox sensor will remain offline. This is useful for shared PCs where one user's profile is signed into the Xbox app while another user is actually playing — on Steam, PlayStation, or their own Xbox.
 
 **Games to exclude:** A user-specific list of games or apps that should be completely ignored (case-insensitive).
 
-*Editing Notes: Replace "Player One" etc. with whatever you want the players to be named and "_player_one" with whatever the actual gamertags should be. The "custom" entry is only needed if you will be creating your own status sensors, for example, using HASS.Agent on a PC to provide an on/off status for a game. Remove any lines that you do not need, and make sure that you do not have any trailing commas after the last entries.*
+*Editing Notes: Replace "Player One" etc. with whatever you want the players to be named and "_player_one" with whatever the actual gamertags should be. The "gsa" entry is only needed if the player runs [Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent) on their PC. Remove any lines that you do not need, and make sure that you do not have any trailing commas after the last entries.*
 
 ## Game Title Overrides
 This acts as a strict dictionary. If the integration detects an exact match with the key (the name on the left), it will permanently replace it with the value (the name on the right) before doing any API lookups or dashboard updates. This is perfect for shortening obnoxiously long official titles or for when cover art lookup fails due to a name mismatch.
@@ -36,7 +37,7 @@ Marvel Rivals = https://cdn2.steamgriddb.com/hero/a31d2779e08530d0b5fdbed368c735
 ```
 
 ## Title Cleanup Strings
-This is a universal "scrubber." It takes a list of regex patterns, one per line, and automatically deletes any matching text from a game title. Plain text works too -- a phrase with no regex special characters just matches itself. This is evaluated case-insensitively. It is the best way to handle dynamic "Rich Presence" statuses that console integrations append to games, to remove unnecessary words from game titles, or to strip a portion of a title that changes over time (like an embedded version number) without needing to update the entry every time it changes.
+This is a universal "scrubber." It takes a list of regex patterns, one per line, and automatically deletes any matching text from a game title. Plain text works too. A phrase with no regex special characters just matches itself. This is evaluated case-insensitively. It is the best way to handle dynamic "Rich Presence" statuses that console integrations append to games, to remove unnecessary words from game titles, or to strip a portion of a title that changes over time (like an embedded version number) without needing to update the entry every time it changes.
 
 ```
 Tom Clancy's
@@ -83,69 +84,18 @@ These settings allow you to adjust caching, override the default grace periods (
 
 ---
 
-## Tracking Standalone PC Games (HASS.Agent Setup)
-While the **Gaming Status** integration handles most of the heavy lifting automatically, you can use Home Assistant's native Template Sensors to unlock even more advanced tracking and home automation capabilities. 
+## Tracking Standalone PC Games (Gaming Status Agent)
+Steam and Xbox tell Home Assistant exactly what game you are playing. Standalone PC games (Epic, GOG, Battle.net, Ubisoft, EA, Amazon Games, and so on) have no native integration.
 
-Below is a guide on how to track standalone PC games, along with two highly recommended templates you can add to your `configuration.yaml` (or `templates.yaml`) file.
+To track these, install [Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent) on the gaming PC. It detects the running game and its launcher and publishes a `sensor.gsa_<profile name>` sensor over MQTT. Games it can't detect on its own can be matched by executable or window title under its **Custom Games** menu; those report their launcher as `Custom`. See [Setting up Gaming Status Agent Tracking](../README.md#pc-tracking--discord-setup) for the setup steps.
 
-Steam and Xbox tell Home Assistant exactly what game you are playing. However, standalone PC games (like Epic Games, Genshin Impact, or Minecraft) don't have native integrations. 
+*The previous HASS.Agent "PC Funnel" template approach is no longer supported. The Gaming Status Agent platform only reads Gaming Status Agent sensors.*
 
-To track these, the easiest method is using **HASS.Agent** (a free Windows companion app for Home Assistant) to monitor the game's background process.
-
-### Install HASS.Agent
-1. Install the HASS.Agent software on your gaming PC and the Home Assistant Integration by following the installation steps [here](https://www.hass-agent.io/2.2/getting-started/installation/#installing-hassagent).
-2. Open the HASS.Agent configuration app on the gaming PC.
-3. Go to **Sensors** and click **Add New**.
-4. In the "Type" dropdown, select **ProcessActive**.
-5. In the "Process Name" box, type the exact name of the game's executable file without the `.exe` extension (e.g., type `Wonderlands` instead of `Wonderlands.exe`).
-6. Set the Update Interval to something responsive (e.g., `10` seconds).
-7. Click **Store** and then **Store and Activate** to push the new sensor to Home Assistant.
-8. In Home Assistant, this will create an entity like `sensor.yourpcname_wonderlands`.
-
-*Note: The "Process" sensor counts how many instances of that game are running (often returning a `1` or `2`). The Funnel Sensor below is specifically designed to translate these numbers into a clean game title!*
-
-### The "PC Funnel" Sensor
-
-**The Problem:** Once you create the HASS.Agent sensors above, it can be messy to track all of them individually. You need a way to combine them into one output for the Gaming Status integration.
-
-**The Solution:** Build a "Funnel Sensor." This template watches your list of PC executables. If any of them report a running process, it automatically forwards the clean, formatted game name directly to your Gaming Status profile!
-
-**How to use it:**
-1. Paste this into your template configuration.
-2. Edit the `pc_games` list with your specific PC sensors and desired display names.
-3. Open your `gaming_profiles.json` file and point that user's `"custom"` slot directly to this new sensor (`sensor.username_active_pc_game`).
-4. For an avatar picture, you will need to add your own image to `www/gaming_status` and name it `custom_username_avatar.png` (.jpg is also fine).
-
-```yaml
-- sensor:
-    - name: "Username Active PC Game"
-      unique_id: username_active_pc_game
-      icon: mdi:desktop-tower
-      state: >
-        {# 1. DEFINE YOUR LIST OF GAMES HERE #}
-        {# Format -> "your_pc_sensor_entity_id": "Clean Dashboard Name" #}
-        {% set pc_games = {
-          "sensor.pc_name_genshin_impact_status": "Genshin Impact",
-          "sensor.pc_name_wonderlands_status": "Tiny Tina's Wonderlands"
-        } %}
-
-        {# 2. THE AUTO-GENERATOR (Do not touch below this line) #}
-        {% set active = namespace(game='Offline') %}
-        {% for entity_id, game_name in pc_games.items() %}
-          {% set state_val = states(entity_id) %}
-          {# Trigger if it says 'on', 'true', OR is a process count greater than 0 #}
-          {% if state_val in ['on', 'true'] or (state_val | int(default=-1)) > 0 %}
-            {% set active.game = game_name %}
-          {% endif %}
-        {% endfor %}
-
-        {{ active.game }}
-```
 ---
 
 ## Custom User Avatars
 
-If you want to replace the gamer avatar with one of your own or if you want to provide an avatar for a custom sensor you only need to add an image to the `www/gaming_status` folder. The folder will need to be added manually. For your images, use JPEG or PNG images named as `platform_username_avatar.ext`. So, for a user named John on Xbox, it should be be 'xbox_john_avatar.png'.
+If you want to replace the gamer avatar with one of your own or if you want to provide an avatar for a Gaming Status Agent sensor you only need to add an image to the `www/gaming_status` folder. The folder will need to be added manually. For your images, use JPEG or PNG images named as `platform_username_avatar.ext`. So, for a user named John on Xbox, it should be 'xbox_john_avatar.png', and for John's Gaming Status Agent sensor, 'gsa_john_avatar.png'.
 
 Any images added manually in this way will take priority over whatever is provided by the platform integration.
 
@@ -153,6 +103,6 @@ Any images added manually in this way will take priority over whatever is provid
 
 ## The "Is Anyone Gaming?" Binary Sensor (For Automations)
 
-**The Problem:** You want to trigger a Home Assistant automation (like changing the living room lights to a specific color, or silencing TTS announcements) whenever *anyone* in the house starts gaming, but you don't want to write a messy automation trigger that manually lists every single person's Xbox, Steam, PlayStation, Discord, and Custom sensors.
+**The Problem:** You want to trigger a Home Assistant automation (like changing the living room lights to a specific color, or silencing TTS announcements) whenever *anyone* in the house starts gaming, but you don't want to write a messy automation trigger that manually lists every single person's Xbox, Steam, PlayStation, Discord, Playnite, and Gaming Status Agent sensors.
 
 **The Solution:** This dynamic binary sensor automatically searches your entire Home Assistant system for any Master Gaming Sensors (`_master`) created by this integration. If *any* of them are currently playing a game, this switch turns `on`. When the last person stops playing, it turns `off`.

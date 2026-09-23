@@ -79,9 +79,11 @@ Sometimes, official APIs (especially PlayStation) fail to pass the avatar image 
 - **The Fix (Local Override):** You can force your own profile picture! Create a folder inside your Home Assistant `www` directory called `gaming_status`. Drop a `.png` or `.jpg` image in there using the format: `[platform]_[profile_name]_avatar.jpg`. 
 - *Example:* If your profile name is "Player One" and you want an Xbox avatar, name the file `xbox_player_one_avatar.jpg` and the integration will automatically use it!
 
-## My custom PC game (or Epic Game) isn't triggering.
-If you are using a PC companion app like HASS.Agent to track a running `.exe` file, it often reports the *number of running processes* rather than a simple "on/off" state. 
-- **The Fix:** Ensure your Template Funnel Sensor checks for a number greater than zero, rather than just checking if the state is exactly '1'. *(See the [Advanced Setup](docs/advanced.md) documentation for the exact code to fix this).*
+## My Epic / GOG / other PC game isn't triggering.
+PC games outside Steam and Xbox are tracked by [Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent).
+- **Check the Agent first:** Right-click its tray icon and choose **Run Diagnostics**. It shows what it currently detects and why, and which launchers are switched on under **Platforms**.
+- **Check the sensor:** In Home Assistant, `sensor.gsa_<profile name>` should show the game title and a `Launcher` attribute. If it doesn't exist, check the Agent's MQTT settings and that the MQTT integration is set up.
+- **Check the player:** Make sure **Gaming Status Agent** is an enabled platform and that the player's Gaming Status Agent slot points at that `sensor.gsa_*` sensor.
 
 ## I changed a game's title, but the old name is still showing.
 The Master Sensor caches history and states to prevent drop-outs. If things look stuck, simply restart Home Assistant to flush the cache and force it to rebuild from the current live data.

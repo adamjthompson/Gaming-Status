@@ -466,7 +466,7 @@ class GamingNotifier:
             resolve_master_entity_id(self.hass, player_name),
             resolve_pc_entity_id(self.hass, player_name),
         ]
-        for platform in ("steam", "xbox", "playstation", "custom", "discord"):
+        for platform in ("steam", "xbox", "playstation", "gsa", "discord"):
             source_entity_id = user_config.get(platform)
             if source_entity_id:
                 platform_entity_ids.append(

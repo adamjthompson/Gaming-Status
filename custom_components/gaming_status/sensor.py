@@ -88,6 +88,8 @@ from .const import (
     OPT_TITLE_OVERRIDES,
     OPT_TRANSITION_GRACE,
     OPT_USE_CACHE,
+    GSA_LAUNCHER_ICONS,
+    GSA_NATIVE_LAUNCHERS,
     PLATFORM_CONFIG,
     PLATFORM_PRIORITY,
     PLAYER_PLATFORMS,
@@ -147,6 +149,44 @@ class _DerivedHistoryStats(NamedTuple):
 # ------------------------------------------------------------------
 # 1. PLATFORM SENSOR CLASS
 # ------------------------------------------------------------------
+
+
+def _gsa_native_platform(launcher):
+    """The native platform key ("steam"/"xbox") a Gaming Status Agent
+    launcher corresponds to, or None. The Agent's optional Steam and Xbox
+    detection is a stand-in for the native integrations, so those games are
+    reported as Steam/Xbox rather than as GSA."""
+    key = str(launcher or "").strip().lower()
+    return key if key in GSA_NATIVE_LAUNCHERS else None
+
+
+def _effective_platform_key(platform_key, launcher=None):
+    """Platform key a game should be attributed to: a Gaming Status Agent
+    Steam/Xbox game counts as Steam/Xbox; everything else keeps its own."""
+    if platform_key == "gsa":
+        return _gsa_native_platform(launcher) or "gsa"
+    return platform_key
+
+
+def _platform_display_name(platform_key, launcher=None):
+    """Human-readable platform name. A Gaming Status Agent sensor reports as
+    whichever launcher it saw the game on, falling back to the Agent's own
+    name when no launcher is known."""
+    if platform_key == "gsa" and launcher and str(launcher).lower() != "none":
+        return str(launcher)
+    return PLATFORM_CONFIG.get(platform_key, {}).get(
+        "name_suffix", str(platform_key).title()
+    )
+
+
+def _platform_icon(platform_key, launcher=None, default="mdi:monitor"):
+    """Icon for a platform, using the launcher's own icon for a Gaming Status
+    Agent sensor when there is a recognizable one."""
+    if platform_key == "gsa" and launcher:
+        icon = GSA_LAUNCHER_ICONS.get(str(launcher).lower())
+        if icon:
+            return icon
+    return PLATFORM_CONFIG.get(platform_key, {}).get("icon", default)
 
 
 class PersistentStatusSensor(RestoreEntity, SensorEntity):
@@ -366,6 +406,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._cached_achievements_total = None
         self._cached_achievements_source = None
         self._cached_gamertag = None
+        # Gaming Status Agent only: the PC launcher the current (or last)
+        # game came from, e.g. "Epic". Kept across offline so "last seen"
+        # labels still name the right launcher.
+        self._cached_launcher = None
+        # Launcher per game seen this run, so a session that ends after a
+        # switch to a game on another launcher is still labelled correctly.
+        self._launcher_by_game = {}
         self._cached_gamerscore_earned = None
         self._cached_gamerscore_total = None
         self._cached_trophies_earned = None
@@ -968,7 +1015,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 return True
         return False
 
-    def _is_game_active_elsewhere(self, current_game, prefetched_states=None):
+    def _is_game_active_elsewhere(
+        self, current_game, prefetched_states=None, defer_to=None
+    ):
         """prefetched_states: optional {entity_id: State|None} a caller has
         already fetched this update cycle (e.g. discord's console-active
         check) -- consulted instead of a fresh hass.states.get() for any
@@ -1000,8 +1049,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 if other_platform == self._gaming_type:
                     continue
 
+                # defer_to names a platform this sensor yields to regardless
+                # of the priority order (a Gaming Status Agent Steam/Xbox
+                # game yields to the native Steam/Xbox sensor).
                 other_priority = PLATFORM_PRIORITY.index(other_platform)
-                if other_priority > my_priority:
+                if other_priority > my_priority and other_platform != defer_to:
                     continue
 
                 other_sensor_id = self._desired_entity_id.replace(
@@ -1012,6 +1064,17 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     if prefetched_states and other_sensor_id in prefetched_states
                     else self.hass.states.get(other_sensor_id)
                 )
+
+                # The mirror of defer_to: a native Steam/Xbox sensor never
+                # yields to a Gaming Status Agent sensor reporting a game on
+                # that same launcher, or the two would each wait on the other.
+                if (
+                    other_platform == "gsa"
+                    and other_state
+                    and _gsa_native_platform(other_state.attributes.get("launcher"))
+                    == self._gaming_type
+                ):
+                    continue
 
                 if other_state and str(other_state.state).lower() not in [
                     "offline",
@@ -1047,6 +1110,29 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             )
 
         return False
+
+    def _platform_label(self, game=None, fallback_to_last=True):
+        """Platform name recorded on sessions/achievements. For Gaming Status
+        Agent this is the launcher it reported for that game (e.g. "Epic", or
+        "Custom" for the Agent's own custom-game rules)."""
+        launcher = None
+        if self._gaming_type == "gsa":
+            if game:
+                launcher = self._launcher_by_game.get(_normalize_game_name(game))
+            if not launcher and fallback_to_last:
+                launcher = self._cached_launcher
+        return _platform_display_name(self._gaming_type, launcher)
+
+    def _platform_key_for(self, game=None, fallback_to_last=True):
+        """Platform key recorded on a session (see _effective_platform_key)."""
+        if self._gaming_type != "gsa":
+            return self._gaming_type
+        launcher = (
+            self._launcher_by_game.get(_normalize_game_name(game)) if game else None
+        )
+        if not launcher and fallback_to_last:
+            launcher = self._cached_launcher
+        return _effective_platform_key("gsa", launcher)
 
     def _apply_title_override(self, game_name):
         if not game_name:
@@ -1084,28 +1170,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             return None
         normalized_state = state_clean.lower()
 
-        if self._gaming_type == "custom":
-            if normalized_state in [
-                "0",
-                "off",
-                "offline",
-                "false",
-                "unavailable",
-                "unknown",
-                "0.0",
-                "none",
-                "",
-            ]:
-                data["is_online"] = False
-            else:
-                data["is_online"] = True
-                if normalized_state in ["1", "on", "playing", "true", "1.0"]:
-                    data["current_game"] = "Unknown Custom Game"
-                else:
-                    data["current_game"] = state
-
         data["avatar_url"] = attrs.get("entity_picture")
-        if self._gaming_type == "custom":
+        if self._gaming_type == "gsa":
             data["avatar_url"] = None
 
         is_globally_excluded = False
@@ -1382,6 +1448,34 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 else:
                     data["is_online"] = True
                     data["current_game"] = playnite_game
+
+        elif self._gaming_type == "gsa":
+            # Gaming Status Agent publishes the game title as the state and
+            # repeats it in "Game Title", alongside "Profile Name" (the
+            # launcher account name, or the Windows user) and "Launcher".
+            data["gamertag"] = attrs.get("Profile Name") or None
+            launcher = str(attrs.get("Launcher") or "").strip()
+            gsa_game = attrs.get("Game Title") or state
+            norm_gsa_game = _normalize_game_name(gsa_game)
+            if (
+                is_globally_excluded
+                or is_user_excluded
+                or is_basic_offline
+                or norm_gsa_game in self._global_exclusions_lower
+                or norm_gsa_game in self._exclude_games
+                or str(gsa_game).lower().strip()
+                in ("offline", "none", "unavailable", "unknown", "")
+            ):
+                data["is_online"] = False
+            elif self._is_game_active_elsewhere(
+                gsa_game, defer_to=_gsa_native_platform(launcher)
+            ):
+                data["is_online"] = False
+            else:
+                data["is_online"] = True
+                data["current_game"] = gsa_game
+                if launcher and launcher.lower() != "none":
+                    data["launcher"] = launcher
 
         elif self._gaming_type == "discord":
             # Allow Discord to track games if an application_id is present
@@ -1680,9 +1774,15 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             0,
                             {
                                 "game": self._current_game,
-                                "platform": PLATFORM_CONFIG.get(
-                                    self._gaming_type, {}
-                                ).get("name_suffix", self._gaming_type.title()),
+                                "platform": self._platform_label(
+                                    self._current_game
+                                ),
+                                # Raw platform key, since "platform" is a
+                                # display label (a Gaming Status Agent
+                                # session is labelled with its launcher).
+                                "platform_key": self._platform_key_for(
+                                    self._current_game
+                                ),
                                 "duration_seconds": self._last_session_play_time,
                                 "date": local_start.strftime("%Y-%m-%d"),
                                 "start_time": local_start.isoformat(),
@@ -1864,9 +1964,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             for e in self._recent_achievements
         }
         game_key = _normalize_game_name(game_name)
-        platform_label = platform_label or PLATFORM_CONFIG.get(
-            self._gaming_type, {}
-        ).get("name_suffix", self._gaming_type.title())
+        platform_label = platform_label or self._platform_label(game_name)
         hero_art_url = (
             hero_art_url if hero_art_url is not None else self._cached_game_hero
         )
@@ -2115,6 +2213,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._attr_extra_state_attributes["xbox_suppressed"] = xbox_suppressed
         self._attr_extra_state_attributes["current_game"] = self._current_game
         self._attr_extra_state_attributes["gamertag"] = self._cached_gamertag
+        if self._gaming_type == "gsa":
+            self._attr_extra_state_attributes["launcher"] = self._cached_launcher
+            self._attr_icon = _platform_icon("gsa", self._cached_launcher)
 
         if secondary:
             self._attr_extra_state_attributes["secondary"] = secondary
@@ -2729,8 +2830,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             0,
             {
                 "game": clean_title,
-                "platform": PLATFORM_CONFIG.get(self._gaming_type, {}).get(
-                    "name_suffix", self._gaming_type.title()
+                "platform": self._platform_label(
+                    clean_title, fallback_to_last=False
+                ),
+                "platform_key": self._platform_key_for(
+                    clean_title, fallback_to_last=False
                 ),
                 "duration_seconds": secs,
                 "date": date_str,
@@ -3256,6 +3360,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         elif last_state:
             self._attr_native_value = last_state.state
             attrs = last_state.attributes
+            if self._gaming_type == "gsa":
+                self._cached_launcher = attrs.get("launcher")
             self._last_online_valid_timestamp = attrs.get("last_online_valid_timestamp")
             self._last_game_stopped_timestamp = attrs.get("last_game_stopped_timestamp")
             self._last_state_change_ts = last_state.last_changed
@@ -4000,6 +4106,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._cached_gamertag = (
                 platform_data.get("gamertag") or self._cached_gamertag
             )
+            if platform_data.get("launcher"):
+                self._cached_launcher = platform_data["launcher"]
+                if platform_data.get("current_game"):
+                    if len(self._launcher_by_game) > 50:
+                        self._launcher_by_game.clear()
+                    self._launcher_by_game[
+                        _normalize_game_name(platform_data["current_game"])
+                    ] = platform_data["launcher"]
             self._check_daily_reset()
             now_dt = dt_util.now()
 
@@ -4769,6 +4883,7 @@ class MasterGamingSensor(RestoreSensor):
             "all_time_session_count",
             "all_time_top_games",
             "active_platform",
+            "active_platform_key",
             "game_dominant_color",
             "current_game_rating",
             "play_start_time",
@@ -5201,13 +5316,15 @@ class MasterGamingSensor(RestoreSensor):
             new_state_value = active_state.state
             new_entity_picture = active_state.attributes.get("entity_picture")
             platform_key = self._platform_sensors.get(active_sensor_id, "gaming")
-            pretty_platform_name = PLATFORM_CONFIG.get(platform_key, {}).get(
-                "name_suffix", platform_key.title()
-            )
+            active_launcher = active_state.attributes.get("launcher")
+            pretty_platform_name = _platform_display_name(platform_key, active_launcher)
 
             new_attrs = {
                 "secondary": active_state.attributes.get("secondary", ""),
                 "active_platform": pretty_platform_name,
+                "active_platform_key": _effective_platform_key(
+                    platform_key, active_launcher
+                ),
                 "game_cover_art": active_state.attributes.get("game_cover_art"),
                 "game_hero_art": active_state.attributes.get("game_hero_art"),
                 "game_logo_art": active_state.attributes.get("game_logo_art"),
@@ -5245,16 +5362,22 @@ class MasterGamingSensor(RestoreSensor):
                 "calendar_longest_session": calendar_longest_text,
             }
             if platform_key in PLATFORM_CONFIG:
-                new_icon = PLATFORM_CONFIG[platform_key]["icon"]
+                new_icon = _platform_icon(platform_key, active_launcher)
         elif most_recent_sensor:
-            pretty_name = PLATFORM_CONFIG.get(most_recent_key, {}).get(
-                "name_suffix", "Gaming"
+            recent_launcher = most_recent_sensor.attributes.get("launcher")
+            pretty_name = (
+                _platform_display_name(most_recent_key, recent_launcher)
+                if most_recent_key in PLATFORM_CONFIG
+                else "Gaming"
             )
             new_entity_picture = most_recent_sensor.attributes.get("entity_picture")
 
             new_attrs = {
                 "secondary": most_recent_sensor.attributes.get("secondary", "Offline"),
                 "active_platform": pretty_name,
+                "active_platform_key": _effective_platform_key(
+                    most_recent_key, recent_launcher
+                ),
                 "game_cover_art": most_recent_sensor.attributes.get("game_cover_art"),
                 "game_hero_art": most_recent_sensor.attributes.get("game_hero_art"),
                 "game_logo_art": most_recent_sensor.attributes.get("game_logo_art"),
@@ -5295,7 +5418,7 @@ class MasterGamingSensor(RestoreSensor):
             if lp and str(lp).lower() == "offline":
                 new_attrs["last_played_game"] = None
             if most_recent_key in PLATFORM_CONFIG:
-                new_icon = PLATFORM_CONFIG[most_recent_key]["icon"]
+                new_icon = _platform_icon(most_recent_key, recent_launcher)
         else:
             new_attrs = {
                 "secondary": "Offline",
@@ -5400,6 +5523,7 @@ class MasterGamingSensor(RestoreSensor):
         new_attrs["xbox_gamertag"] = gamertags_by_platform.get("xbox")
         new_attrs["psn_gamertag"] = gamertags_by_platform.get("playstation")
         new_attrs["discord_gamertag"] = gamertags_by_platform.get("discord")
+        new_attrs["gsa_gamertag"] = gamertags_by_platform.get("gsa")
         new_attrs["gamertag"] = (
             active_state.attributes.get("gamertag") if active_state else None
         ) or (
@@ -5511,6 +5635,7 @@ class PCGamingSensor(RestoreSensor):
             "recent_sessions",
             "recent_achievements",
             "active_platform",
+            "active_platform_key",
             "last_played_game",
             "play_start_time",
             "daily_play_time",
@@ -5578,7 +5703,7 @@ class PCGamingSensor(RestoreSensor):
             )
         )
         # Periodic poll as a safety net — catches any state change events that were missed
-        # during startup, reload, or edge cases (custom/playnite sensors can be slow to fire)
+        # during startup, reload, or edge cases (gsa/playnite sensors can be slow to fire)
         self.async_on_remove(
             async_track_time_interval(
                 self.hass, self._async_pc_poll, timedelta(seconds=30)
@@ -5640,9 +5765,9 @@ class PCGamingSensor(RestoreSensor):
         # Gamertag must only reflect whichever PC platform is actually the
         # winning (active, or most-recently-active) one -- not shown
         # unconditionally. Mirrors MasterGamingSensor's own
-        # gamertags_by_platform pattern; playnite/custom naturally
-        # contribute None here since their own _get_platform_data never
-        # sets one. winning_platform is set below by whichever of the three
+        # gamertags_by_platform pattern; playnite naturally contributes
+        # None here since its own _get_platform_data never sets one (gsa
+        # contributes the Agent's Profile Name). winning_platform is set below by whichever of the three
         # branches actually has one; it stays None for the
         # fully-offline-with-no-history branch, which correctly means "no
         # gamertag" too.
@@ -5666,7 +5791,7 @@ class PCGamingSensor(RestoreSensor):
         most_recent_state = None
         most_recent_ts = None
 
-        # Entities are passed in strict priority order (custom -> steam -> discord)
+        # Entities are passed in strict priority order (playnite -> gsa -> steam -> discord)
         for entity_id, state in pc_states.items():
             if not state:
                 _LOGGER.debug(
@@ -5725,16 +5850,18 @@ class PCGamingSensor(RestoreSensor):
 
             # Dynamically grab the icon and name from the winning platform
             winning_platform = active_state.entity_id.split("_")[-1]
-            self._attr_icon = PLATFORM_CONFIG.get(winning_platform, {}).get(
-                "icon", "mdi:monitor"
-            )
-            pretty_platform_name = PLATFORM_CONFIG.get(winning_platform, {}).get(
-                "name_suffix", winning_platform.title()
+            winning_launcher = active_state.attributes.get("launcher")
+            self._attr_icon = _platform_icon(winning_platform, winning_launcher)
+            pretty_platform_name = _platform_display_name(
+                winning_platform, winning_launcher
             )
 
             self._attr_extra_state_attributes = {
                 "secondary": active_state.attributes.get("secondary", ""),
                 "active_platform": pretty_platform_name,
+                "active_platform_key": _effective_platform_key(
+                    winning_platform, winning_launcher
+                ),
                 "game_cover_art": active_state.attributes.get("game_cover_art"),
                 "game_hero_art": active_state.attributes.get("game_hero_art"),
                 "game_logo_art": active_state.attributes.get("game_logo_art"),
@@ -5757,18 +5884,20 @@ class PCGamingSensor(RestoreSensor):
             # If everything is offline, inherit the 'Last seen...' data from the most recently active PC platform
             if most_recent_state:
                 winning_platform = most_recent_state.entity_id.split("_")[-1]
-                pretty_platform_name = PLATFORM_CONFIG.get(winning_platform, {}).get(
-                    "name_suffix", winning_platform.title()
+                winning_launcher = most_recent_state.attributes.get("launcher")
+                pretty_platform_name = _platform_display_name(
+                    winning_platform, winning_launcher
                 )
-                self._attr_icon = PLATFORM_CONFIG.get(winning_platform, {}).get(
-                    "icon", "mdi:monitor"
-                )
+                self._attr_icon = _platform_icon(winning_platform, winning_launcher)
 
                 self._attr_extra_state_attributes = {
                     "secondary": most_recent_state.attributes.get(
                         "secondary", "Offline"
                     ),
                     "active_platform": pretty_platform_name,
+                    "active_platform_key": _effective_platform_key(
+                        winning_platform, winning_launcher
+                    ),
                     "game_cover_art": most_recent_state.attributes.get(
                         "game_cover_art"
                     ),
@@ -6550,7 +6679,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             for p in ("steam", "xbox", "playstation")
         }
         # Fallback value for platforms with no per-platform achievement
-        # concept at all (custom/playnite/discord) -- mirrors the old flat
+        # concept at all (gsa/playnite/discord) -- mirrors the old flat
         # value's own fallback chain, just without a platform key to look
         # up.
         player_achievement_tracking_fallback = utils.ENABLE_ACHIEVEMENT_TRACKING and (
@@ -6630,7 +6759,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 resolved_platform_entities[platform] = real_entity_id
 
                 # Register PC platforms in strict hierarchy order for the Sub-Master
-                if platform in ["playnite", "custom", "steam", "discord"]:
+                if platform in ["playnite", "gsa", "steam", "discord"]:
                     pc_platforms_present.append(real_entity_id)
 
                 if platform in (
@@ -6642,8 +6771,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
         # Spawn PC Sub-Master if any PC platforms exist
         if pc_platforms_present:
-            # Sort the entities to ensure strict Double-Dip Priority: Playnite -> Custom -> Steam -> Discord
-            priority_order = {"playnite": 0, "custom": 1, "steam": 2, "discord": 3}
+            # Sort the entities to ensure strict Double-Dip Priority: Playnite -> Gaming Status Agent -> Steam -> Discord
+            priority_order = {"playnite": 0, "gsa": 1, "steam": 2, "discord": 3}
             pc_platforms_present.sort(
                 key=lambda x: priority_order.get(x.split("_")[-1], 99)
             )

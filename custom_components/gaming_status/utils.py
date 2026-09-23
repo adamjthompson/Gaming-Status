@@ -685,7 +685,7 @@ async def fetch_game_rating(hass, game_name, platform=None, platform_context=Non
     caller passed enough context, tries a platform-native rating (see
     _fetch_native_rating). There is no third-party fallback -- RAWG.io was
     removed once native ratings covered Steam/Xbox/PSN; anything native
-    can't resolve (including Custom/Playnite/Discord platforms, which have
+    can't resolve (including Gaming Status Agent/Playnite/Discord platforms, which have
     no native rating source at all) is reported as "unrated" and left to a
     manual RATING_OVERRIDES entry. A confirmed rating is cached forever
     (ratings don't change); an "unrated" result is only cached for

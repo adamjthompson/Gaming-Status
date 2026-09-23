@@ -2,19 +2,19 @@
 
 # Gaming Status for Home Assistant
 
-This is a powerful, unified custom integration for Home Assistant that tracks and consolidates gaming presence across Steam, Xbox Live, PlayStation Network, Discord, Playnite, and custom PC clients into a single, clean dashboard sensor for each person in your household / friend group. It's super useful if you want to be able to track who is online, what they're playing, and for how long. 
+This is a powerful, unified custom integration for Home Assistant that tracks and consolidates gaming presence across Steam, Xbox Live, PlayStation Network, Discord, Playnite, and the Gaming Status Agent PC app into a single, clean dashboard sensor for each person in your household / friend group. It's super useful if you want to be able to track who is online, what they're playing, and for how long. 
 
 I started developing this as a way to have persistent sensors since I was annoyed that the Xbox and Steam sensors would regularly flutter between online/offline status, making notifications and my gaming dashboard unreliable. This evolved into making master sensors instead of simply tracking each platform independently. Over time, this has grown into a much more complex integration that now tracks game time, records the last game played, provides cover art, allows for rich notifications through Discord and much, much more.
 
 Some of the key features are listed below.
 
 ## Features
-* **Unified Master Sensor:** Combines Xbox, PlayStation, Steam, Discord, Playnite, and Custom PC clients into one clean "Master Status" sensor per person.
+* **Unified Master Sensor:** Combines Xbox, PlayStation, Steam, Discord, Playnite, and Gaming Status Agent into one clean "Master Status" sensor per person.
 * **Online/Offline Notifications:** Receive Discord, SMS, and/or Mobile notifications when users start or finish playing a game.
 * **Parental Controls:** Track daily playtime and recieve notifications when a limit, curfew, or age-rating threshold is reached.
 * **Discord Rich Presence:** Track hundreds of standalone games, emulators, and Epic/EA/Ubisoft launchers automatically by hooking into Discord's Rich Presence status. Automatically ignores custom text statuses to prevent false positives.
-* **Custom PC Game Support:** Track non-platform games (like Epic Games, Minecraft, or Genshin Impact) using template funnels or binary sensors.
-* **PC Sub-Master Sensor:** Automatically aggregates Custom, Steam, Playnite, and Discord tracking into a single, unified "PC" status. It features smart platform yielding (e.g., Discord quietly steps aside if Steam is tracking the same game) to eliminate double-counting in your playtime analytics.
+* **Gaming Status Agent Support:** Track PC games from Epic, GOG, Battle.net, Ubisoft, EA, Amazon Games, Xbox/Microsoft Store, Steam, and Playnite (plus your own custom game rules) with the companion [Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent) Windows app, which reports the game, the launcher, and your gamertag over MQTT.
+* **PC Sub-Master Sensor:** Automatically aggregates Gaming Status Agent, Steam, Playnite, and Discord tracking into a single, unified "PC" status. It features smart platform yielding (e.g., Discord quietly steps aside if Steam is tracking the same game) to eliminate double-counting in your playtime analytics.
 * **Smart Ghosting Protection:** Prevents echo sessions on a shared PC — e.g., when the Windows Xbox app incorrectly broadcasts another player's game (on Steam, PlayStation, or their own Xbox) as its own. Configured on the *authoritative* player (pick which other players' Xbox sensors to suppress).
 * **Drop-Out Protection:** Built-in grace periods prevent a gamer from appearing "Offline" if their game crashes, they switch titles, or their internet briefly blips, keeping play sessions perfectly intact and avoiding unnecessary notifications.
 * **Playtime Analytics:** Automatically calculates session time, daily hours, and a rolling 7-day total for easy dashboard charting.
@@ -39,8 +39,8 @@ While not required for functionality, I recommend installing the following for t
 * [SteamGridDB API Key](https://www.steamgriddb.com/) - Provides artwork for games. *This is not REQUIRED, but it is HIGHLY recommended!*
 * [Gaming Status Cards](https://github.com/adamjthompson/Gaming-Status-Cards) - Easy to use companion dashboard cards, so you don't have to make your own.
 * [Official Discord Integration](https://www.home-assistant.io/integrations/discord) - Requires setting up a Discord Bot. *REQUIRED if you want to use Discord for notifications but NOT required for Discord game tracking.*
-* [Mosquitto Broker](https://github.com/home-assistant/addons/tree/master/mosquitto) - *REQUIRED if you plan to use Playnite for tracking games.* You will also need an MQTT add-on installed in Playnite (such as [Playnite MQTT Client](https://playnite.link/addons.html#MQTTClient_90c44048-4f8f-43f7-a0c1-f8164bf1d7ef)) to broadcast your status to Home Assistant.
-* [HASS.Agent](https://www.hass-agent.io/2.2/getting-started/installation/#installing-hassagent) - Allows you to create custom sensors for otherwise untrackable games. Install both the PC app and the integration for Custom PC sensors. *Try using Discord or Playnite tracking first, if possible, since HASS Agent sensors have to be individually created for EACH tracked game on each device.*
+* [Mosquitto Broker](https://github.com/home-assistant/addons/tree/master/mosquitto) - *REQUIRED if you plan to use Playnite or Gaming Status Agent for tracking games.* You will also need an MQTT add-on installed in Playnite (such as [Playnite MQTT Client](https://playnite.link/addons.html#MQTTClient_90c44048-4f8f-43f7-a0c1-f8164bf1d7ef)) to broadcast your status to Home Assistant.
+* [Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent) - A Windows tray app that detects games from Epic, GOG, Battle.net, Ubisoft, EA, Amazon Games, Xbox/Microsoft Store, Steam, and Playnite, and publishes them to Home Assistant over MQTT. *REQUIRES an MQTT broker (see Mosquitto above). See [Setting up Gaming Status Agent Tracking](#pc-tracking--discord-setup) below.*
 
 ### Obtaining a SteamGridDB API Key
 To display beautiful, high-resolution game covers on your dashboard, this integration requires a free API key from SteamGridDB.
@@ -88,7 +88,7 @@ To configure your players, notifications, and rules, click the **Configure** but
 
 #### 1. Manage Players
 Add, edit, or delete the gamers in your household.
-* **Platform Sensors:** When adding a player, you simply select their respective integration sensors from the dropdowns. The integration will automatically filter your entities to show the correct Steam (`sensor.steam_*`), Xbox (`sensor.*_status`), PlayStation (`sensor.*_now_playing`), and Playnite (MQTT `binary_sensor.*_playnite_playing_game`) entities. *(Note: To remove a previously assigned sensor, simply click the 'X' to clear the entity dropdown and click Submit. The integration will save the empty state and stop tracking that platform).*
+* **Platform Sensors:** When adding a player, you simply select their respective integration sensors from the dropdowns. The integration will automatically filter your entities to show the correct Steam (`sensor.steam_*`), Xbox (`sensor.*_status`), PlayStation (`sensor.*_now_playing`), Playnite (MQTT `binary_sensor.*_playnite_playing_game`), and Gaming Status Agent (MQTT `sensor.gsa_*`) entities. *(Note: To remove a previously assigned sensor, simply click the 'X' to clear the entity dropdown and click Submit. The integration will save the empty state and stop tracking that platform).*
 * **PS3 Media Player:** *(Only shown when a player has a PlayStation sensor configured, and PS3 Tracking is enabled under Global Settings)* The PS3 predates the modern PlayStation Network status API, so it can't be tracked the same way as PS4/PS5 — instead, select its `media_player.*` entity (also provided by the official PlayStation Network integration). PS3 activity feeds directly into that player's existing PlayStation sensor and history, rather than creating a separate sensor.
 * **Player Details:** After adding a player, you can configure:
   * **Session Notifications:** Select notification methods for when this specific player starts or stops gaming. *Note: These must be configured under Notifications.*
@@ -154,7 +154,7 @@ Update your API keys and fine-tune the game-matching engine.
 
 #### 8. Global Settings
 These variables control how the integration handles platforms, caching, and network drops across all players.
-* **Enabled Platforms:** Select which gaming platforms to track (Steam, Xbox, PlayStation, Discord, Playnite, and Custom).
+* **Enabled Platforms:** Select which gaming platforms to track (Steam, Xbox, PlayStation, Discord, Playnite, and Gaming Status Agent).
 * **Enable PS3 Tracking:** Adds the PS3 Media Player field (see Manage Players above) to PlayStation-enabled player profiles.
 * **Master Toggles:** Enable or disable the Notifications and Parental Controls configuration hubs.
 * **Cache Settings:** Toggle local image caching, automatic vibrant color extraction, and configure background cleanup limits (Max Files & Max Days).
@@ -166,7 +166,7 @@ These variables control how the integration handles platforms, caching, and netw
 * **Remove Disabled Sensors:** Automatically deletes orphaned sensors from the registry if their platform is un-checked from the Enabled Platforms list.
 
 ### PC Tracking & Discord Setup
-To provide the most accurate PC tracking possible, this integration can monitor Steam, Discord, Playnite, and Custom clients simultaneously and output the result as one "PC" sensor. 
+To provide the most accurate PC tracking possible, this integration can monitor Steam, Discord, Playnite, and Gaming Status Agent simultaneously and output the result as one "PC" sensor. 
 
 **Setting up Discord Tracking:**
 Because Home Assistant does not natively track Rich Presence, this integration features a built-in Discord tracker. To use it, you must create a bot in the Developer Portal to read your server's statuses.
@@ -189,10 +189,32 @@ Playnite is an incredible open-source library manager that can track games acros
 5. In Home Assistant, ensure the MQTT integration detects and creates this binary sensor.
 6. Go to the Gaming Status configuration, select Playnite as an Enabled Platform, and assign that new `binary_sensor` to your player! *By default, it may be named `binary_sensor.desktop_playnite_playnite_playing_game`.*
 
+**Setting up Gaming Status Agent Tracking:**
+[Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent) is a companion Windows tray app that detects what you're playing and which launcher it came from, then publishes it to Home Assistant over MQTT. Home Assistant discovers the sensor automatically, so no YAML is needed.
+1. Ensure you have an MQTT Broker (like Mosquitto) installed and the MQTT integration configured in Home Assistant.
+2. Download and run Gaming Status Agent on the PC. Right-click its tray icon, open **MQTT Settings**, and enter your broker's address and credentials.
+3. Under **Platforms**, choose which launchers to track. Under **Gamertags**, optionally enter your account name for each launcher (otherwise your Windows account name is used).
+4. In Home Assistant, confirm the MQTT integration has created `sensor.gsa_<profile name>` (e.g. `sensor.gsa_adam`).
+5. Go to the Gaming Status configuration, select **Gaming Status Agent** as an Enabled Platform, and pick the `sensor.gsa_*` sensor for your player from the dropdown.
+
+The Agent's sensor reports the following, which Gaming Status reads directly:
+
+| Attribute | Used for |
+| --- | --- |
+| `Game Title` | The current game, or `Offline` |
+| `Launcher` | Epic, Steam, GOG, Battle.net, Xbox, Ubisoft, EA, Amazon Games, Playnite, Custom, or None. Shown as the platform (`active_platform`) on the PC and Master sensors and recorded on each session, so a game played through Epic shows as "Epic" rather than a generic PC entry. Steam and Xbox games are attributed to Steam and Xbox (see below) |
+| `Profile Name` | Shown as the player's `gamertag` for this sensor |
+
+**Steam and Xbox games from the Agent:** the Agent's Steam and Xbox detection is optional and off by default. It's meant for people who want to track those platforms without installing the Steam or Xbox integrations in Home Assistant. Games it reports on those launchers are treated as Steam or Xbox games, not GSA: they show as Steam or Xbox and are recorded on sessions with `platform_key` `steam` or `xbox`. If the native Steam or Xbox sensor is also set up and reports the same game, the Agent steps aside so that sensor's gamertag, achievements, and ratings are used.
+
+The Agent can also report Playnite games, which the priority rules below keep from being counted twice.
+
+*Upgrading from the old "Custom" platform:* it has been replaced by Gaming Status Agent. Existing Custom entries are migrated automatically: the platform sensor is renamed from `_custom` to `_gsa` and keeps its history. Point that player's Gaming Status Agent slot at their `sensor.gsa_*` sensor, since plain on/off or template sensors are no longer supported.
+
 **The PC Sub-Master Priority Logic:**
 If a player launches a game, it is very common for multiple trackers (like Discord, Playnite, and Steam) to detect it simultaneously. To prevent double-counting your playtime hours and sending duplicate push notifications, the `sensor.gaming_status_XXXXX_pc` sensor uses strict **Smart Platform Yielding**. 
 
-Platforms are prioritized in this order: **Playnite > Custom > Steam > Discord**.
+Platforms are prioritized in this order: **Playnite > Gaming Status Agent > Steam > Discord**. The one exception is a Steam or Xbox game reported by Gaming Status Agent, which always yields to the native Steam or Xbox sensor.
 * *Example:* If a player launches a Steam game, Discord will likely detect it first and claim the dashboard. Seconds later, when Steam wakes up and detects the same game, Discord will instantly pause its timer and yield control to Steam. 
 * *Result:* You get the lightning-fast notifications of Discord, but the pristine, deduplicated analytics of Steam!
 
@@ -215,8 +237,8 @@ Upon restart, the integration will instantly read your settings and generate the
 | sensor.gaming_status_XXXXX_playstation | Sensor | PlayStation sensor for each added profile |
 | sensor.gaming_status_XXXXX_discord | Sensor | Discord sensor for each added profile |
 | sensor.gaming_status_XXXXX_playnite | Sensor | Playnite sensor for each added profile |
-| sensor.gaming_status_XXXXX_custom | Sensor | Custom sensor for each added profile |
-| sensor.gaming_status_XXXXX_pc | Sensor | Sub-master sensor that automatically aggregates Steam, Discord, Playnite, and Custom PC clients into a single unified PC state |
+| sensor.gaming_status_XXXXX_gsa | Sensor | Gaming Status Agent sensor for each added profile |
+| sensor.gaming_status_XXXXX_pc | Sensor | Sub-master sensor that automatically aggregates Steam, Discord, Playnite, and Gaming Status Agent into a single unified PC state |
 | sensor.gaming_status_XXXXX_master | Sensor | Master sensor for each added profile that combines all added platforms into one "Online/Offline" status |
 | sensor.gaming_status_XXXXX_library_summary | Sensor | *(Requires [Full Game Library Scan](#6-achievements--ratings))* Game Library summary sensor per profile, combining every tracked platform |
 | sensor.gaming_status_XXXXX_library_steam | Sensor | *(Requires Full Game Library Scan)* Steam-specific Game Library sensor |
@@ -248,7 +270,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | calendar_longest_session | A formatted string showing the game title and duration of the longest single session across all platforms for the current calendar week (e.g., "DELTARUNE (1h 24m)") |
 | rolling_longest_session | A formatted string showing the game title and duration of the longest single session across all platforms over the rolling 7-day window |
 | play_history | Per-day, per-game playtime aggregated across all platforms: `{"YYYY-MM-DD": {"Game Title": seconds, ...}}`. Used by the Gaming Status Cards for chart rendering |
-| recent_sessions | List of the most recently completed play sessions across all of this player's platforms (newest first, capped at 20): `{game, platform, duration_seconds, date, start_time, end_time, hero_art_url, game_dominant_color}` |
+| recent_sessions | List of the most recently completed play sessions across all of this player's platforms (newest first, capped at 20): `{game, platform, platform_key, duration_seconds, date, start_time, end_time, hero_art_url, game_dominant_color}`. `platform` is a display label (a Gaming Status Agent session shows its launcher); `platform_key` is the internal platform key |
 
 **Parental/Limit Controls**
 | Attribute | Description |
@@ -263,7 +285,8 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | Attribute | Description |
 | --- | --- |
 | secondary | Current state or the time elapsed and session duration of the last played game |
-| active_platform | The name of the platform currently driving the status (e.g., "Steam") |
+| active_platform | The name of the platform currently driving the status (e.g., "Steam"). For Gaming Status Agent this is the reported launcher (e.g., "Epic") |
+| active_platform_key | The internal key of the platform driving the status (`steam`, `xbox`, `playstation`, `playnite`, `gsa`, `discord`), for dashboards that need to identify the platform regardless of the launcher label. A Steam or Xbox game from Gaming Status Agent reports `steam` or `xbox` |
 | entity_picture | URL of the player's avatar fetched from the active platform |
 | icon | Dynamic icon to match the active platform |
 | game_cover_art | URL of cover art, either local or SteamGridDB |
@@ -285,6 +308,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | xbox_gamertag | This player's Xbox gamertag, if Xbox is configured |
 | psn_gamertag | This player's PlayStation Network online ID, if PlayStation is configured |
 | discord_gamertag | This player's Discord display name (server nickname, falling back to their global display name/username), if Discord is configured |
+| gsa_gamertag | The `Profile Name` reported by this player's Gaming Status Agent sensor, if Gaming Status Agent is configured |
 
 ### Attributes for Platform Sensors
 Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The individual `*_steam`, `*_xbox`, `*_discord`, and `*_playstation` sensors provide the following attibutes:
@@ -307,7 +331,8 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | game_icon_art | URL of icon art, either local or SteamGridDB |
 | game_dominant_color | The automatically extracted vibrant hex color from the game's artwork, or a manually assigned color |
 | game_content_rating | Rating metadata for the currently active/cached game: `{esrb, pegi, age_floor, descriptors, unrated, source}` (`source` is `"steam_native"`, `"xbox_native"`, `"psn_native"`, `"override"`, or `null` if unrated/never looked up) |
-| gamertag | This player's real account display name for this platform (Steam persona name, Xbox gamertag, PSN online ID, or Discord display name). Always `null` for Playnite and Custom sensors, which have no equivalent identity concept |
+| gamertag | This player's real account display name for this platform (Steam persona name, Xbox gamertag, PSN online ID, Discord display name, or the Gaming Status Agent `Profile Name`). Always `null` for Playnite sensors, which have no equivalent identity concept |
+| launcher | Gaming Status Agent sensors only. The launcher the current or last game came from (e.g. `Epic`, `GOG`, `Custom`), kept while offline for "last seen" displays |
 
 **Rich Tracking & Analytics**
 | Attribute | Description |
@@ -321,7 +346,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | rolling_weekly_breakdown | Dictionary mapping game names to total seconds over the rolling 7-day window |
 | calendar_weekly_breakdown | Dictionary mapping game names to total seconds for the current calendar week (Monday–Sunday) |
 | play_history | Per-day, per-game playtime for this platform: `{"YYYY-MM-DD": {"Game Title": seconds, ...}}` |
-| recent_sessions | List of the most recently completed play sessions on this platform (newest first, capped at 20): `{game, platform, duration_seconds, date, start_time, end_time, hero_art_url, game_dominant_color}`. A session only appears here once it has ended |
+| recent_sessions | List of the most recently completed play sessions on this platform (newest first, capped at 20): `{game, platform, platform_key, duration_seconds, date, start_time, end_time, hero_art_url, game_dominant_color}`. `platform` is a display label (a Gaming Status Agent session shows its launcher); `platform_key` is the internal platform key. A session only appears here once it has ended |
 | longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session today; resets at midnight |
 | rolling_longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session over the rolling 7-day window |
 | calendar_longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session in the current calendar week |
@@ -385,7 +410,7 @@ Renames a game across a player's stored history (recent sessions, daily/weekly b
 | Field | Required | Description |
 | --- | --- | --- |
 | `player` | Yes | The player's configured name, e.g. `Player1` |
-| `platform` | No | Limit the rename to one platform (`steam`, `xbox`, `playstation`, `playnite`, `custom`, `discord`). Omit to apply across all of the player's platforms |
+| `platform` | No | Limit the rename to one platform (`steam`, `xbox`, `playstation`, `playnite`, `gsa`, `discord`). Omit to apply across all of the player's platforms |
 | `old_name` | Yes | The exact game name currently stored, e.g. `DOOM Eternal In the menu` |
 | `new_name` | Yes | The name to rename it to, e.g. `DOOM Eternal` |
 
@@ -407,6 +432,6 @@ Once everything is up and running (with sensors showing up from the integration)
 - Set up Discord, SMS, and/or Mobile [notifications](docs/notifications.md) for when users start, stop, and switch games
 - Add a [slideshow](https://github.com/adamjthompson/Gaming-Status-Cards#2-gaming-status---slideshow) to your dashboard or wallpanel display to see what's being played
 - Add a [weekly hours chart](https://github.com/adamjthompson/Gaming-Status-Cards#3-gaming-status---weekly-hours) or a [per-game breakdown chart](https://github.com/adamjthompson/Gaming-Status-Cards#6-gaming-status---weekly-games) to visualize playtime trends across your household
-- Add [custom sensors](docs/advanced.md#tracking-standalone-pc-games-hassagent-setup) to track PC games not logged by Steam or Xbox sensors
+- Install [Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent) to track PC games from Epic, GOG, Battle.net, Ubisoft, EA, and more
 - Use a [sensor](docs/advanced.md#the-is-anyone-gaming-binary-sensor-for-automations) to track whether or not anyone is gaming (useful for automations or contextual card display)
 - Check out other [advanced setup options](docs/advanced.md) for features like preventing tracking of games by the wrong players and per-user game exclusions

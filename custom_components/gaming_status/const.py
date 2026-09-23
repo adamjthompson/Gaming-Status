@@ -116,7 +116,11 @@ ZOMBIE_ATTRIBUTES = ["grace_period_active", "xbox_last_seen_game", "debug_sync"]
 
 PLATFORM_CONFIG = {
     "playnite": {"icon": "mdi:controller", "name_suffix": "Playnite", "group": "PC"},
-    "custom": {"icon": "mdi:gamepad-square", "name_suffix": "Custom", "group": "PC"},
+    "gsa": {
+        "icon": "mdi:gamepad-square",
+        "name_suffix": "Gaming Status Agent",
+        "group": "PC",
+    },
     "steam": {"icon": "mdi:steam", "name_suffix": "Steam", "group": "PC"},
     "xbox": {
         "icon": "mdi:microsoft-xbox",
@@ -132,8 +136,24 @@ PLATFORM_CONFIG = {
     "discord": {"icon": "mdi:gamepad-variant", "name_suffix": "Discord", "group": "PC"},
 }
 
-PLATFORM_PRIORITY = ["custom", "steam", "xbox", "playstation", "playnite", "discord"]
-PLAYER_PLATFORMS = ["custom", "steam", "xbox", "playstation", "playnite", "discord"]
+PLATFORM_PRIORITY = ["gsa", "steam", "xbox", "playstation", "playnite", "discord"]
+PLAYER_PLATFORMS = ["gsa", "steam", "xbox", "playstation", "playnite", "discord"]
+
+# Gaming Status Agent reports which PC launcher a game came from in its
+# "Launcher" attribute (Epic, Steam, GOG, Battle.net, Xbox, Ubisoft, EA,
+# Amazon Games, Playnite, Custom). That value is surfaced as the platform
+# label; launchers with a recognizable icon get it, the rest fall back to
+# the gsa platform icon.
+# Launchers the Agent can optionally detect in place of the native Steam /
+# Xbox integrations. Games on these are attributed to that native platform,
+# and the Agent yields to the native sensor when both see the same game.
+GSA_NATIVE_LAUNCHERS = ("steam", "xbox")
+
+GSA_LAUNCHER_ICONS = {
+    "steam": "mdi:steam",
+    "xbox": "mdi:microsoft-xbox",
+    "playnite": "mdi:controller",
+}
 
 # ---------------------------------------------------------------------------
 # Menu option identifiers
@@ -168,7 +188,7 @@ DEFAULT_ENABLED_PLATFORMS = [
     "xbox",
     "playstation",
     "discord",
-    "custom",
+    "gsa",
     "playnite",
 ]
 

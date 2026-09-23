@@ -33,7 +33,7 @@
           "playstation": "PlayStation Sensor",
           "discord": "Discord Profile",
           "playnite": "Playnite Sensor",
-          "custom": "Custom Sensor"
+          "gsa": "Gaming Status Agent Sensor"
         }
       }
     },
@@ -77,7 +77,7 @@
           "playstation": "PlayStation sensor",
           "ps3": "PS3 media player",
           "discord": "Discord member",
-          "custom": "Custom sensor",
+          "gsa": "Gaming Status Agent sensor",
           "playnite": "Playnite sensor"
         },
         "data_description": {
@@ -87,7 +87,7 @@
           "playstation": "Select the 'Now Playing' sensor for this PSN account (suffix varies by language, e.g. _now_playing or _spielt_gerade)",
           "ps3": "Select the PlayStation Network media_player entity for this PS3 (e.g. media_player.playstation_3). Adds to this player's PlayStation history alongside their regular PSN activity.",
           "discord": "Select the Discord user from the dropdown.",
-          "custom": "e.g. sensor.player_one_active_pc_game",
+          "gsa": "Select this player's Gaming Status Agent sensor, e.g. sensor.gsa_player_one",
           "playnite": "e.g. sensor.playnite_playing_game"
         }
       },
@@ -100,7 +100,7 @@
           "playstation": "PlayStation sensor",
           "ps3": "PS3 media player",
           "discord": "Discord member",
-          "custom": "Custom sensor",
+          "gsa": "Gaming Status Agent sensor",
           "playnite": "Playnite sensor",
           "delete_player": "Delete this player"
         },
@@ -108,7 +108,8 @@
           "xbox": "Select the 'Status' sensor — the suffix varies by HA language",
           "playstation": "Select the 'Now Playing' sensor — the suffix varies by HA language",
           "ps3": "Select the PS3 media_player entity for this PSN account",
-          "discord": "Select the Discord user from the dropdown."
+          "discord": "Select the Discord user from the dropdown.",
+          "gsa": "Select this player's Gaming Status Agent sensor (sensor.gsa_*)"
         }
       },
       "player_details": {

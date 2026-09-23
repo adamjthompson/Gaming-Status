@@ -179,7 +179,7 @@ def _safe_id(name: str) -> str:
 
 
 class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 2
+    VERSION = 3
 
     async def async_step_user(self, user_input=None):
         if self._async_current_entries():
@@ -196,7 +196,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         except NoURLAvailableError:
             smart_cache_default = False
 
-        # Start with an empty list so Discord, Custom, and Playnite are unchecked by default
+        # Start with an empty list so Discord, Gaming Status Agent, and Playnite are unchecked by default
         smart_platforms = []
         if self.hass.config_entries.async_entries("steam_online"):
             smart_platforms.append("steam")
@@ -241,7 +241,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                     value="discord", label="Discord"
                                 ),
                                 selector.SelectOptionDict(
-                                    value="custom", label="Custom"
+                                    value="gsa", label="Gaming Status Agent"
                                 ),
                                 selector.SelectOptionDict(
                                     value="playnite", label="Playnite"
@@ -303,7 +303,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "playstation",
                     "discord",
                     "playnite",
-                    "custom",
+                    "gsa",
                 ]
                 for platform in platforms:
                     val = user_input.get(platform)
@@ -399,10 +399,8 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     domain="binary_sensor", integration="mqtt"
                 )
             )
-        if "custom" in enabled_platforms:
-            schema[vol.Optional("custom")] = selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor")
-            )
+        if "gsa" in enabled_platforms:
+            schema[vol.Optional("gsa")] = _get_filtered_selector("mqtt", prefix="gsa_")
 
         return self.async_show_form(
             step_id="first_player", data_schema=vol.Schema(schema), errors=errors
@@ -595,7 +593,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                             value="playstation", label="PlayStation"
                         ),
                         selector.SelectOptionDict(value="discord", label="Discord"),
-                        selector.SelectOptionDict(value="custom", label="Custom"),
+                        selector.SelectOptionDict(
+                            value="gsa", label="Gaming Status Agent"
+                        ),
                         selector.SelectOptionDict(value="playnite", label="Playnite"),
                     ],
                     multiple=True,
@@ -2272,9 +2272,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 )
             )
 
-        if "custom" in enabled_platforms:
-            schema[_field("custom")] = selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor")
+        if "gsa" in enabled_platforms:
+            schema[_field("gsa")] = _get_filtered_selector(
+                "mqtt", None, existing.get("gsa", ""), prefix="gsa_"
             )
 
         if not is_new:
