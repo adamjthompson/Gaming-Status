@@ -477,6 +477,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._last_session_play_time = 0
         self._session_ticks_persistent = {}
         self._active_elsewhere_blocked_seconds = {}
+        # The same two counters, broken down by the local calendar day the
+        # seconds were accrued on -- {game: {"YYYY-MM-DD": seconds}}. The
+        # flat versions above span midnight, which is what made a session's
+        # close-time reconciliation file all of its catch-up seconds onto
+        # the closing day. These let that reconciliation be exact per day.
+        self._session_ticks_by_day = {}
+        self._active_elsewhere_blocked_by_day = {}
 
         config = PLATFORM_CONFIG[gaming_type]
         self._attr_icon = config["icon"]
@@ -539,6 +546,179 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 del self._all_time_game_seconds[game]
         self._mark_history_changed()
 
+    @staticmethod
+    def _bump_day_map(mapping, game, seconds, when=None):
+        """Add `seconds` to mapping[game][local date of `when`]."""
+        if not game or not seconds:
+            return
+        day = dt_util.as_local(when or dt_util.now()).strftime("%Y-%m-%d")
+        per_game = mapping.setdefault(game, {})
+        per_game[day] = int(per_game.get(day, 0)) + int(seconds)
+
+    @staticmethod
+    def _wall_clock_by_local_day(start_dt, end_dt):
+        """Wall-clock seconds per local calendar day across [start, end)."""
+        per_day = {}
+        cursor = dt_util.as_local(start_dt)
+        local_end = dt_util.as_local(end_dt)
+        while cursor < local_end:
+            day = cursor.date()
+            next_midnight = dt_util.start_of_local_day(day + timedelta(days=1))
+            segment_end = min(next_midnight, local_end)
+            per_day[day] = per_day.get(day, 0) + (segment_end - cursor).total_seconds()
+            cursor = segment_end
+        return per_day
+
+    def _credit_seconds_across_days(self, game, start_dt, end_dt, seconds):
+        """Apportion `seconds` proportionally across the local calendar days
+        spanned by [start_dt, end_dt) and credit each day its own share.
+
+        Used where the seconds really are spread evenly over the span -- the
+        grace-period repayment, which is a contiguous block of time nobody
+        ticked. The session-close reconciliation instead builds exact
+        per-day shares from recorded per-day ticks and calls
+        _credit_seconds_by_day directly, because there the loss is usually
+        concentrated on one side of midnight (an HA restart, a long stall)
+        and a proportional split would leave most of it misfiled."""
+        if not game or not seconds:
+            return {}
+        seconds = int(seconds)
+        total = (end_dt - start_dt).total_seconds()
+        per_day = self._wall_clock_by_local_day(start_dt, end_dt) if total > 0 else {}
+        if not per_day:
+            # Degenerate span -- fall back to today's buckets, i.e. exactly
+            # what every caller did before this helper existed.
+            per_day = {dt_util.as_local(dt_util.now()).date(): 1}
+            total = 1
+
+        # The final day absorbs the rounding remainder so the parts always
+        # sum to exactly `seconds`.
+        days = sorted(per_day)
+        assigned = 0
+        shares = {}
+        for day in days[:-1]:
+            share = int(seconds * (per_day[day] / total))
+            shares[day] = share
+            assigned += share
+        shares[days[-1]] = seconds - assigned
+        self._credit_seconds_by_day(game, shares)
+        return shares
+
+    def _session_close_gap_shares(
+        self, start_dt, end_dt, gap, ticks_by_day, blocked_by_day
+    ):
+        """Split a session's close-time reconciliation gap across the local
+        days it spanned, using each day's own recorded ticks rather than a
+        proportional guess.
+
+        Per day, the shortfall is (wall clock - blocked - ticked). Those
+        shortfalls are what `gap` is made of, so distributing `gap` in
+        proportion to them puts the seconds back on the days that actually
+        lost them. When no day shows a shortfall (or the records are missing
+        entirely, e.g. a session restored from a Store written before this
+        existed), fall back to splitting by wall clock -- the best guess
+        available, and still better than crediting one day for all of it.
+
+        The last day absorbs the rounding remainder, so the shares always
+        sum to exactly `gap`."""
+        wall = self._wall_clock_by_local_day(start_dt, end_dt)
+        if not wall:
+            return {dt_util.as_local(dt_util.now()).date(): int(gap)}
+
+        shortfalls = {}
+        for day, secs in wall.items():
+            key = day.strftime("%Y-%m-%d")
+            missing = (
+                secs
+                - int(blocked_by_day.get(key, 0) or 0)
+                - int(ticks_by_day.get(key, 0) or 0)
+            )
+            shortfalls[day] = max(0.0, missing)
+
+        weights = shortfalls if sum(shortfalls.values()) > 0 else wall
+        total = sum(weights.values())
+        if total <= 0:
+            return {max(wall): int(gap)}
+
+        days = sorted(weights)
+        assigned = 0
+        shares = {}
+        for day in days[:-1]:
+            share = int(gap * (weights[day] / total))
+            shares[day] = share
+            assigned += share
+        shares[days[-1]] = int(gap) - assigned
+        return shares
+
+    def _credit_seconds_by_day(self, game, shares):
+        """Credit `shares` ({local date: seconds}) to the days they were
+        actually played on, instead of dumping the whole amount into
+        whichever bucket happens to be live right now.
+
+        Every other credit path here is day-agnostic -- _bump_playtime and
+        _daily_play_time both write into "today", which is correct for the
+        live 30s tick (it runs after _check_daily_reset) but wrong for the
+        catch-up amounts reconciled at session close and after a grace
+        period, which can cover time earned before local midnight. Without
+        this, a session running 21:45 -> 02:46 files its entire tick gap
+        onto the closing day, making yesterday read low and today high by
+        the same amount.
+
+        A share may be negative (a tick over-count correction). Today's
+        share goes through the normal _bump_playtime/_daily_play_time path;
+        prior days are written straight into their archived _play_history
+        entry. A day already pruned out of retention is skipped -- its
+        seconds are simply not re-credited anywhere, which is preferable to
+        misfiling them onto a day they don't belong to."""
+        if not game or not shares:
+            return
+        today = dt_util.as_local(dt_util.now()).date()
+        history_changed = False
+        for day, share in shares.items():
+            if not share:
+                continue
+            if day >= today:
+                if share > 0:
+                    self._bump_playtime(game, share)
+                else:
+                    self._unbump_playtime(game, -share)
+                self._daily_play_time = max(
+                    0, int((self._daily_play_time or 0) + share)
+                )
+                self._weekly_play_time = max(
+                    0, int((self._weekly_play_time or 0) + share)
+                )
+                continue
+
+            day_data = self._play_history.get(day.strftime("%Y-%m-%d"))
+            if not isinstance(day_data, dict):
+                # Already pruned, or never archived -- nothing to correct.
+                continue
+            day_data["total_seconds"] = max(
+                0, int(day_data.get("total_seconds", 0) or 0) + share
+            )
+            breakdown = day_data.setdefault("game_breakdown", {})
+            breakdown[game] = max(0, int(breakdown.get(game, 0) or 0) + share)
+            if not breakdown[game]:
+                del breakdown[game]
+            history_changed = True
+            # The all-time total is day-agnostic, so it still needs the
+            # seconds regardless of which day they land on.
+            if share > 0:
+                self._all_time_game_seconds[game] = (
+                    self._all_time_game_seconds.get(game, 0) + share
+                )
+            elif game in self._all_time_game_seconds:
+                self._all_time_game_seconds[game] = max(
+                    0, self._all_time_game_seconds[game] + share
+                )
+                if not self._all_time_game_seconds[game]:
+                    del self._all_time_game_seconds[game]
+            self._weekly_play_time = max(0, int((self._weekly_play_time or 0) + share))
+
+        if history_changed:
+            self._mark_history_changed()
+
     @callback
     def _get_store_data(self):
         return {
@@ -568,6 +748,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 "longest_session_details": self._longest_session_details,
                 "session_ticks": self._session_ticks_persistent,
                 "blocked_seconds": self._active_elsewhere_blocked_seconds,
+                "session_ticks_by_day": self._session_ticks_by_day,
+                "blocked_seconds_by_day": self._active_elsewhere_blocked_by_day,
                 "daily_play_time": getattr(self, "_daily_play_time", 0),
                 "weekly_play_time": getattr(self, "_weekly_play_time", 0),
                 "weekly_play_time_last_week": getattr(
@@ -1415,6 +1597,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 blocked_seconds = self._active_elsewhere_blocked_seconds.pop(
                     self._current_game, 0
                 )
+                ticks_by_day = self._session_ticks_by_day.pop(self._current_game, {})
+                blocked_by_day = self._active_elsewhere_blocked_by_day.pop(
+                    self._current_game, {}
+                )
                 effective_seconds = max(0, session_seconds - blocked_seconds)
                 if effective_seconds <= self._active_settings["MIN_SESSION_DURATION"]:
                     discarded_session = True
@@ -1453,27 +1639,20 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             effective_seconds,
                             gap,
                         )
-                    if gap > 0:
-                        self._bump_playtime(self._current_game, gap)
-                        self._daily_play_time = int((self._daily_play_time or 0) + gap)
-                        self._weekly_play_time = int(
-                            (self._weekly_play_time or 0) + gap
+                    if gap != 0:
+                        # Resolve the gap per local calendar day rather than
+                        # dumping it all into whichever day the session
+                        # happened to end on. Each day's own shortfall is its
+                        # wall clock minus what it was blocked for minus what
+                        # it actually ticked -- so a session running
+                        # 21:45 -> 02:46 whose ticks were lost before midnight
+                        # (an HA restart, a long stall) repays yesterday, not
+                        # today. A negative gap (ticks over-counted) corrects
+                        # back down the same way.
+                        shares = self._session_close_gap_shares(
+                            start_dt, actual_end_time, gap, ticks_by_day, blocked_by_day
                         )
-                    elif gap < 0:
-                        # Ticks over-counted this segment (e.g. a game transition
-                        # landed mid-tick-interval, crediting part of another
-                        # game's time to this one) -- correct back down so the
-                        # total credited here always matches this session's
-                        # recorded duration_seconds exactly. Without this,
-                        # deleting every recorded session for a game could still
-                        # leave a nonzero residual in the running totals.
-                        self._unbump_playtime(self._current_game, -gap)
-                        self._daily_play_time = max(
-                            0, int((self._daily_play_time or 0) + gap)
-                        )
-                        self._weekly_play_time = max(
-                            0, int((self._weekly_play_time or 0) + gap)
-                        )
+                        self._credit_seconds_by_day(self._current_game, shares)
 
                     # Log this completed session for the "recent_sessions" history.
                     # Gated only on effective_seconds > 0 (guaranteed by the
@@ -1526,6 +1705,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._play_start_time = None
             self._session_ticks_persistent = {}
             self._active_elsewhere_blocked_seconds = {}
+            self._session_ticks_by_day = {}
+            self._active_elsewhere_blocked_by_day = {}
         else:
             self._current_game = new_game_name
             self._play_start_time = now.isoformat()
@@ -1539,6 +1720,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._last_online_valid_timestamp = now.isoformat()
             self._session_ticks_persistent = {}
             self._active_elsewhere_blocked_seconds = {}
+            self._session_ticks_by_day = {}
+            self._active_elsewhere_blocked_by_day = {}
             prev_game = self._last_played_game
             prev_stop = self._last_game_stopped_timestamp
             can_resurrect = False
@@ -1562,6 +1745,20 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     self._session_ticks_persistent[new_game_name] = (
                         self._last_session_play_time
                     )
+                    # Mirror per-day, spread over the days the resumed segment
+                    # actually covered, so the merged session's close-time
+                    # reconciliation sees no phantom shortfall on either side
+                    # of a midnight the resume happened to straddle.
+                    resumed_wall = self._wall_clock_by_local_day(resumed_start, now)
+                    resumed_total = sum(resumed_wall.values())
+                    if resumed_total > 0:
+                        per_game = self._session_ticks_by_day.setdefault(
+                            new_game_name, {}
+                        )
+                        for day, secs in resumed_wall.items():
+                            per_game[day.strftime("%Y-%m-%d")] = int(
+                                self._last_session_play_time * (secs / resumed_total)
+                            )
             self._backup_last_session_time = self._last_session_play_time
             self._backup_last_online_timestamp = self._last_online_valid_timestamp
             self._backup_last_played_game = self._last_played_game
@@ -1788,25 +1985,40 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # replaced was actually Monday-anchored, silently disagreeing with
         # both of those for any Sunday or Monday.
         week_start = local_today - timedelta(days=(local_today.weekday() + 1) % 7)
+        # Rolling = a true 7 days, today plus the 6 prior days -- matching the
+        # cards' own gamingStatusWindowStart(), which is the de facto spec.
+        # This used to have no cutoff at all, silently making "rolling" mean
+        # "however many days play_history retention happens to keep" (9).
+        rolling_start = local_today - timedelta(days=6)
         rolling_breakdown = dict(self._weekly_game_breakdown)
         calendar_breakdown = dict(self._weekly_game_breakdown)
         rolling_longest = dict(today_longest)
         calendar_longest = dict(today_longest)
 
+        for game, secs in self._breakdown_for_date_range(
+            rolling_start, local_today
+        ).items():
+            rolling_breakdown[game] = rolling_breakdown.get(game, 0) + secs
+
         for date_str, day_data in self._play_history.items():
             if not isinstance(day_data, dict):
                 continue
             try:
-                in_cal_week = parser.parse(date_str).date() >= week_start
+                day_date = parser.parse(date_str).date()
             except Exception:
-                in_cal_week = False
-            for game, secs in day_data.get("game_breakdown", {}).items():
-                rolling_breakdown[game] = rolling_breakdown.get(game, 0) + secs
-                if in_cal_week:
+                day_date = None
+            in_cal_week = day_date is not None and day_date >= week_start
+            in_rolling = (
+                day_date is not None and rolling_start <= day_date < local_today
+            )
+            if in_cal_week:
+                for game, secs in day_data.get("game_breakdown", {}).items():
                     calendar_breakdown[game] = calendar_breakdown.get(game, 0) + secs
             hist_longest = day_data.get("longest_session", {})
             if isinstance(hist_longest, dict):
-                if hist_longest.get("duration", 0) > rolling_longest.get("duration", 0):
+                if in_rolling and hist_longest.get("duration", 0) > rolling_longest.get(
+                    "duration", 0
+                ):
                     rolling_longest = dict(hist_longest)
                 if in_cal_week and hist_longest.get(
                     "duration", 0
@@ -2760,6 +2972,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             )
             self._session_ticks_persistent = internal.get("session_ticks", {})
             self._active_elsewhere_blocked_seconds = internal.get("blocked_seconds", {})
+            # Absent for a Store written before per-day tracking existed --
+            # the close-time reconciliation falls back to a wall-clock split
+            # when these are empty, so an in-flight session survives the
+            # upgrade without needing a migration.
+            self._session_ticks_by_day = internal.get("session_ticks_by_day", {})
+            self._active_elsewhere_blocked_by_day = internal.get(
+                "blocked_seconds_by_day", {}
+            )
 
             all_time = stored_data.get("all_time", {})
             self._all_time_game_seconds = all_time.get("game_seconds", {})
@@ -2986,6 +3206,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._longest_session_details = {"game": None, "duration": 0}
             self._session_ticks_persistent = {}
             self._active_elsewhere_blocked_seconds = {}
+            self._session_ticks_by_day = {}
+            self._active_elsewhere_blocked_by_day = {}
             self._all_time_game_seconds = {}
             self._all_time_session_count = 0
             self._daily_play_time = 0
@@ -3648,6 +3870,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         )
                         + delta_seconds
                     )
+                    self._bump_day_map(
+                        self._active_elsewhere_blocked_by_day,
+                        self._current_game,
+                        delta_seconds,
+                        now_dt,
+                    )
                 elif self._temp_offline_start is not None:
                     is_blocked = True
                     block_reason = "Grace Period"
@@ -3664,6 +3892,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     self._session_ticks_persistent[self._current_game] = (
                         self._session_ticks_persistent.get(self._current_game, 0)
                         + int(delta_seconds)
+                    )
+                    self._bump_day_map(
+                        self._session_ticks_by_day,
+                        self._current_game,
+                        delta_seconds,
+                        now_dt,
                     )
 
                     if self._achievement_tracking_enabled and self._gaming_type in (
@@ -3799,17 +4033,28 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 if self._temp_offline_start:
                     missed_seconds = (now_dt - self._temp_offline_start).total_seconds()
                     if missed_seconds > 0:
-                        self._daily_play_time = int(
-                            (self._daily_play_time or 0) + missed_seconds
+                        # Same day-awareness as the session-close gap: a grace
+                        # window that spans local midnight must repay each day
+                        # its own share, not credit all of it to today.
+                        repaid = self._credit_seconds_across_days(
+                            self._current_game,
+                            self._temp_offline_start,
+                            now_dt,
+                            int(missed_seconds),
                         )
-                        self._weekly_play_time = int(
-                            (self._weekly_play_time or 0) + missed_seconds
-                        )
-                        self._bump_playtime(self._current_game, missed_seconds)
                         self._session_ticks_persistent[self._current_game] = (
                             self._session_ticks_persistent.get(self._current_game, 0)
                             + int(missed_seconds)
                         )
+                        # Mirror the repayment into the per-day tick record so
+                        # the session-close reconciliation doesn't later see
+                        # these seconds as a gap and credit them a second time.
+                        per_game = self._session_ticks_by_day.setdefault(
+                            self._current_game, {}
+                        )
+                        for day, share in (repaid or {}).items():
+                            key = day.strftime("%Y-%m-%d")
+                            per_game[key] = int(per_game.get(key, 0)) + int(share)
                 if self._temp_offline_start is not None:
                     self._temp_offline_start = None
                     self._store.async_delay_save(self._get_store_data, 5.0)
@@ -4697,13 +4942,10 @@ class MasterGamingSensor(RestoreSensor):
 
             d_time = platform_state.attributes.get("daily_play_time")
             w_time = platform_state.attributes.get("weekly_play_time")
-            r_time = platform_state.attributes.get("rolling_weekly_hours")
             wl_time = platform_state.attributes.get("weekly_play_time_last_week")
 
             if d_time:
                 total_daily_seconds += int(d_time)
-            if r_time:
-                total_rolling_weekly_hours += float(r_time)
             if wl_time:
                 total_weekly_seconds_last_week += int(wl_time)
 
@@ -4830,7 +5072,10 @@ class MasterGamingSensor(RestoreSensor):
         # from all platform sensors, including today's live _weekly_game_breakdown).
         # Platform sensors do not expose a rolling_weekly_hours attribute, so reading it
         # from them always returns 0 — this is the authoritative calculation instead.
-        rolling_cutoff = (dt_util.as_local(dt_util.now()) - timedelta(days=7)).date()
+        # days=6 with an inclusive >= below is a true 7 days (today + 6 prior),
+        # matching the cards' own window. days=7 here was an off-by-one that
+        # made the legend total cover 8 days while the bars covered 7.
+        rolling_cutoff = (dt_util.as_local(dt_util.now()) - timedelta(days=6)).date()
         rolling_secs = 0
         for _date_str, _day_data in master_history.items():
             try:
