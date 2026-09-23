@@ -131,7 +131,7 @@
         "sections": {
           "achievement_tracking_section": {
             "name": "Achievement Tracking",
-            "description": "Only shown when 'Enable Achievement/Trophy Tracking' is on under Achievements & Ratings. Turn off a platform this player doesn't need this data for, to reduce API calls.",
+            "description": "Only shown when 'Enable Achievement/Trophy Tracking' is on under Achievements & Ratings. Turn off unneeded platforms to reduce API calls.",
             "data": {
               "enable_achievement_tracking_steam": "Steam",
               "enable_achievement_tracking_xbox": "Xbox",
@@ -140,7 +140,7 @@
           },
           "library_scan_section": {
             "name": "Full Game Library Scan",
-            "description": "Only shown when 'Enable Full Game Library Scan' is on under Achievements & Ratings. Turn off a platform this player doesn't need this data for, to reduce API calls.",
+            "description": "Only shown when 'Enable Full Game Library Scan' is on under Achievements & Ratings. Turn off unneeded platforms to reduce API calls.",
             "data": {
               "enable_library_scan_steam": "Steam",
               "enable_library_scan_xbox": "Xbox",
