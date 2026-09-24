@@ -118,7 +118,7 @@ PLATFORM_CONFIG = {
     "playnite": {"icon": "mdi:controller", "name_suffix": "Playnite", "group": "PC"},
     "gsa": {
         "icon": "mdi:gamepad-square",
-        "name_suffix": "Gaming Status Agent",
+        "name_suffix": "GSA",
         "group": "PC",
     },
     "steam": {"icon": "mdi:steam", "name_suffix": "Steam", "group": "PC"},
