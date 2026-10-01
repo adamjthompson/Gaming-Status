@@ -109,6 +109,76 @@ async def _async_migrate_custom_to_gsa(hass: HomeAssistant, config_entry: Config
     hass.config_entries.async_update_entry(config_entry, options=new_options)
 
 
+async def _async_migrate_misfiled_gsa_to_custom(
+    hass: HomeAssistant, config_entry: ConfigEntry
+):
+    """The "custom" platform was brought back alongside Gaming Status Agent.
+    The v3 migration had moved every Custom slot to "gsa", including generic
+    sensors (HASS.Agent, templates) that aren't Agent sensors. Any "gsa" slot
+    not pointing at a sensor.gsa_* entity is moved back to "custom", with its
+    platform sensor's entity_id and history Store, mirroring
+    _async_migrate_custom_to_gsa."""
+    new_options = {**config_entry.options}
+
+    raw_players = new_options.get(OPT_PLAYERS, "{}")
+    try:
+        players = (
+            json.loads(raw_players) if isinstance(raw_players, str) else raw_players
+        )
+    except ValueError:
+        players = {}
+    if not isinstance(players, dict):
+        players = {}
+
+    migrated_players = {}
+    for player_name, player_data in players.items():
+        if not isinstance(player_data, dict) or player_data.get("custom"):
+            continue
+        source = str(player_data.get("gsa") or "").strip()
+        if source and not source.startswith("sensor.gsa_"):
+            migrated = dict(player_data)
+            migrated["custom"] = migrated.pop("gsa")
+            migrated_players[player_name] = migrated["custom"]
+            players[player_name] = migrated
+
+    if not migrated_players:
+        return
+
+    if isinstance(raw_players, str):
+        new_options[OPT_PLAYERS] = json.dumps(players)
+    else:
+        new_options[OPT_PLAYERS] = players
+
+    enabled = new_options.get(OPT_ENABLED_PLATFORMS)
+    if isinstance(enabled, list) and "custom" not in enabled:
+        new_options[OPT_ENABLED_PLATFORMS] = [*enabled, "custom"]
+
+    registry = er.async_get(hass)
+    for player_name, source_entity_id in migrated_players.items():
+        safe_owner = safe_owner_slug(player_name)
+        old_eid = registry.async_get_entity_id(
+            "sensor",
+            DOMAIN,
+            f"gaming_status_{safe_owner}_{source_entity_id}_tracker_v6",
+        )
+        new_eid = f"sensor.gaming_status_{safe_owner}_custom"
+        if old_eid and old_eid != new_eid and not registry.async_get(new_eid):
+            try:
+                registry.async_update_entity(old_eid, new_entity_id=new_eid)
+            except Exception:
+                _LOGGER.debug("Gaming Status: could not rename %s", old_eid)
+
+        # The gsa Store holds the original custom history plus anything played
+        # since, so it wins over the stale custom file. Neither is deleted.
+        gsa_store = Store(hass, 1, f"gaming_status.{safe_owner}_gsa_history")
+        gsa_data = await gsa_store.async_load()
+        if gsa_data is not None:
+            custom_store = Store(hass, 1, f"gaming_status.{safe_owner}_custom_history")
+            await custom_store.async_save(gsa_data)
+
+    hass.config_entries.async_update_entry(config_entry, options=new_options)
+
+
 async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     """Silently migrate old JSON data to the new config options database."""
     _LOGGER.debug("Migrating Gaming Status from version %s", config_entry.version)
@@ -185,6 +255,10 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     if config_entry.version == 2:
         await _async_migrate_custom_to_gsa(hass, config_entry)
         hass.config_entries.async_update_entry(config_entry, version=3)
+
+    if config_entry.version == 3:
+        await _async_migrate_misfiled_gsa_to_custom(hass, config_entry)
+        hass.config_entries.async_update_entry(config_entry, version=4)
 
     _LOGGER.info(
         "Gaming Status migration to version %s successful", config_entry.version

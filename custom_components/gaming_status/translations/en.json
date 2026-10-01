@@ -33,12 +33,14 @@
           "playstation": "PlayStation Sensor",
           "discord": "Discord Profile",
           "playnite": "Playnite Sensor",
-          "gsa": "Gaming Status Agent Sensor"
+          "gsa": "Gaming Status Agent Sensor",
+          "custom": "Custom Sensor"
         }
       }
     },
     "error": {
-      "name_required": "You must provide a name for this player."
+      "name_required": "You must provide a name for this player.",
+      "custom_duplicates_gsa": "The Custom sensor can't be the same entity as the Gaming Status Agent sensor."
     },
     "abort": {
       "single_instance_allowed": "Only one instance of Gaming Status can be configured."
@@ -78,6 +80,7 @@
           "ps3": "PS3 media player",
           "discord": "Discord member",
           "gsa": "Gaming Status Agent sensor",
+          "custom": "Custom sensor",
           "playnite": "Playnite sensor"
         },
         "data_description": {
@@ -88,6 +91,7 @@
           "ps3": "Select the PlayStation Network media_player entity for this PS3 (e.g. media_player.playstation_3). Adds to this player's PlayStation history alongside their regular PSN activity.",
           "discord": "Select the Discord user from the dropdown.",
           "gsa": "Select this player's Gaming Status Agent sensor, e.g. sensor.gsa_player_one",
+          "custom": "Any sensor whose state is the game title (or on/off), e.g. sensor.player_one_active_pc_game",
           "playnite": "e.g. sensor.playnite_playing_game"
         }
       },
@@ -101,6 +105,7 @@
           "ps3": "PS3 media player",
           "discord": "Discord member",
           "gsa": "Gaming Status Agent sensor",
+          "custom": "Custom sensor",
           "playnite": "Playnite sensor",
           "delete_player": "Delete this player"
         },
@@ -109,7 +114,8 @@
           "playstation": "Select the 'Now Playing' sensor — the suffix varies by HA language",
           "ps3": "Select the PS3 media_player entity for this PSN account",
           "discord": "Select the Discord user from the dropdown.",
-          "gsa": "Select this player's Gaming Status Agent sensor (sensor.gsa_*)"
+          "gsa": "Select this player's Gaming Status Agent sensor (sensor.gsa_*)",
+          "custom": "Any sensor whose state is the game title (or on/off), e.g. a HASS.Agent or template sensor"
         }
       },
       "player_details": {
@@ -366,6 +372,7 @@
     "error": {
       "name_required": "Friendly Name cannot be empty.",
       "name_exists": "A player with that name already exists.",
+      "custom_duplicates_gsa": "The Custom sensor can't be the same entity as the Gaming Status Agent sensor.",
       "invalid_hex_color": "Must be a valid 6-digit hex color code, e.g. #FF0000",
       "malformed_override_line": "Each line must be in the form 'Game Name = Override Name'. Fix or remove the invalid line(s) and try again.",
       "malformed_rating_override_line": "Each line must be in the form 'Game Name = RATING' using one of the supported rating codes. Fix or remove the invalid line(s) and try again."

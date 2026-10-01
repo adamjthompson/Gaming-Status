@@ -173,13 +173,20 @@ def _safe_id(name: str) -> str:
     return re.sub(r"[^a-z0-9_]", "_", name.lower())
 
 
+def _custom_duplicates_gsa(user_input: dict) -> bool:
+    """A player's platform sensors are unique per source entity, so the same
+    entity can't back both the Custom and Gaming Status Agent slots."""
+    custom = str(user_input.get("custom") or "").strip()
+    return bool(custom) and custom == str(user_input.get("gsa") or "").strip()
+
+
 # ---------------------------------------------------------------------------
 # Initial config flow
 # ---------------------------------------------------------------------------
 
 
 class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 3
+    VERSION = 4
 
     async def async_step_user(self, user_input=None):
         if self._async_current_entries():
@@ -244,6 +251,9 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                     value="gsa", label="Gaming Status Agent"
                                 ),
                                 selector.SelectOptionDict(
+                                    value="custom", label="Custom"
+                                ),
+                                selector.SelectOptionDict(
                                     value="playnite", label="Playnite"
                                 ),
                             ],
@@ -295,6 +305,8 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             name = user_input.get("player_name", "").strip()
             if not name:
                 errors["player_name"] = "name_required"
+            elif _custom_duplicates_gsa(user_input):
+                errors["custom"] = "custom_duplicates_gsa"
             else:
                 player_data = {}
                 platforms = [
@@ -304,6 +316,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "discord",
                     "playnite",
                     "gsa",
+                    "custom",
                 ]
                 for platform in platforms:
                     val = user_input.get(platform)
@@ -401,6 +414,10 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         if "gsa" in enabled_platforms:
             schema[vol.Optional("gsa")] = _get_filtered_selector("mqtt", prefix="gsa_")
+        if "custom" in enabled_platforms:
+            schema[vol.Optional("custom")] = selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            )
 
         return self.async_show_form(
             step_id="first_player", data_schema=vol.Schema(schema), errors=errors
@@ -596,6 +613,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                         selector.SelectOptionDict(
                             value="gsa", label="Gaming Status Agent"
                         ),
+                        selector.SelectOptionDict(value="custom", label="Custom"),
                         selector.SelectOptionDict(value="playnite", label="Playnite"),
                     ],
                     multiple=True,
@@ -760,6 +778,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 slug = safe_owner_slug(name)
                 if name in players or any(safe_owner_slug(p) == slug for p in players):
                     errors["player_name"] = "name_exists"
+                elif _custom_duplicates_gsa(user_input):
+                    errors["custom"] = "custom_duplicates_gsa"
                 else:
                     players[name] = self._player_data_from_input(user_input)
                     self._options[OPT_PLAYERS] = _dump_json(players)
@@ -777,6 +797,14 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         name = self._editing_player or ""
         existing = players.get(name, {})
         errors = {}
+
+        if (
+            user_input is not None
+            and not user_input.get("delete_player")
+            and _custom_duplicates_gsa(user_input)
+        ):
+            errors["custom"] = "custom_duplicates_gsa"
+            user_input = None
 
         if user_input is not None:
             if user_input.get("delete_player"):
@@ -2275,6 +2303,11 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         if "gsa" in enabled_platforms:
             schema[_field("gsa")] = _get_filtered_selector(
                 "mqtt", None, existing.get("gsa", ""), prefix="gsa_"
+            )
+
+        if "custom" in enabled_platforms:
+            schema[_field("custom")] = selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
             )
 
         if not is_new:

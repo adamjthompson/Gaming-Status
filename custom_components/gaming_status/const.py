@@ -121,6 +121,7 @@ PLATFORM_CONFIG = {
         "name_suffix": "GSA",
         "group": "PC",
     },
+    "custom": {"icon": "mdi:gamepad-square", "name_suffix": "Custom", "group": "PC"},
     "steam": {"icon": "mdi:steam", "name_suffix": "Steam", "group": "PC"},
     "xbox": {
         "icon": "mdi:microsoft-xbox",
@@ -136,8 +137,24 @@ PLATFORM_CONFIG = {
     "discord": {"icon": "mdi:gamepad-variant", "name_suffix": "Discord", "group": "PC"},
 }
 
-PLATFORM_PRIORITY = ["gsa", "steam", "xbox", "playstation", "playnite", "discord"]
-PLAYER_PLATFORMS = ["gsa", "steam", "xbox", "playstation", "playnite", "discord"]
+PLATFORM_PRIORITY = [
+    "gsa",
+    "custom",
+    "steam",
+    "xbox",
+    "playstation",
+    "playnite",
+    "discord",
+]
+PLAYER_PLATFORMS = [
+    "gsa",
+    "custom",
+    "steam",
+    "xbox",
+    "playstation",
+    "playnite",
+    "discord",
+]
 
 # Gaming Status Agent reports which PC launcher a game came from in its
 # "Launcher" attribute (Epic, Steam, GOG, Battle.net, Xbox, Ubisoft, EA,
@@ -189,6 +206,7 @@ DEFAULT_ENABLED_PLATFORMS = [
     "playstation",
     "discord",
     "gsa",
+    "custom",
     "playnite",
 ]
 

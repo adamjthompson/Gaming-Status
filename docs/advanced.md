@@ -7,18 +7,19 @@ Below are additional setup options as well as descriptions of each.
 ## Player Profiles
 This section maps a friendly display name to the underlying Home Assistant sensors tracking that person, but it can also hold user-specific rules.
 
-**Platform Keys:** Add the entity IDs for Steam, Xbox, PlayStation, Playnite, or Gaming Status Agent sensors. You can include as few or as many as a user owns. *Note the following default platform integration sensor naming conventions:*
+**Platform Keys:** Add the entity IDs for Steam, Xbox, PlayStation, Playnite, Gaming Status Agent, or Custom sensors. You can include as few or as many as a user owns. *Note the following default platform integration sensor naming conventions:*
 
 - **Steam:** sensor.steam_playername
 - **Xbox:** sensor.playername_status
 - **PlayStation:** sensor.playername_online_status
 - **Gaming Status Agent:** sensor.gsa_profilename
+- **Custom:** any sensor whose state is the game title (or on/off), e.g. sensor.player_one_active_pc_game
 
 **Ghosted-by:** A list of master sensor IDs. If the current user is playing the exact same game as someone in this list, the current user's Xbox sensor will remain offline. This is useful for shared PCs where one user's profile is signed into the Xbox app while another user is actually playing — on Steam, PlayStation, or their own Xbox.
 
 **Games to exclude:** A user-specific list of games or apps that should be completely ignored (case-insensitive).
 
-*Editing Notes: Replace "Player One" etc. with whatever you want the players to be named and "_player_one" with whatever the actual gamertags should be. The "gsa" entry is only needed if the player runs [Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent) on their PC. Remove any lines that you do not need, and make sure that you do not have any trailing commas after the last entries.*
+*Editing Notes: Replace "Player One" etc. with whatever you want the players to be named and "_player_one" with whatever the actual gamertags should be. The "gsa" entry is only needed if the player runs [Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent) on their PC. The "custom" entry is for your own status sensors, for example a HASS.Agent or template sensor (handy on Linux, where Gaming Status Agent doesn't run). Remove any lines that you do not need, and make sure that you do not have any trailing commas after the last entries.*
 
 ## Game Title Overrides
 This acts as a strict dictionary. If the integration detects an exact match with the key (the name on the left), it will permanently replace it with the value (the name on the right) before doing any API lookups or dashboard updates. This is perfect for shortening obnoxiously long official titles or for when cover art lookup fails due to a name mismatch.
@@ -89,13 +90,39 @@ Steam and Xbox tell Home Assistant exactly what game you are playing. Standalone
 
 To track these, install [Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent) on the gaming PC. It detects the running game and its launcher and publishes a `sensor.gsa_<profile name>` sensor over MQTT. Games it can't detect on its own can be matched by executable or window title under its **Custom Games** menu; those report their launcher as `Custom`. See [Setting up Gaming Status Agent Tracking](../README.md#pc-tracking--discord-setup) for the setup steps.
 
-*The previous HASS.Agent "PC Funnel" template approach is no longer supported. The Gaming Status Agent platform only reads Gaming Status Agent sensors.*
+## Tracking PC Games with a Custom Sensor
+If Gaming Status Agent isn't an option (for example on a Linux PC), enable the **Custom** platform and point the player's Custom slot at any sensor whose state is the game title. A state of `on`/`1`/`true`/`playing` reports "Unknown Custom Game"; `off`/`0`/`false`/`offline`/`unavailable` reports offline. Custom and Gaming Status Agent can be used together; when both report the same game, Gaming Status Agent wins.
+
+A common setup is a **HASS.Agent** (Windows) or other companion-app "process active" sensor per game, combined into one "PC Funnel" template sensor:
+
+```yaml
+- sensor:
+    - name: "Username Active PC Game"
+      unique_id: username_active_pc_game
+      icon: mdi:desktop-tower
+      state: >
+        {# Format -> "your_pc_sensor_entity_id": "Clean Dashboard Name" #}
+        {% set pc_games = {
+          "sensor.pc_name_genshin_impact_status": "Genshin Impact",
+          "sensor.pc_name_wonderlands_status": "Tiny Tina's Wonderlands"
+        } %}
+        {% set active = namespace(game='Offline') %}
+        {% for entity_id, game_name in pc_games.items() %}
+          {% set state_val = states(entity_id) %}
+          {% if state_val in ['on', 'true'] or (state_val | int(default=-1)) > 0 %}
+            {% set active.game = game_name %}
+          {% endif %}
+        {% endfor %}
+        {{ active.game }}
+```
+
+Then select `sensor.username_active_pc_game` as that player's Custom sensor. Custom sensors have no avatar of their own; add `custom_username_avatar.png` as described below.
 
 ---
 
 ## Custom User Avatars
 
-If you want to replace the gamer avatar with one of your own or if you want to provide an avatar for a Gaming Status Agent sensor you only need to add an image to the `www/gaming_status` folder. The folder will need to be added manually. For your images, use JPEG or PNG images named as `platform_username_avatar.ext`. So, for a user named John on Xbox, it should be 'xbox_john_avatar.png', and for John's Gaming Status Agent sensor, 'gsa_john_avatar.png'.
+If you want to replace the gamer avatar with one of your own or if you want to provide an avatar for a Gaming Status Agent sensor you only need to add an image to the `www/gaming_status` folder. The folder will need to be added manually. For your images, use JPEG or PNG images named as `platform_username_avatar.ext`. So, for a user named John on Xbox, it should be 'xbox_john_avatar.png', for John's Gaming Status Agent sensor, 'gsa_john_avatar.png', and for his Custom sensor, 'custom_john_avatar.png'.
 
 Any images added manually in this way will take priority over whatever is provided by the platform integration.
 

@@ -88,7 +88,7 @@ To configure your players, notifications, and rules, click the **Configure** but
 
 #### 1. Manage Players
 Add, edit, or delete the gamers in your household.
-* **Platform Sensors:** When adding a player, you simply select their respective integration sensors from the dropdowns. The integration will automatically filter your entities to show the correct Steam (`sensor.steam_*`), Xbox (`sensor.*_status`), PlayStation (`sensor.*_now_playing`), Playnite (MQTT `binary_sensor.*_playnite_playing_game`), and Gaming Status Agent (MQTT `sensor.gsa_*`) entities. *(Note: To remove a previously assigned sensor, simply click the 'X' to clear the entity dropdown and click Submit. The integration will save the empty state and stop tracking that platform).*
+* **Platform Sensors:** When adding a player, you simply select their respective integration sensors from the dropdowns. The integration will automatically filter your entities to show the correct Steam (`sensor.steam_*`), Xbox (`sensor.*_status`), PlayStation (`sensor.*_now_playing`), Playnite (MQTT `binary_sensor.*_playnite_playing_game`), and Gaming Status Agent (MQTT `sensor.gsa_*`) entities. The Custom platform accepts any sensor. *(Note: To remove a previously assigned sensor, simply click the 'X' to clear the entity dropdown and click Submit. The integration will save the empty state and stop tracking that platform).*
 * **PS3 Media Player:** *(Only shown when a player has a PlayStation sensor configured, and PS3 Tracking is enabled under Global Settings)* The PS3 predates the modern PlayStation Network status API, so it can't be tracked the same way as PS4/PS5 — instead, select its `media_player.*` entity (also provided by the official PlayStation Network integration). PS3 activity feeds directly into that player's existing PlayStation sensor and history, rather than creating a separate sensor.
 * **Player Details:** After adding a player, you can configure:
   * **Session Notifications:** Select notification methods for when this specific player starts or stops gaming. *Note: These must be configured under Notifications.*
@@ -154,7 +154,7 @@ Update your API keys and fine-tune the game-matching engine.
 
 #### 8. Global Settings
 These variables control how the integration handles platforms, caching, and network drops across all players.
-* **Enabled Platforms:** Select which gaming platforms to track (Steam, Xbox, PlayStation, Discord, Playnite, and Gaming Status Agent).
+* **Enabled Platforms:** Select which gaming platforms to track (Steam, Xbox, PlayStation, Discord, Playnite, Gaming Status Agent, and Custom).
 * **Enable PS3 Tracking:** Adds the PS3 Media Player field (see Manage Players above) to PlayStation-enabled player profiles.
 * **Master Toggles:** Enable or disable the Notifications and Parental Controls configuration hubs.
 * **Cache Settings:** Toggle local image caching, automatic vibrant color extraction, and configure background cleanup limits (Max Files & Max Days).
@@ -209,12 +209,12 @@ The Agent's sensor reports the following, which Gaming Status reads directly:
 
 The Agent can also report Playnite games, which the priority rules below keep from being counted twice.
 
-*Upgrading from the old "Custom" platform:* "Custom" has been replaced by Gaming Status Agent. Existing Custom entries are migrated automatically: the platform sensor is renamed from `_custom` to `_gsa` and keeps its history. Point that player's Gaming Status Agent slot at their `sensor.gsa_*` sensor, since plain on/off or template sensors are no longer supported.
+**Custom sensors:** For PCs that can't run Gaming Status Agent (e.g. Linux), enable the **Custom** platform and select any sensor whose state is the game title, such as a HASS.Agent or template sensor. See [Tracking PC Games with a Custom Sensor](docs/advanced.md#tracking-pc-games-with-a-custom-sensor). Custom entries that an earlier update moved into the Gaming Status Agent slot are moved back automatically, along with their history.
 
 **The PC Sub-Master Priority Logic:**
 If a player launches a game, it is very common for multiple trackers (like Discord, Playnite, and Steam) to detect it simultaneously. To prevent double-counting your playtime hours and sending duplicate push notifications, the `sensor.gaming_status_XXXXX_pc` sensor uses strict **Smart Platform Yielding**. 
 
-Platforms are prioritized in this order: **Playnite > Gaming Status Agent > Steam > Discord**. The one exception is a Steam or Xbox game reported by Gaming Status Agent, which always yields to the native Steam or Xbox sensor.
+Platforms are prioritized in this order: **Playnite > Gaming Status Agent > Custom > Steam > Discord**. The one exception is a Steam or Xbox game reported by Gaming Status Agent, which always yields to the native Steam or Xbox sensor.
 * *Example:* If a player launches a Steam game, Discord will likely detect it first and claim the dashboard. Seconds later, when Steam wakes up and detects the same game, Discord will instantly pause its timer and yield control to Steam. 
 * *Result:* You get the lightning-fast notifications of Discord, but the pristine, deduplicated analytics of Steam!
 
@@ -238,7 +238,8 @@ Upon restart, the integration will instantly read your settings and generate the
 | sensor.gaming_status_XXXXX_discord | Sensor | Discord sensor for each added profile |
 | sensor.gaming_status_XXXXX_playnite | Sensor | Playnite sensor for each added profile |
 | sensor.gaming_status_XXXXX_gsa | Sensor | Gaming Status Agent sensor for each added profile |
-| sensor.gaming_status_XXXXX_pc | Sensor | Sub-master sensor that automatically aggregates Steam, Discord, Playnite, and Gaming Status Agent into a single unified PC state |
+| sensor.gaming_status_XXXXX_custom | Sensor | Custom sensor for each added profile |
+| sensor.gaming_status_XXXXX_pc | Sensor | Sub-master sensor that automatically aggregates Steam, Discord, Playnite, Gaming Status Agent, and Custom into a single unified PC state |
 | sensor.gaming_status_XXXXX_master | Sensor | Master sensor for each added profile that combines all added platforms into one "Online/Offline" status |
 | sensor.gaming_status_XXXXX_library_summary | Sensor | *(Requires [Full Game Library Scan](#6-achievements--ratings))* Game Library summary sensor per profile, combining every tracked platform |
 | sensor.gaming_status_XXXXX_library_steam | Sensor | *(Requires Full Game Library Scan)* Steam-specific Game Library sensor |

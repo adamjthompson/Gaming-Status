@@ -1170,8 +1170,28 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             return None
         normalized_state = state_clean.lower()
 
+        if self._gaming_type == "custom":
+            if normalized_state in [
+                "0",
+                "off",
+                "offline",
+                "false",
+                "unavailable",
+                "unknown",
+                "0.0",
+                "none",
+                "",
+            ]:
+                data["is_online"] = False
+            else:
+                data["is_online"] = True
+                if normalized_state in ["1", "on", "playing", "true", "1.0"]:
+                    data["current_game"] = "Unknown Custom Game"
+                else:
+                    data["current_game"] = state
+
         data["avatar_url"] = attrs.get("entity_picture")
-        if self._gaming_type == "gsa":
+        if self._gaming_type in ("gsa", "custom"):
             data["avatar_url"] = None
 
         is_globally_excluded = False
@@ -6754,7 +6774,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 resolved_platform_entities[platform] = real_entity_id
 
                 # Register PC platforms in strict hierarchy order for the Sub-Master
-                if platform in ["playnite", "gsa", "steam", "discord"]:
+                if platform in ["playnite", "gsa", "custom", "steam", "discord"]:
                     pc_platforms_present.append(real_entity_id)
 
                 if platform in (
@@ -6766,8 +6786,14 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
         # Spawn PC Sub-Master if any PC platforms exist
         if pc_platforms_present:
-            # Sort the entities to ensure strict Double-Dip Priority: Playnite -> Gaming Status Agent -> Steam -> Discord
-            priority_order = {"playnite": 0, "gsa": 1, "steam": 2, "discord": 3}
+            # Sort the entities to ensure strict Double-Dip Priority: Playnite -> Gaming Status Agent -> Custom -> Steam -> Discord
+            priority_order = {
+                "playnite": 0,
+                "gsa": 1,
+                "custom": 2,
+                "steam": 3,
+                "discord": 4,
+            }
             pc_platforms_present.sort(
                 key=lambda x: priority_order.get(x.split("_")[-1], 99)
             )
