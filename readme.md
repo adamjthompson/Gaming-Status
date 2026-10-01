@@ -13,7 +13,7 @@ Some of the key features are listed below.
 * **Online/Offline Notifications:** Receive Discord, SMS, and/or Mobile notifications when users start or finish playing a game.
 * **Parental Controls:** Track daily playtime and recieve notifications when a limit, curfew, or age-rating threshold is reached.
 * **Discord Rich Presence:** Track hundreds of standalone games, emulators, and Epic/EA/Ubisoft launchers automatically by hooking into Discord's Rich Presence status. Automatically ignores custom text statuses to prevent false positives.
-* **Gaming Status Agent Support:** Track PC games from Epic, GOG, Battle.net, Ubisoft, EA, Amazon Games, Xbox/Microsoft Store, Steam, and Playnite (plus your own custom game rules) with the companion [Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent) Windows app, which reports the game, the launcher, and your gamertag over MQTT.
+* **Gaming Status Agent Support:** Track PC games from Amazon Games, Battle.net, EA, Epic, GOG, HoYoverse, Minecraft (Java Edition), Playnite, Riot Games, Roblox, Rockstar Games, and Ubisoft (plus your own custom game rules) with the companion [Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent) Windows app, which reports the game title, launcher, and gamertag over MQTT.
 * **PC Sub-Master Sensor:** Automatically aggregates Gaming Status Agent, Steam, Playnite, and Discord tracking into a single, unified "PC" status. It features smart platform yielding (e.g., Discord quietly steps aside if Steam is tracking the same game) to eliminate double-counting in your playtime analytics.
 * **Smart Ghosting Protection:** Prevents echo sessions on a shared PC — e.g., when the Windows Xbox app incorrectly broadcasts another player's game (on Steam, PlayStation, or their own Xbox) as its own. Configured on the *authoritative* player (pick which other players' Xbox sensors to suppress).
 * **Drop-Out Protection:** Built-in grace periods prevent a gamer from appearing "Offline" if their game crashes, they switch titles, or their internet briefly blips, keeping play sessions perfectly intact and avoiding unnecessary notifications.
@@ -40,7 +40,7 @@ While not required for functionality, I recommend installing the following for t
 * [Gaming Status Cards](https://github.com/adamjthompson/Gaming-Status-Cards) - Easy to use companion dashboard cards, so you don't have to make your own.
 * [Official Discord Integration](https://www.home-assistant.io/integrations/discord) - Requires setting up a Discord Bot. *REQUIRED if you want to use Discord for notifications but NOT required for Discord game tracking.*
 * [Mosquitto Broker](https://github.com/home-assistant/addons/tree/master/mosquitto) - *REQUIRED if you plan to use Playnite or Gaming Status Agent for tracking games.* You will also need an MQTT add-on installed in Playnite (such as [Playnite MQTT Client](https://playnite.link/addons.html#MQTTClient_90c44048-4f8f-43f7-a0c1-f8164bf1d7ef)) to broadcast your status to Home Assistant.
-* [Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent) - A Windows tray app that detects games from Epic, GOG, Battle.net, Ubisoft, EA, Amazon Games, Xbox/Microsoft Store, Steam, and Playnite, and publishes them to Home Assistant over MQTT. *REQUIRES an MQTT broker (see Mosquitto above). See [Setting up Gaming Status Agent Tracking](#pc-tracking--discord-setup) below.*
+* [Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent) - A Windows tray app that detects games from numerous launchers and publishes them to Home Assistant over MQTT. *REQUIRES an MQTT broker (see Mosquitto above). See [Setting up Gaming Status Agent Tracking](#pc-tracking--discord-setup) below.*
 
 ### Obtaining a SteamGridDB API Key
 To display beautiful, high-resolution game covers on your dashboard, this integration requires a free API key from SteamGridDB.
@@ -202,14 +202,14 @@ The Agent's sensor reports the following, which Gaming Status reads directly:
 | Attribute | Used for |
 | --- | --- |
 | `Game Title` | The current game, or `Offline` |
-| `Launcher` | Epic, Steam, GOG, Battle.net, Xbox, Ubisoft, EA, Amazon Games, Playnite, Custom, or None. Shown as the platform (`active_platform`) on the PC and Master sensors and recorded on each session, so a game played through Epic shows as "Epic" rather than a generic PC entry. Steam and Xbox games are attributed to Steam and Xbox (see below) |
+| `Launcher` | Launcher Name or None. Shown as the platform (`active_platform`) on the PC and Master sensors and recorded on each session, so a game played through Epic shows as "Epic" rather than a generic PC entry. Steam and Xbox games are attributed to Steam and Xbox (see below) |
 | `Profile Name` | Shown as the player's `gamertag` for this sensor |
 
 **Steam and Xbox games from the Agent:** the Agent's Steam and Xbox detection is optional and off by default. It's meant for people who want to track those platforms without installing the Steam or Xbox integrations in Home Assistant. Games it reports on those launchers are treated as Steam or Xbox games, not GSA: they show as Steam or Xbox and are recorded on sessions with `platform_key` `steam` or `xbox`. If the native Steam or Xbox sensor is also set up and reports the same game, the Agent steps aside so that sensor's gamertag, achievements, and ratings are used.
 
 The Agent can also report Playnite games, which the priority rules below keep from being counted twice.
 
-*Upgrading from the old "Custom" platform:* it has been replaced by Gaming Status Agent. Existing Custom entries are migrated automatically: the platform sensor is renamed from `_custom` to `_gsa` and keeps its history. Point that player's Gaming Status Agent slot at their `sensor.gsa_*` sensor, since plain on/off or template sensors are no longer supported.
+*Upgrading from the old "Custom" platform:* "Custom" has been replaced by Gaming Status Agent. Existing Custom entries are migrated automatically: the platform sensor is renamed from `_custom` to `_gsa` and keeps its history. Point that player's Gaming Status Agent slot at their `sensor.gsa_*` sensor, since plain on/off or template sensors are no longer supported.
 
 **The PC Sub-Master Priority Logic:**
 If a player launches a game, it is very common for multiple trackers (like Discord, Playnite, and Steam) to detect it simultaneously. To prevent double-counting your playtime hours and sending duplicate push notifications, the `sensor.gaming_status_XXXXX_pc` sensor uses strict **Smart Platform Yielding**. 
