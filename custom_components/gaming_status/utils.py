@@ -2,6 +2,7 @@
 Utilities for Gaming Status
 """
 
+import contextlib
 import ipaddress
 import logging
 import os
@@ -245,10 +246,8 @@ def _local_cache_files_exist(entry: dict, cache_dir: Path) -> bool:
         path = cache_dir / Path(name).name
         if not path.is_file():
             return False
-        try:
+        with contextlib.suppress(OSError):
             os.utime(path, None)
-        except OSError:
-            pass
     return True
 
 
