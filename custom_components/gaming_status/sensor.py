@@ -3279,12 +3279,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         )
 
         def _check_local_avatar():
-            from homeassistant.helpers.network import get_url
-
-            try:
-                base_url = get_url(self.hass, prefer_external=True)
-            except Exception:
-                base_url = ""
+            # Same-origin relative path -- see fetch_game_assets.
+            base_url = ""
             safe_name = re.sub(
                 r"[^a-z0-9_]", "", self._owner_name.lower().replace(" ", "_")
             )
@@ -4516,12 +4512,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
                 # --- BACKGROUND DISK SCAN (runs only while a fallback is still missing) ---
                 def _scan_local_disk():
-                    from homeassistant.helpers.network import get_url
-
-                    try:
-                        base_url = get_url(self.hass, prefer_external=True)
-                    except Exception:
-                        base_url = ""
+                    # Same-origin relative path -- see fetch_game_assets.
+                    base_url = ""
                     res = {}
                     # Must be the exact same derivation fetch_game_assets used
                     # when it WROTE these files -- see cache_file_prefix for why

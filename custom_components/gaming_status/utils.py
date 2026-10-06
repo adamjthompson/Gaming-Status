@@ -92,6 +92,11 @@ def _warn_steamgriddb_key_problem_once(status):
 # re-querying on every single fetch (the previous behavior) or sticking
 # forever (which would miss art added to SGDB later).
 _ASSET_NOT_FOUND_CHECKED_AT: dict = {}
+# Original remote (SteamGridDB / override) URL for each asset that was
+# downloaded to the local cache, keyed like ASSET_URL_CACHE. Lets cloud
+# webhooks such as Discord fall back to a publicly reachable image when Home
+# Assistant has no external domain to serve the local copy from.
+_ASSET_REMOTE_URLS: dict = {}
 ASSET_NOT_FOUND_RECHECK_SECONDS = 86400  # 24 hours
 
 # Content-rating cache: a confirmed rating is immutable and cached forever
@@ -223,6 +228,30 @@ def _clean_image_cache(cache_dir_path: Path):
                 )
 
 
+_LOCAL_CACHE_URL_MARKER = "/local/gaming_status_cache/"
+
+
+def _local_cache_files_exist(entry: dict, cache_dir: Path) -> bool:
+    """Return False if any locally-cached URL in a cache entry points at a
+    file that no longer exists (e.g. pruned by _clean_image_cache).
+
+    Surviving files are touched so age-based cleanup only reclaims art for
+    games that haven't been served recently, not ones still being played.
+    """
+    for url in entry.values():
+        if not url or _LOCAL_CACHE_URL_MARKER not in url:
+            continue
+        name = url.split(_LOCAL_CACHE_URL_MARKER, 1)[1].split("?", 1)[0]
+        path = cache_dir / Path(name).name
+        if not path.is_file():
+            return False
+        try:
+            os.utime(path, None)
+        except OSError:
+            pass
+    return True
+
+
 async def fetch_game_assets(hass, game_name):
     """
     Fetch Grid, Hero, Logo, and Icon.
@@ -250,9 +279,23 @@ async def fetch_game_assets(hass, game_name):
             not_found_at is not None
             and (time.time() - not_found_at) > ASSET_NOT_FOUND_RECHECK_SECONDS
         )
-        if not is_stale:
+        cached = ASSET_URL_CACHE[cache_key]
+        if not is_stale and await hass.async_add_executor_job(
+            _local_cache_files_exist,
+            cached,
+            Path(hass.config.path("www/gaming_status_cache")),
+        ):
             ASSET_URL_CACHE.move_to_end(cache_key)
-            return ASSET_URL_CACHE[cache_key]
+            return cached
+        if not is_stale:
+            # Files behind the cached URLs were removed (cache cleanup or by
+            # hand) -- drop the stale entry and re-fetch so they're restored.
+            _LOGGER.debug(
+                "Cached artwork files missing for %s; re-downloading", game_name
+            )
+            ASSET_URL_CACHE.pop(cache_key, None)
+            _ASSET_NOT_FOUND_CHECKED_AT.pop(cache_key, None)
+            _ASSET_REMOTE_URLS.pop(cache_key, None)
 
     # --- THE MEMORY LOCK ---
     # Prevent race conditions by making simultaneous requests wait
@@ -277,10 +320,12 @@ async def fetch_game_assets(hass, game_name):
         session = async_get_clientsession(hass)
         cache_dir = Path(hass.config.path("www/gaming_status_cache"))
 
-        try:
-            base_url = get_url(hass, prefer_external=True)
-        except NoURLAvailableError:
-            base_url = ""
+        # Locally-cached art is served as a same-origin relative path so the
+        # dashboard never loads it cross-origin from the external (e.g. Nabu
+        # Casa) URL. Webhook consumers convert it via _make_external_url.
+        base_url = ""
+        write_failed = False
+        remote_sources = {}
 
         def _ensure_dir():
             if not cache_dir.exists():
@@ -363,11 +408,14 @@ async def fetch_game_assets(hass, game_name):
                     mt = int(
                         await hass.async_add_executor_job(os.path.getmtime, file_path)
                     )
-                except Exception:
-                    mt = int(time.time())
-                assets[asset_type] = (
-                    f"{base_url}/local/gaming_status_cache/{file_name}?v={mt}"
-                )
+                except OSError:
+                    # Never hand out a /local/ URL for a file that wasn't
+                    # written -- hotlink instead and don't cache the result.
+                    assets[asset_type] = remote_url
+                    write_failed = True
+                    continue
+                assets[asset_type] = f"/local/gaming_status_cache/{file_name}?v={mt}"
+                remote_sources[asset_type] = remote_url
 
         def _update_cache(name, data_dict, *, cache_as_not_found=True):
             final_dict = {k: assets[k] or data_dict.get(k) for k in assets}
@@ -382,6 +430,10 @@ async def fetch_game_assets(hass, game_name):
             # fixed, since nothing else ever invalidates this cache early.
             if not any(final_dict.values()) and not cache_as_not_found:
                 return final_dict
+            # A local download failed and was hotlinked instead; don't pin
+            # that in RAM so the next call retries the download.
+            if write_failed:
+                return final_dict
 
             # Cache the result either way -- including "nothing found", so a
             # title SteamGridDB has no art for doesn't re-run the full
@@ -390,12 +442,18 @@ async def fetch_game_assets(hass, game_name):
             # ASSET_NOT_FOUND_RECHECK_SECONDS in case SGDB's catalog grew.
             ASSET_URL_CACHE[name] = final_dict
             ASSET_URL_CACHE.move_to_end(name)
+            _ASSET_REMOTE_URLS[name] = {
+                k: remote_sources[k]
+                for k, v in final_dict.items()
+                if v and k in remote_sources
+            }
             if len(ASSET_URL_CACHE) > MAX_CACHE_SIZE:
                 evicted_name, _ = ASSET_URL_CACHE.popitem(last=False)
                 # Keep this companion negative-cache dict from outliving its
                 # own entry in ASSET_URL_CACHE -- without this it has no
                 # eviction of its own and can grow past MAX_CACHE_SIZE.
                 _ASSET_NOT_FOUND_CHECKED_AT.pop(evicted_name, None)
+                _ASSET_REMOTE_URLS.pop(evicted_name, None)
 
             if any(final_dict.values()):
                 _ASSET_NOT_FOUND_CHECKED_AT.pop(name, None)
@@ -533,11 +591,16 @@ async def fetch_game_assets(hass, game_name):
                                         os.path.getmtime, file_path
                                     )
                                 )
-                            except Exception:
-                                mt = int(time.time())
+                            except OSError:
+                                # Download/write failed -- hotlink rather than
+                                # emit a dead /local/ URL, and don't cache it.
+                                fetched_assets[asset_type] = remote_url
+                                write_failed = True
+                                continue
                             fetched_assets[asset_type] = (
-                                f"{base_url}/local/gaming_status_cache/{file_name}?v={mt}"
+                                f"/local/gaming_status_cache/{file_name}?v={mt}"
                             )
+                            remote_sources[asset_type] = remote_url
 
         except Exception as e:
             _LOGGER.error("Failed to fetch assets for %s: %s", game_name, e)
@@ -1618,12 +1681,8 @@ async def fetch_psn_full_library(hass, npsso, account_id):
 
 async def fetch_and_cache_image(hass, remote_url, file_name):
     """Generic helper to cache any remote image locally."""
-    from homeassistant.helpers.network import NoURLAvailableError, get_url
-
-    try:
-        base_url = get_url(hass, prefer_external=True)
-    except NoURLAvailableError:
-        base_url = ""
+    # Same-origin relative path -- see fetch_game_assets.
+    base_url = ""
 
     cache_dir = Path(hass.config.path("www/gaming_status_cache"))
 
@@ -2061,9 +2120,10 @@ def get_cached_remote_url(game_name, asset_type="grid", *, require_remote_host=T
     """
     Retrieve the cached asset URL for a game.
 
-    By default (require_remote_host=True), only returns a URL if it still
-    points at the remote SteamGridDB CDN, bypassing any locally-cached
-    copy -- useful for cloud webhooks like Discord when Home Assistant
+    By default (require_remote_host=True), only returns a remote URL: the
+    SteamGridDB CDN URL itself, or -- when the art was downloaded to the
+    local cache -- the remote URL it was originally fetched from, bypassing
+    the locally-cached copy -- useful for cloud webhooks like Discord when Home Assistant
     lacks an external domain and local-to-external URL construction has
     already failed once (see GamingNotifier._make_external_url's own
     fallback use of this function).
@@ -2079,7 +2139,8 @@ def get_cached_remote_url(game_name, asset_type="grid", *, require_remote_host=T
 
     # ASSET_URL_CACHE is keyed by the normalized name (see fetch_game_assets),
     # not the raw display name this is usually called with.
-    cache_entry = ASSET_URL_CACHE.get(_normalize_game_name(game_name))
+    cache_key = _normalize_game_name(game_name)
+    cache_entry = ASSET_URL_CACHE.get(cache_key)
     if not cache_entry:
         return None
 
@@ -2087,6 +2148,8 @@ def get_cached_remote_url(game_name, asset_type="grid", *, require_remote_host=T
     if not url:
         return None
     if require_remote_host and not url_host_matches(url, "steamgriddb.com"):
-        return None
+        # Art served from the local cache -- hand back the remote URL it
+        # was downloaded from (SteamGridDB or a user override) instead.
+        return _ASSET_REMOTE_URLS.get(cache_key, {}).get(asset_type)
 
     return url
