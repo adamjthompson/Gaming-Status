@@ -8,6 +8,7 @@ import logging
 import os
 import re
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import NamedTuple
 
 from dateutil import parser
@@ -495,6 +496,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._cached_history_seconds = 0
         self._local_avatar_path = None
         self._cover_fetch_attempted = False
+        self._art_verify_pending = False
 
         self._away_start_timestamp = None
         self._away_timeout_deducted = False
@@ -3684,6 +3686,33 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             )
             await self._trigger_source_update(force=True)
 
+    async def _async_verify_artwork(self):
+        """Restore this session's artwork if its local cache files vanished."""
+        try:
+            entry = {
+                "grid": self._cached_game_cover,
+                "hero": self._cached_game_hero,
+                "logo": self._cached_game_logo,
+                "icon": self._cached_game_icon,
+            }
+            cache_dir = Path(self.hass.config.path("www/gaming_status_cache"))
+            if await self.hass.async_add_executor_job(
+                utils._local_cache_files_exist, entry, cache_dir
+            ):
+                return
+            _LOGGER.debug(
+                "Artwork files for %s missing from cache; re-fetching",
+                self._current_game,
+            )
+            # fetch_game_assets notices the missing files itself and
+            # re-downloads; re-running the pipeline publishes the new URLs.
+            self._cover_fetch_attempted = False
+            await self._trigger_source_update()
+        except Exception as e:
+            _LOGGER.debug("Artwork verification failed: %s", e)
+        finally:
+            self._art_verify_pending = False
+
     async def _trigger_source_update(self, force=False):
         if self._gaming_type == "discord":
             return
@@ -3926,6 +3955,18 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             # (_trigger_source_update early-returns for it), so probing here
             # would look handled while doing nothing.
             believes_playing = bool(self._current_game and self._play_start_time)
+            # Artwork is only fetched once per session (_cover_fetch_attempted),
+            # so files pruned or deleted from the local cache mid-session would
+            # otherwise stay broken until the game changes. Re-check on this
+            # timer and re-run the pipeline if any are missing.
+            if (
+                believes_playing
+                and utils.USE_LOCAL_CACHE
+                and self._gaming_type != "discord"
+                and not self._art_verify_pending
+            ):
+                self._art_verify_pending = True
+                self.hass.async_create_task(self._async_verify_artwork())
             orphan_display = (
                 self._attr_native_value.lower() != "offline" and not self._current_game
             )

@@ -236,8 +236,9 @@ def _local_cache_files_exist(entry: dict, cache_dir: Path) -> bool:
     """Return False if any locally-cached URL in a cache entry points at a
     file that no longer exists (e.g. pruned by _clean_image_cache).
 
-    Surviving files are touched so age-based cleanup only reclaims art for
-    games that haven't been served recently, not ones still being played.
+    Surviving files are touched (at most daily) so age-based cleanup only
+    reclaims art for games that haven't been served recently, not ones
+    still being played.
     """
     for url in entry.values():
         if not url or _LOCAL_CACHE_URL_MARKER not in url:
@@ -246,8 +247,12 @@ def _local_cache_files_exist(entry: dict, cache_dir: Path) -> bool:
         path = cache_dir / Path(name).name
         if not path.is_file():
             return False
+        # Throttled to once a day: this runs on every cache hit and every
+        # 30s artwork check, and only needs to keep files under the
+        # cache_max_days age limit.
         with contextlib.suppress(OSError):
-            os.utime(path, None)
+            if time.time() - path.stat().st_mtime > 86400:
+                os.utime(path, None)
     return True
 
 
