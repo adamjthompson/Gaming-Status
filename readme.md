@@ -11,7 +11,7 @@ Some of the key features are listed below.
 ## Features
 * **Unified Master Sensor:** Combines Xbox, PlayStation, Steam, Discord, Playnite, and Gaming Status Agent into one clean "Master Status" sensor per person.
 * **Online/Offline Notifications:** Receive Discord, SMS, and/or Mobile notifications when users start or finish playing a game.
-* **Parental Controls:** Track daily playtime and recieve notifications when a limit, curfew, or age-rating threshold is reached.
+* **Parental Controls:** Track daily playtime and receive notifications when a limit, curfew, or age-rating threshold is reached.
 * **Discord Rich Presence:** Track hundreds of standalone games, emulators, and Epic/EA/Ubisoft launchers automatically by hooking into Discord's Rich Presence status. Automatically ignores custom text statuses to prevent false positives.
 * **Gaming Status Agent Support:** Track PC games from Amazon Games, Battle.net, EA, Epic, GOG, HoYoverse, Minecraft (Java Edition), Playnite, Riot Games, Roblox, Rockstar Games, and Ubisoft (plus your own custom game rules) with the companion [Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent) Windows app, which reports the game title, launcher, and gamertag over MQTT.
 * **PC Sub-Master Sensor:** Automatically aggregates Gaming Status Agent, Steam, Playnite, and Discord tracking into a single, unified "PC" status. It features smart platform yielding (e.g., Discord quietly steps aside if Steam is tracking the same game) to eliminate double-counting in your playtime analytics.
@@ -53,7 +53,7 @@ To display beautiful, high-resolution game covers on your dashboard, this integr
 6. Copy the generated key and paste it into the **SteamGridDB API Key** field during Initial Setup or under the Advanced menu. 
 
 ### Content Ratings
-If you plan to use the **Content Rating Limit** parental control, enable **Enable Native Content Ratings** — either under the **Achievements & Ratings** menu, or on the main **Parental Controls** screen, right above the player picker (it's the same setting, shown in both places for convenience). This looks up each game's ESRB rating directly from Steam, Xbox, or PlayStation, reusing whatever credentials you already have configured on the official  integrations — no separate API key or account needed. This is independent from achievement/trophy tracking, so you don't need to enable that (or its heavier credential/polling requirements) just to get ratings working. Content Rating Limit's own fields only appear on a player's screen once this is on, since there's nothing for the rule to check against otherwise.
+If you plan to use the **Content Rating Limit** parental control, enable **Enable Native Content Ratings** (either under the **Achievements & Ratings** menu or on the main **Parental Controls** screen, right above the player picker). It's the same setting, shown in both places for convenience. This looks up each game's ESRB rating directly from Steam, Xbox, or PlayStation, reusing whatever credentials you already have configured on the official integrations. No separate API key or account needed. This is independent from achievement/trophy tracking, so you don't need to enable that (or its heavier credential/polling requirements) just to get ratings working. Content Rating Limit's own fields only appear on a player's screen once this is on, since there's nothing for the rule to check against otherwise.
 
 *Note: native rating coverage isn't complete for every title. If a game comes back unrated, you can manually assign it a rating using the Content Rating Overrides field under Overrides & Exclusions (see below).*
 
@@ -80,8 +80,9 @@ Gaming Status is configured entirely through the Home Assistant UI. **There is n
 ### Initial Setup
 1. In Home Assistant, navigate to **Settings** > **Devices & Services**.
 2. Click **+ Add Integration** and search for **Gaming Status**.
-3. You will be prompted to enter a **SteamGridDB API Key** (Optional). This is highly recommended to automatically fetch beautiful hero art for your games. You can get a free key [here](https://www.steamgriddb.com/profile/api) or add it later under Advanced.
-4. Click Submit. 
+3. On the first screen, choose which **Platforms to Track**, whether to enable **Notifications** and **Parental Controls**, enter an optional **SteamGridDB API Key** (highly recommended for artwork; get a free key [here](https://www.steamgriddb.com/profile/api) or add it later under Advanced), and toggle **Local Image Caching** (pre-checked only when Home Assistant has an external HTTPS URL).
+4. If **Discord** was selected, a dedicated step asks for your Discord Bot Token and Server ID (see [Setting up Discord Tracking](#pc-tracking--discord-setup)).
+5. Finally, name your first player and map their platform sensors. Click Submit.
 
 ### Options & Features
 To configure your players, notifications, and rules, click the **Configure** button (gear icon) on the Gaming Status integration card. This opens the main configuration hub, which is divided into eight menus based on your enabled features:
@@ -91,17 +92,18 @@ Add, edit, or delete the gamers in your household.
 * **Platform Sensors:** When adding a player, you simply select their respective integration sensors from the dropdowns. The integration will automatically filter your entities to show the correct Steam (`sensor.steam_*`), Xbox (`sensor.*_status`), PlayStation (`sensor.*_now_playing`), Playnite (MQTT `binary_sensor.*_playnite_playing_game`), and Gaming Status Agent (MQTT `sensor.gsa_*`) entities. The Custom platform accepts any sensor. *(Note: To remove a previously assigned sensor, simply click the 'X' to clear the entity dropdown and click Submit. The integration will save the empty state and stop tracking that platform).*
 * **PS3 Media Player:** *(Only shown when a player has a PlayStation sensor configured, and PS3 Tracking is enabled under Global Settings)* The PS3 predates the modern PlayStation Network status API, so it can't be tracked the same way as PS4/PS5 — instead, select its `media_player.*` entity (also provided by the official PlayStation Network integration). PS3 activity feeds directly into that player's existing PlayStation sensor and history, rather than creating a separate sensor.
 * **Player Details:** After adding a player, you can configure:
-  * **Session Notifications:** Select notification methods for when this specific player starts or stops gaming. *Note: These must be configured under Notifications.*
+  * **Session Notifications:** Select notification methods separately for when this specific player starts gaming and when they stop. *Note: These must be configured under Notifications.*
   * **Suppress other players' Xbox sensors:** Configured on the player whose *own* sensor(s) are accurate. Pick which other players' Xbox sensors should be suppressed whenever this player is confirmed playing on any of their own enabled platforms — including their own Xbox sensor. Fixes a shared-PC Xbox app misattributing this player's session to someone else's Xbox account. *Only for cross-player mixups; the same player's own overlapping sensors are already handled automatically.*
-  * **Exclude Games:** Comma-separated list of games to ignore for this specific player — applies to both current-game tracking and their full game library scan (see [Overrides & Exclusions](#5-overrides--exclusions) below for exactly how matching works).
+  * **Exclude Games:** One game per line to ignore to ignore for this specific player. This  applies to both current-game tracking and their full game library scan (see [Overrides & Exclusions](#5-overrides--exclusions) below for exactly how matching works).
+  * **Achievement/Trophy Tracking & Library Scan (per platform):** *(Only shown when the matching global toggle under [Achievements & Ratings](#6-achievements--ratings) is on)* Per-player Steam/Xbox/PlayStation checkboxes to turn achievement tracking and the full library scan on or off for each of this player's configured platforms individually.
   * **Clear achievement/trophy history:** *Use with caution.* Permanently deletes this player's entire recorded achievement/trophy unlock history, across every platform they're tracked on. Applies once on the next reload, then automatically switches itself back off — unlike other settings, you don't need to remember to undo it.
 
 #### 2. Notifications (Requires Global Toggle)
 Manage where your [gaming alerts and weekly reports](docs/notifications.md) are sent.
-* **Notify Artwork Style:** Choose which fetched artwork type (Cover, Hero, Logo, Icon) attaches to your notifications.
+* **Notification Artwork:** Choose which fetched artwork type (Cover, Hero, Logo, Icon, or No Artwork) attaches to your notifications. Default: Cover.
 * **Add Notification:** Map a friendly name (e.g., "Dad's Phone") to an existing Home Assistant `notify.` service. It fully supports standard mobile app notifications, Discord, and SMS.
-* **Discord Notification Colors:** Customize the embed colors for Discord alerts (Default, Platform Colors, Game Color, or Custom Hex) — including a dedicated custom color for the Rich weekly report style, below.
-* **Weekly Report:** Send a summary of everyone's weekly playtime to your selected notification methods on a specific day and time.
+* **Discord Notification Colors:** Customize the embed colors for Discord alerts (Default, Platform Colors, Game Color, or Custom Hex). Custom Hex has a separate color per event: started playing (default `#00FF00`), finished playing (`#FF0000`), parental alerts (`#0000FF`), and the Rich weekly report (`#F1C40F`).
+* **Weekly Report:** Send a summary of everyone's weekly playtime to your selected notification methods on a specific day and time (off by default; default time 09:00). Toggle **Enabled**, pick the **Day** and **Time**, and choose the destinations.
   * **Report Style:** **Simple** (a plain, unranked line per player — the original format, unchanged) or **Rich** (players ranked by hours with their top game(s) for the week, a real Discord embed with artwork for Discord destinations, and a sorted plain-text version for Mobile App/SMS destinations).
   * **Players to Include:** *(Rich style only)* Leave blank to include every tracked player, or pick specific players to limit the report to just them.
   * **Include players with zero hours:** *(Rich style only)* Off by default, matching the original behavior — players with no logged hours last week are left off the report.
@@ -132,11 +134,11 @@ Manually assign artwork or colors to specific games using simple `Game = Value` 
 
 #### 5. Overrides & Exclusions
 Manually adjust game titles, ratings, and what gets tracked.
-* **Game Title Overrides:** Clean up messy or lengthy names. Format as `raw name = display name`. *(Example: `Minecraft Launcher = Minecraft`)*
+* **Game Title Overrides:** Clean up messy or lengthy names. One per line, formatted as `raw name = display name`. *(Example: `Minecraft Launcher = Minecraft`)*
 * **Title Cleanups:** A list of regex patterns (or plain text, which works the same as a literal pattern) to automatically strip from game names, one per line. *(Example: `Tom Clancy's` on one line, `Sid Meier's` on the next, or a pattern like `(?<=Minecraft)\*.*` to strip any version suffix Minecraft appends after the word "Minecraft*")*
-* **Global Exclusions:** Games or apps that should be universally ignored by the tracker, for every player. *(Example: `Home, YouTube, Netflix, Xbox App`)* Overrides are applied first, then Cleanups, in that order. An Override is a whole-name swap, and any Cleanup pattern still gets a chance to run against its result afterward. Exclusions are checked against *both* the pre-Cleanup and the fully-cleaned name, so it doesn't matter which form your exclusion entry happens to match: excluding `Minecraft` catches it even if a Cleanup is what produces that name from something longer, and excluding `Minecraft Launcher` still works even if a separate Cleanup (e.g. one that strips `Launcher` generally) would otherwise erase the very word that entry is matching on. Matching ignores case and punctuation (commas, colons, dashes, trademark symbols), so `Marvel Rivals™` and `marvel rivals` both match an exclusion entry of `Marvel Rivals`.
+* **Global Exclusions:** Games or apps that should be universally ignored by the tracker, for every player, one per line. *(Example: `YouTube` on one line, `Netflix` on the next)* Overrides are applied first, then Cleanups, in that order. An Override is a whole-name swap, and any Cleanup pattern still gets a chance to run against its result afterward. Exclusions are checked against *both* the pre-Cleanup and the fully-cleaned name, so it doesn't matter which form your exclusion entry happens to match: excluding `Minecraft` catches it even if a Cleanup is what produces that name from something longer, and excluding `Minecraft Launcher` still works even if a separate Cleanup (e.g. one that strips `Launcher` generally) would otherwise erase the very word that entry is matching on. Matching ignores case and punctuation (commas, colons, dashes, trademark symbols), so `Marvel Rivals™` and `marvel rivals` both match an exclusion entry of `Marvel Rivals`.
   * These same Global Exclusions, combined with each player's own **Exclude Games** list (see Manage Players above), are also applied to that player's **Full Game Library Scan** if it's enabled — an excluded title won't show up in their Game Library sensors, and won't count toward the totals, achievement fetches, or artwork lookups either. Library scan data is cached, though, so a newly-added exclusion won't disappear until the next scheduled scan — press that player's **Game Library Refresh** button to apply it immediately instead of waiting.
-* **Content Rating Overrides:** *(Only shown when Parental Controls is enabled)* Manually assign a rating to games your rating provider has no data for. Format as `Game = Code`, using the codes `E`, `E10`, `T`, `M`, or `AO`. *(Example: `Skull and Bones = M`)*
+* **Content Rating Overrides:** *(Only shown when Parental Controls is enabled)* Manually assign a rating to games your rating provider has no data for. One per line, formatted as `Game = Code`, using the codes `E`, `E10`, `T`, `M`, or `AO`. *(Example: `Skull and Bones = M`)*
 
 #### 6. Achievements & Ratings
 Native achievement/trophy/rating enrichment and full game library scanning, all in one place -- every field here is always visible together, regardless of which toggles are on, so you never have to save and reopen the menu just to find a setting.
@@ -157,9 +159,9 @@ These variables control how the integration handles platforms, caching, and netw
 * **Enabled Platforms:** Select which gaming platforms to track (Steam, Xbox, PlayStation, Discord, Playnite, Gaming Status Agent, and Custom).
 * **Enable PS3 Tracking:** Adds the PS3 Media Player field (see Manage Players above) to PlayStation-enabled player profiles.
 * **Master Toggles:** Enable or disable the Notifications and Parental Controls configuration hubs.
-* **Cache Settings:** Toggle local image caching, automatic vibrant color extraction, and configure background cleanup limits (Max Files & Max Days).
-* **Grace Periods (Network / Away / Transition):** Configure exactly how long the integration waits during network drops, idle statuses, or game switches before ending a session.
-* **Minimum Session Duration:** Prevents quickly opening and closing a game (like launching a launcher) from cluttering your play history.
+* **Cache Settings:** Toggle local image caching (default: on), automatic vibrant color extraction (default: on), and configure background cleanup limits (Max Files, default 200 & Max Days, default 30).
+* **Grace Periods (Network / Away / Transition):** Configure exactly how long the integration waits during network drops, idle statuses, or game switches before ending a session. Defaults: 300 / 600 / 120 seconds.
+* **Minimum Session Duration:** Prevents quickly opening and closing a game (like launching a launcher) from cluttering your play history. Default: 300 seconds.
 * **Master Handoff Grace Period:** If a player is genuinely, continuously active on two platforms at once (e.g. playing a Steam game while also idling into a console game), whichever platform is currently shown on the Master sensor keeps that spot indefinitely as long as it stays healthy — this setting only comes into play once that platform's *own* connection drops into its own offline-grace or ghosted state and stays stuck there continuously; only after it's been stuck for this long does a more-recently-started game on another platform get to take over the display. Prevents notification spam from a platform's brief connectivity blips repeatedly flipping which one is shown. Default: 300 seconds (5 min). Set to 0 to restore instant hand-off.
 * **Session Start Confirmation:** How long a newly detected game must still be reported before a session actually starts. Useful when a sensor is unreliable and briefly reports games that were never launched — without this, a flicker lasting a second creates a real session, fires a "started playing" notification, and (because the offline grace period then holds it) can even record play time. Genuine sessions are simply delayed by this long, and their start time is backdated so no play time is lost. Does not apply to Discord, which is event-driven and has nothing to re-check. Default: 0 (off). A good starting point if you need it is 15-30 seconds.
 * **Reset History:** A toggle to clear all accumulated daily/weekly/all-time playtime and session history, for every player, upon the next Home Assistant restart. Applies once, then automatically switches itself back off. Doesn't touch achievement/trophy history — use a player's own **Clear achievement/trophy history** option for that. *Use with caution!*
@@ -178,16 +180,17 @@ Because Home Assistant does not natively track Rich Presence, this integration f
 6. On the left menu, click **OAuth2**, then **URL Generator**. Under Scopes, check the **bot** box. 
 7. Copy the generated URL at the bottom, paste it into your browser, and authorize the bot to join your personal Discord server. 
 8. Open your Discord app, right-click your server icon, and click **Copy Server ID** *(Note: This requires Developer Mode to be enabled in Discord's advanced settings).*
-9. Finally, in Home Assistant, add the **Gaming Status** integration (or go to the Advanced menu if already installed) and make sure **Discord** is checked in the platforms list. Paste your Bot Token and Server ID. The integration will automatically fetch a list of your server members so you can easily assign them to your players from a dropdown menu!
-10. *Smart Application ID Filtering:* Once set up, the integration automatically ignores custom text statuses (like 'Eating dinner' or listening to Spotify). It strictly requires a verified Discord `application_id` to trigger, guaranteeing only legitimate gaming sessions are captured.
+9. Finally, in Home Assistant, add the **Gaming Status** integration and check **Discord** in the platforms list — first-time setup then shows a dedicated Discord step for your Bot Token and Server ID. (If already installed, enable Discord under Global Settings and enter them under Advanced.) The integration will automatically fetch a list of your server members so you can easily assign them to your players from a dropdown menu!
+10. *Smart Application ID Filtering:* Once set up, the integration automatically ignores custom text statuses (like 'Eating dinner' or listening to Spotify). It strictly requires a verified Discord `application_id` to trigger, guaranteeing only legitimate gaming sessions are captured. Activities relayed by Discord's own Xbox account connection are treated as stale console relays and ignored when the player also has a native Xbox sensor (which is more timely); without one, the relay is still used.
+11. *Automation event:* Every presence update for a tracked member fires a `gaming_status_discord_<member_id>` event with `{user_id, state, app_id, avatar_url, display_name}` (`state` is the game name, `Online`, or `Offline`; `display_name` is the permanent username).
 
 **Setting up Playnite Tracking:**
 Playnite is an incredible open-source library manager that can track games across almost any PC launcher or emulator. To link it to Gaming Status, it utilizes MQTT.
 1. Ensure you have an MQTT Broker (like Mosquitto) installed and configured in Home Assistant.
 2. Open Playnite on your PC, navigate to the Add-ons menu, and install an MQTT broadcasting add-on (e.g., *MQTT Client*).
 3. Configure the add-on in Playnite with your Home Assistant MQTT broker IP address, username, and password.
-5. In Home Assistant, ensure the MQTT integration detects and creates this binary sensor.
-6. Go to the Gaming Status configuration, select Playnite as an Enabled Platform, and assign that new `binary_sensor` to your player! *By default, it may be named `binary_sensor.desktop_playnite_playnite_playing_game`.*
+4. In Home Assistant, ensure the MQTT integration detects and creates this binary sensor.
+5. Go to the Gaming Status configuration, select Playnite as an Enabled Platform, and assign that new `binary_sensor` to your player! *By default, it may be named `binary_sensor.desktop_playnite_playnite_playing_game`.*
 
 **Setting up Gaming Status Agent Tracking:**
 [Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent) is a companion Windows tray app that detects what you're playing and which launcher it came from, then publishes it to Home Assistant over MQTT. Home Assistant discovers the sensor automatically, so no YAML is needed.
@@ -214,9 +217,13 @@ The Agent can also report Playnite games, which the priority rules below keep fr
 **The PC Sub-Master Priority Logic:**
 If a player launches a game, it is very common for multiple trackers (like Discord, Playnite, and Steam) to detect it simultaneously. To prevent double-counting your playtime hours and sending duplicate push notifications, the `sensor.gaming_status_XXXXX_pc` sensor uses strict **Smart Platform Yielding**. 
 
-Platforms are prioritized in this order: **Playnite > Gaming Status Agent > Custom > Steam > Discord**. The one exception is a Steam or Xbox game reported by Gaming Status Agent, which always yields to the native Steam or Xbox sensor.
+Within the PC sensor, platforms are prioritized in this order: **Playnite > Gaming Status Agent > Custom > Steam > Discord**. The one exception is a Steam or Xbox game reported by Gaming Status Agent, which always yields to the native Steam or Xbox sensor.
 * *Example:* If a player launches a Steam game, Discord will likely detect it first and claim the dashboard. Seconds later, when Steam wakes up and detects the same game, Discord will instantly pause its timer and yield control to Steam. 
 * *Result:* You get the lightning-fast notifications of Discord, but the pristine, deduplicated analytics of Steam!
+
+Separately, each platform sensor yields its playtime timer to any higher-priority platform tracking the same game, using the global order **Gaming Status Agent > Custom > Steam > Xbox > PlayStation > Playnite > Discord** (the same order the Master sensor checks platforms in). The same GSA Steam/Xbox exception applies.
+
+**Platform hops:** A "finished playing" notification is held for about 45 seconds before sending; if the same game starts on another platform in that window (e.g. one platform's integration briefly drops while another keeps tracking), the end/start notification pair is skipped.
 
 ### Devices
 
@@ -251,7 +258,7 @@ Upon restart, the integration will instantly read your settings and generate the
 | button.gaming_status_send_weekly_report_now | Button | *(Requires [Weekly Report](docs/notifications.md) to be enabled)* Manually sends the weekly report immediately, using its current settings and destinations -- handy for previewing the exact formatting without waiting for its scheduled day/time |
 
 ### Attributes for Master Sensors
-Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The `*_master` sensors provide the following attibutes:
+Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The `*_master` sensors provide the following attributes:
 
 **Aggregate Analytics**
 | Attribute | Description |
@@ -271,6 +278,10 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | calendar_longest_session | A formatted string showing the game title and duration of the longest single session across all platforms for the current calendar week (e.g., "DELTARUNE (1h 24m)") |
 | rolling_longest_session | A formatted string showing the game title and duration of the longest single session across all platforms over the rolling 7-day window |
 | play_history | Per-day, per-game playtime aggregated across all platforms: `{"YYYY-MM-DD": {"Game Title": seconds, ...}}`. Used by the Gaming Status Cards for chart rendering |
+| raw_calendar_breakdown_last_week | Same as `raw_calendar_breakdown`, for the previous calendar week |
+| all_time_total_hours / all_time_session_count / all_time_top_games | Lifetime hours, session count, and top 10 games across all platforms |
+| recent_achievements | Achievement/trophy unlocks merged from every platform (newest first, capped at 30, with up to 5 reserved per platform so one platform's burst can't crowd out another) |
+| achievement_tracking_enabled / color_extraction_enabled | Whether achievement tracking is enabled for any of this player's platforms / whether vibrant color extraction is on |
 | recent_sessions | List of the most recently completed play sessions across all of this player's platforms (newest first, capped at 20): `{game, platform, platform_key, duration_seconds, date, start_time, end_time, hero_art_url, game_dominant_color}`. `platform` is a display label (a Gaming Status Agent session shows its launcher); `platform_key` is the internal platform key |
 
 **Parental/Limit Controls**
@@ -300,7 +311,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | play_start_time | Inherited from the most active underlying platform tracker |
 | last_played_game | Title of the most recent game detected across all tracked platforms |
 | last_online_valid_timestamp | Timestamp of the last time detected online |
-| gamertag | The real account display name (Steam persona name, Xbox gamertag, PSN online ID, or Discord display name) of whichever platform is currently active, or the most recently active platform if everything's offline. The `..._pc` sub-master sensor exposes this same attribute, scoped to just its own PC platforms (Steam, Discord) |
+| gamertag | The real account name (Steam persona name, Xbox gamertag, PSN online ID, Discord username, or Gaming Status Agent `Profile Name`) of whichever platform is currently active, or the most recently active platform if everything's offline. The `..._pc` sub-master sensor exposes this same attribute, scoped to just its own PC platforms (Playnite, Gaming Status Agent, Custom, Steam, Discord) |
 
 **Identity (per platform)**
 | Attribute | Description |
@@ -308,11 +319,11 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | steam_gamertag | This player's Steam persona name, if Steam is configured |
 | xbox_gamertag | This player's Xbox gamertag, if Xbox is configured |
 | psn_gamertag | This player's PlayStation Network online ID, if PlayStation is configured |
-| discord_gamertag | This player's Discord display name (server nickname, falling back to their global display name/username), if Discord is configured |
+| discord_gamertag | This player's permanent Discord username (not their server nickname), if Discord is configured |
 | gsa_gamertag | The `Profile Name` reported by this player's Gaming Status Agent sensor, if Gaming Status Agent is configured |
 
 ### Attributes for Platform Sensors
-Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The individual `*_steam`, `*_xbox`, `*_discord`, and `*_playstation` sensors provide the following attibutes:
+Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The individual `*_steam`, `*_xbox`, `*_playstation`, `*_discord`, `*_playnite`, `*_gsa`, and `*_custom` sensors provide the following attributes:
 
 **Core State Attributes**
 | Attribute | Description |
@@ -332,7 +343,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | game_icon_art | URL of icon art, either local or SteamGridDB |
 | game_dominant_color | The automatically extracted vibrant hex color from the game's artwork, or a manually assigned color |
 | game_content_rating | Rating metadata for the currently active/cached game: `{esrb, pegi, age_floor, descriptors, unrated, source}` (`source` is `"steam_native"`, `"xbox_native"`, `"psn_native"`, `"override"`, or `null` if unrated/never looked up) |
-| gamertag | This player's real account display name for this platform (Steam persona name, Xbox gamertag, PSN online ID, Discord display name, or the Gaming Status Agent `Profile Name`). Always `null` for Playnite sensors, which have no equivalent identity concept |
+| gamertag | This player's real account name for this platform (Steam persona name, Xbox gamertag, PSN online ID, Discord username, or the Gaming Status Agent `Profile Name`). Always `null` for Playnite sensors, which have no equivalent identity concept |
 | launcher | Gaming Status Agent sensors only. The launcher the current or last game came from (e.g. `Epic`, `GOG`, `Custom`), kept while offline for "last seen" displays |
 
 **Rich Tracking & Analytics**
@@ -346,6 +357,14 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | weekly_game_breakdown | Dictionary mapping game names to total seconds over the rolling 7-day window (alias of `rolling_weekly_breakdown`) |
 | rolling_weekly_breakdown | Dictionary mapping game names to total seconds over the rolling 7-day window |
 | calendar_weekly_breakdown | Dictionary mapping game names to total seconds for the current calendar week (Monday–Sunday) |
+| calendar_weekly_breakdown_last_week | Same as `calendar_weekly_breakdown`, for the previous calendar week |
+| all_time_total_hours / all_time_session_count / all_time_top_games | Lifetime hours, session count, and top 20 games on this platform |
+| recent_achievements | Cross-game history of achievement/trophy unlocks on this platform (newest first, capped at 30) |
+| current_game_achievements_earned / current_game_achievements_total / achievements_source | *(Achievement tracking only)* Earned/possible counts for the current game and where they came from |
+| current_game_gamerscore_earned / current_game_gamerscore_total | *(Xbox only)* Gamerscore for the current game |
+| current_game_trophies_bronze / _silver / _gold / _platinum (+ `_total` variants) | *(PlayStation only)* Trophy counts for the current game |
+| recent_unlocked_achievements / recent_unlocked_trophies | Recent unlocks for the current game (achievements on Steam/Xbox, trophies on PlayStation) |
+| color_extraction_enabled | Whether automatic vibrant color extraction is on |
 | play_history | Per-day, per-game playtime for this platform: `{"YYYY-MM-DD": {"Game Title": seconds, ...}}` |
 | recent_sessions | List of the most recently completed play sessions on this platform (newest first, capped at 20): `{game, platform, platform_key, duration_seconds, date, start_time, end_time, hero_art_url, game_dominant_color}`. `platform` is a display label (a Gaming Status Agent session shows its launcher); `platform_key` is the internal platform key. A session only appears here once it has ended |
 | longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session today; resets at midnight |
@@ -370,6 +389,10 @@ The sensor's **state** on both the summary and per-platform Library sensors is a
 | platform_errors | `"None"` if the last scan was clean, otherwise a dict of `{platform: error message}` for any platform whose scan failed (e.g. rate-limited, network error, credentials not configured) |
 | last_synced | Timestamp of the most recent completed scan |
 | games | Full list of every tracked game across all platforms — see below for each entry's shape |
+| achievement_backfill_pending / achievement_backfill_total / achievement_backfill_complete | Progress of the Xbox/PlayStation achievement backfill (titles still pending, titles total, and whether it's done) |
+| achievement_backfill_by_platform | The same progress broken out per platform: `{xbox: {pending, total}, playstation: {pending, total}}` |
+
+*Paced backfill:* Per-game achievement details on Xbox and PlayStation are fetched gradually in the background, every 15 minutes. A small batch per player (8 Xbox / 5 PlayStation titles), staggered between players, is used to stay within platform rate limits; a title that fails 5 times is skipped. Steam refreshes a rotating slice of the library each scan instead. A large library can therefore take a while to fully populate.
 
 **Platform Sensors (`..._library_steam`, `..._library_xbox`, `..._library_playstation`)**
 | Attribute | Description |
@@ -403,7 +426,7 @@ The sensor's **state** on both the summary and per-platform Library sensors is a
 Several of these attributes (e.g., artwork URLs, breakdown dictionaries, session detail dicts, `play_history`, and `recent_sessions`) are explicitly added to `_unrecorded_attributes` in the sensor classes. This is a deliberate performance optimization to prevent Home Assistant from saving these frequently-changing or large values into the long-term database (recorder), which keeps your database file from growing excessively large.
 
 ### Services
-Beyond the dashboard, Gaming Status exposes two Home Assistant services (**Developer Tools → Actions**, or callable from automations/scripts) for cleaning up a player's stored game history after the fact — useful when a data source ever misreports a game's name (e.g. `DOOM Eternal In the menu` instead of `DOOM Eternal`) or when you simply want to remove a game's history entirely.
+Beyond the dashboard, Gaming Status exposes five Home Assistant services (**Developer Tools → Actions**, or callable from automations/scripts) for cleaning up a player's stored game history after the fact — useful when a data source ever misreports a game's name (e.g. `DOOM Eternal In the menu` instead of `DOOM Eternal`) or when you simply want to remove a game's history entirely, or to fix individual sessions.
 
 **`gaming_status.rename_game`**
 Renames a game across a player's stored history (recent sessions, daily/weekly breakdowns, and archived per-day totals), merging its playtime into an existing name if one already matches. Does **not** rename a currently in-progress session — the fix applies once that session ends naturally.
@@ -424,7 +447,40 @@ Permanently purges every trace of a named game from a player's stored history �
 | `platform` | No | Limit the deletion to one platform. Omit to purge across all of the player's platforms |
 | `game` | Yes | The exact game name to delete |
 
-Both services can also be triggered from a dashboard using the [Game Management card](https://github.com/adamjthompson/Gaming-Status-Cards#8-gaming-status---game-management), which provides player/platform/game dropdowns populated from real data instead of requiring you to type exact names.
+**`gaming_status.delete_session`**
+Permanently removes one specific recorded session, correcting only that session's contribution to daily/weekly/lifetime totals. Only works for sessions still in that sensor's `recent_sessions` list.
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `player` | Yes | The player's configured name |
+| `platform` | No | Limit the search to one platform. Omit to search all of the player's platforms |
+| `game` | Yes | The session's game name |
+| `start_time` | Yes | The session's exact `start_time` (ISO timestamp), as shown in `recent_sessions` |
+
+**`gaming_status.add_session`**
+Manually inserts a completed session (e.g. to backfill play that was never tracked), updating totals the same way a tracked session would.
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `player` | Yes | The player's configured name |
+| `platform` | Yes | Exactly one platform to add the session to, e.g. `steam` |
+| `game` | Yes | The game name |
+| `start_time` | Yes | ISO timestamp the session started |
+| `end_time` | Yes | ISO timestamp the session ended (must be after `start_time`) |
+
+**`gaming_status.reassign_session`**
+Moves one recorded session to another player (and/or platform), correcting totals on both ends — useful when the wrong account was signed in on a shared console or app.
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `from_player` | Yes | The player the session is currently attributed to |
+| `from_platform` | No | Limit the search to one of `from_player`'s platforms |
+| `game` | Yes | The session's game name |
+| `start_time` | Yes | The session's exact `start_time`, as shown in the source sensor's `recent_sessions` |
+| `to_player` | Yes | The player to move the session to |
+| `to_platform` | Yes | Exactly one platform on `to_player` to move it onto |
+
+The rename and delete services can also be triggered from a dashboard using the [Game Management card](https://github.com/adamjthompson/Gaming-Status-Cards#8-gaming-status---game-management), which provides player/platform/game dropdowns populated from real data instead of requiring you to type exact names.
 
 ## What Next?
 Once everything is up and running (with sensors showing up from the integration), try playing a game for at least 5 minutes to make sure the online status is reflected in the `_master` sensors. *Note that, by default, sessions shorter than 300 seconds (5 minutes) are discarded and do not count toward the total playtime hours.* If the sensors are working correctly, try some of the following! If not, see the [troubleshooting](docs/troubleshooting.md) documentation.

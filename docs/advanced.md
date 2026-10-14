@@ -11,21 +11,21 @@ This section maps a friendly display name to the underlying Home Assistant senso
 
 - **Steam:** sensor.steam_playername
 - **Xbox:** sensor.playername_status
-- **PlayStation:** sensor.playername_online_status
+- **PlayStation:** sensor.playername_now_playing
 - **Gaming Status Agent:** sensor.gsa_profilename
 - **Custom:** any sensor whose state is the game title (or on/off), e.g. sensor.player_one_active_pc_game
 
-**Ghosted-by:** A list of master sensor IDs. If the current user is playing the exact same game as someone in this list, the current user's Xbox sensor will remain offline. This is useful for shared PCs where one user's profile is signed into the Xbox app while another user is actually playing — on Steam, PlayStation, or their own Xbox.
+**Suppress other players' Xbox sensors:** Set on the player whose *own* sensors are accurate. Pick which other players' Xbox sensors to suppress; whenever this player is confirmed playing a game on any of their own platforms, those Xbox sensors ignore that same game (and show `xbox_suppressed: true`). This is useful for shared PCs where one user's profile is signed into the Xbox app while another user is actually playing — on Steam, PlayStation, or their own Xbox.
 
-**Games to exclude:** A user-specific list of games or apps that should be completely ignored (case-insensitive).
-
-*Editing Notes: Replace "Player One" etc. with whatever you want the players to be named and "_player_one" with whatever the actual gamertags should be. The "gsa" entry is only needed if the player runs [Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent) on their PC. The "custom" entry is for your own status sensors, for example a HASS.Agent or template sensor (handy on Linux, where Gaming Status Agent doesn't run). Remove any lines that you do not need, and make sure that you do not have any trailing commas after the last entries.*
+**Games to exclude:** A user-specific list of games or apps that should be completely ignored, one per line (case-insensitive).
 
 ## Game Title Overrides
-This acts as a strict dictionary. If the integration detects an exact match with the key (the name on the left), it will permanently replace it with the value (the name on the right) before doing any API lookups or dashboard updates. This is perfect for shortening obnoxiously long official titles or for when cover art lookup fails due to a name mismatch.
+This acts as a strict dictionary. If the integration detects an exact match with the key (the name on the left), it will permanently replace it with the value (the name on the right) before doing any API lookups or dashboard updates. Enter one override per line. This is perfect for shortening obnoxiously long official titles or for when cover art lookup fails due to a name mismatch.
 
 ```
-RaceTheSun = Race The Sun, Call of Duty = Call of Duty: Black Ops 7, Army of TWO: TFD = Army of Two: The 40th Day
+RaceTheSun = Race The Sun
+Call of Duty = Call of Duty: Black Ops 7
+Army of TWO: TFD = Army of Two: The 40th Day
 ```
 
 ## Custom Artwork
@@ -34,7 +34,8 @@ This allows you to bypass the SteamGridDB API entirely. If a game title matches 
 *Note: URLs must point directly to an image file (e.g., .png, .jpg). Any URL can be used, including local files, but if the file is not publicly available, it will not display in notifications.*
 
 ```
-Marvel Rivals = https://cdn2.steamgriddb.com/hero/a31d2779e08530d0b5fdbed368c735b4.png, Halo = /local/halo.png
+Marvel Rivals = https://cdn2.steamgriddb.com/hero/a31d2779e08530d0b5fdbed368c735b4.png
+Halo = /local/halo.png
 ```
 
 ## Title Cleanup Strings
@@ -57,10 +58,20 @@ Open Network Test
 ## Global Exclusion List
 This is a universal "ignore list." While **Games to exclude** inside a user profile only applies to that specific person, the **Global Exclusion List** applies to every single gamer on your Home Assistant instance. If any console or PC reports playing an app on this list, the integration will immediately force the sensor to report as "Offline." This is incredibly useful for preventing streaming apps, music players, or dashboard menus from padding out your gaming hours or sending false "Online" triggers.
 
-*Note: This list is completely case-insensitive.*
+*Note: Enter one entry per line. This list is completely case-insensitive.*
 
 ```
-Xbox App, YouTube, Netflix, Hulu, Amazon Prime Video, Spotify, Microsoft Store, Store, Xbox 360 Dashboard, Setting up..., Wallpaper Engine
+Xbox App
+YouTube
+Netflix
+Hulu
+Amazon Prime Video
+Spotify
+Microsoft Store
+Store
+Xbox 360 Dashboard
+Setting up...
+Wallpaper Engine
 ```
 
 ## Global Settings
@@ -77,7 +88,7 @@ These settings allow you to adjust caching, override the default grace periods (
 
 **Game transition grace period:** Default: 120. This handles game switching. It triggers when the platform says the player is still Online, but the specific game they were playing drops out or changes. Example: A player is actively online but decides to close Helldivers 2 and open Marvel Rivals. During that 30-second window, they are just sitting on the dashboard not playing anything. Or, Marvel Rivals crashes to the desktop, but they are still logged into Steam, and they immediately relaunch the game. Instead of instantly ending their gaming session and starting a brand new one a few seconds later, this timer bridges the gap. It stitches the timeline together so that quick game swaps or crash reboots don't fracture your dashboard's session history into tiny pieces.
 
-**Mnimum session duration:** Default: 300. Game sessions shorter than this are discarded from history and do not count toward playtime totals and will not display on the dashboard.
+**Minimum session duration:** Default: 300. Game sessions shorter than this are discarded from history and do not count toward playtime totals and will not display on the dashboard.
 
 **Session start confirmation:** Default: 0 (off). How long a newly detected game has to keep being reported before Gaming Status believes it and starts a session. This is the opposite end of the pipeline from the grace periods above: those decide when a session *ends*, this decides when one is allowed to *begin*. It exists for unreliable sources — most often a third-party or custom sensor that briefly reports a game nobody launched. Without it, a flicker lasting a single second is enough to start a session, publish the game to the PC and Master sensors, and fire a "started playing" notification; and because the offline grace period then holds that game for its full duration, repeated flickers can chain into a session long enough to be recorded with real play time against it. With it set to, say, 15, that same flicker is simply ignored. The cost is that genuine sessions start this many seconds late — but the start time is backdated to the moment the game was first seen, so the play time itself is not lost. Leave it at 0 if your sensors are well behaved. Does not apply to Discord, which is driven by events rather than a sensor state and so has nothing to re-check.
 
