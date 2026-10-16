@@ -15,11 +15,13 @@ same venv once that integration is installed.
 
 from __future__ import annotations
 
+import json
 import logging
 
 from homeassistant.util.dt import utc_from_timestamp
 from pythonxbox.api.client import XboxLiveClient
 from pythonxbox.api.provider.catalog.models import AlternateIdType
+from pythonxbox.api.provider.titlehub.models import TitleFields, TitleHubResponse
 from pythonxbox.authentication.manager import AuthenticationManager
 from pythonxbox.authentication.models import OAuth2TokenResponse
 
@@ -257,5 +259,26 @@ async def async_get_title_history(client, xuid, max_items=1000):
     failures propagate (unlike this module's other fetch helpers) so
     utils.fetch_xbox_title_history can tell a genuine API failure apart from
     an account with a legitimately empty library."""
-    response = await client.titlehub.get_title_history(xuid, max_items=max_items)
+    # Not using client.titlehub.get_title_history() directly: pythonxbox's
+    # Title model declares display_image as a required str, but Xbox returns
+    # null for some titles (apps, demos, delisted items). One such title
+    # fails validation for the WHOLE response (issue #25), so fetch the raw
+    # JSON, null-patch it, then validate.
+    titlehub = client.titlehub
+    fields = titlehub.SEPARATOR.join(
+        [TitleFields.ACHIEVEMENT, TitleFields.IMAGE, TitleFields.SERVICE_CONFIG_ID]
+    )
+    url = (
+        f"{titlehub.TITLEHUB_URL}/users/xuid({xuid})"
+        f"/titles/titlehistory/decoration/{fields}"
+    )
+    resp = await client.session.get(
+        url, params={"maxItems": max_items}, headers=titlehub._headers
+    )
+    resp.raise_for_status()
+    data = json.loads(resp.text)
+    for title in data.get("titles") or []:
+        if title.get("displayImage") is None:
+            title["displayImage"] = ""
+    response = TitleHubResponse.model_validate(data)
     return response.titles or []
