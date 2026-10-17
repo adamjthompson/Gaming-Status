@@ -914,17 +914,33 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 earned < previous.get("achievements_earned", 0)
                 or total < previous.get("achievements_total", 0)
             ):
+                # Live-observed: bulk title-history alternates between two
+                # stable readings scan to scan (library total flip-flopping
+                # by the same fixed amount every few scans). Rather than
+                # trusting either the bulk read or the previous value, ask
+                # the per-title endpoint -- the same source the total<earned
+                # repair above uses -- and only fall back to the bulk read
+                # if that call fails. Costs one call per decreased title,
+                # and nothing at all on a scan where nothing decreased.
+                detail = await utils.fetch_xbox_title_achievement_counts(
+                    self.hass, entry, session, xuid, title_id, recent_limit=0
+                )
                 _LOGGER.debug(
                     "Gaming Status: Xbox title-history data for %s (title_id %s) shows a decrease "
-                    "vs previously-recorded %s/%s -> %s/%s this scan -- trusting the fresh read "
-                    "rather than flooring it back up",
+                    "vs previously-recorded %s/%s -> %s/%s this scan -- per-title check says %s",
                     name,
                     title_id,
                     previous.get("achievements_earned", 0),
                     previous.get("achievements_total", 0),
                     earned,
                     total,
+                    f"{detail.get('earned')}/{detail.get('total')}"
+                    if detail
+                    else "unavailable (keeping fresh read)",
                 )
+                if detail:
+                    earned = detail.get("earned", earned)
+                    total = detail.get("total", total)
             games.append(
                 {
                     "title": name,
