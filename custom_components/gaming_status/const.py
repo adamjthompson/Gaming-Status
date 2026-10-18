@@ -385,7 +385,7 @@ STEAMGRIDDB_RATE_LIMIT_PER_SECOND = 2
 # ---------------------------------------------------------------------------
 OPT_PUBLIC_PAGE_ENABLED = "public_page_enabled"
 OPT_PUBLIC_PAGE_TITLE = "public_page_title"
-DEFAULT_PUBLIC_PAGE_TITLE = "Who's Playing"
+DEFAULT_PUBLIC_PAGE_TITLE = "Gaming Status"
 # Dashboard view the public page mirrors, stored as "<dashboard url_path>|
 # <view path or index>" (url_path empty for the default Overview dashboard).
 # Unset = the built-in default layout below.
