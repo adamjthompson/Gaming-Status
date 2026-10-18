@@ -85,10 +85,11 @@ PUBLIC_ICON_URL = f"{PUBLIC_PAGE_URL}/icon.png"
 _ICON_PATH = Path(__file__).parent / "brand" / "icon.png"
 PLAYER_OPT_PUBLIC = "show_on_public_page"
 
-# Fallback when the cards aren't installed as a Lovelace resource (pinned to
-# a release so the public page can't change underneath the user).
+# Fallback when the cards aren't installed as a Lovelace resource. Tracks
+# the latest cards release, which ships alongside each Gaming Status
+# release; jsDelivr re-resolves @latest about every 12 hours.
 CARDS_CDN_FALLBACK = (
-    "https://cdn.jsdelivr.net/gh/adamjthompson/Gaming-Status-Cards@v4.3.9/"
+    "https://cdn.jsdelivr.net/gh/adamjthompson/Gaming-Status-Cards@latest/"
     "gaming-status-cards.js"
 )
 MDI_FONT_CSS = (

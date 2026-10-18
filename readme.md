@@ -155,7 +155,7 @@ Native achievement/trophy/rating enrichment and full game library scanning, all 
 * **Library Scan Interval:** How often to rescan your full game library. Default 12 hours, range 1–24.
 
 #### 7. Public Page
-An optional page that anyone with the link can view **without logging in**, at `/gaming_status/public` on your Home Assistant address (e.g. `http://<your-ha-ip>:8123/gaming_status/public`). It uses the same cards as [Gaming Status Cards](https://github.com/adamjthompson/Gaming-Status-Cards), so it looks like your own dashboards, and refreshes about once a minute. The settings screen shows the page's full link.
+An optional page that anyone with the link can view **without logging in**, at `/gaming_status/public` on your Home Assistant address (e.g. `http://<your-ha-ip>:8123/gaming_status/public`). It uses the same cards as [Gaming Status Cards](https://github.com/adamjthompson/Gaming-Status-Cards), so it looks like your own dashboards, and refreshes about once a minute. Gaming Status Cards doesn't need to be installed for the built-in layout: if it isn't, the page loads the latest public release of the cards. You do need it to design a mirrored dashboard view. The settings screen shows the page's full link.
 
 The page returns "Not found" until **Enable public page** is on *and* at least one player has **Show on public page** checked (Manage Players → Player Details). Only those players appear, and the page's "players online" counts include only them.
 * **Enable public page:** Serves the page. Your Home Assistant must be reachable from the internet for people outside your network to see it (see [Sharing the page outside your network](#sharing-the-page-outside-your-network)).
@@ -166,7 +166,7 @@ The page returns "Not found" until **Enable public page** is on *and* at least o
 * **Light or dark mode:** **Auto** follows each visitor's device; **Light** or **Dark** forces it for everyone.
 * **Theme:** An installed Home Assistant theme for the page. The default uses the mirrored view's own theme if it sets one, otherwise Home Assistant's default colors.
 * **Show gamertags:** Off by default. When off, gamertags are removed before any data leaves Home Assistant.
-* **Cards script URL:** *(Optional)* Leave blank to use the Gaming Status Cards resource already installed in your dashboards; falls back to a pinned public copy if none is found.
+* **Cards script URL:** *(Optional)* Leave blank to use the Gaming Status Cards resource already installed in your dashboards; falls back to the latest public release if none is found.
 
 **What's never shared:** Credentials, account IDs, parental control data, and (unless enabled) gamertags are stripped from the page's data. The Game Management card is never shown, and the page can't call any services or change anything.
 

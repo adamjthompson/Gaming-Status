@@ -397,7 +397,7 @@
           "public_page_theme_mode": "Auto follows each visitor's device setting. Light or Dark forces it for everyone.",
           "public_page_theme": "An installed Home Assistant theme for the page. The default uses the mirrored view's own theme if it sets one, otherwise Home Assistant's default colors.",
           "public_page_show_gamertags": "Off by default. When off, gamertags are removed before any data leaves Home Assistant.",
-          "public_page_cards_url": "Leave blank to use the Gaming Status Cards resource already installed in your dashboards. Falls back to a pinned public copy if none is found."
+          "public_page_cards_url": "Leave blank to use the Gaming Status Cards resource already installed in your dashboards. Falls back to the latest public release if none is found."
         }
       }
     },
