@@ -118,6 +118,11 @@ PUBLIC_CARD_CATALOG: dict[str, tuple[str, bool, str | None]] = {
         "library_playstation",
     ),
 }
+# Cards that show a single platform (their "platform" option). The default
+# layout adds one copy per platform the player has a library for.
+_PER_PLATFORM_CARDS = {"gaming-status-gamercard-card"}
+_LIBRARY_PLATFORMS = ("steam", "xbox", "playstation")
+
 # Never allowed on a public page, even if it's on the mirrored view: it calls services
 # that edit/delete history.
 _FORBIDDEN_CARD_TYPES = {"gaming-status-game-management-card"}
@@ -392,7 +397,7 @@ def _player_has(hass, name: str, requirement: str | None) -> bool:
 def _platform_flags(hass, name: str) -> dict:
     return {
         f"show_platform_{platform}": _player_has(hass, name, f"library_{platform}")
-        for platform in ("steam", "xbox", "playstation")
+        for platform in _LIBRARY_PLATFORMS
     }
 
 
@@ -439,25 +444,29 @@ def _build_layout(
     for name in names:
         if name not in masters:
             continue
-        group = [
-            {
-                "type": card_type,
-                "config": {
-                    # Hide platform tabs this player has no library for,
-                    # and label each copy.
-                    **_platform_flags(hass, name),
-                    "title": name,
-                    "mode": "single",
-                    "single_entity": masters[name],
-                },
-            }
-            for card_type, (_label, per_player, requirement) in (
-                PUBLIC_CARD_CATALOG.items()
-            )
-            if per_player
-            and card_type in per_player_cards
-            and _player_has(hass, name, requirement)
-        ]
+        flags = _platform_flags(hass, name)
+        base = {
+            # Hide platform tabs this player has no library for, and label
+            # each copy.
+            **flags,
+            "title": name,
+            "mode": "single",
+            "single_entity": masters[name],
+        }
+        group = []
+        for card_type, (_label, per_player, requirement) in PUBLIC_CARD_CATALOG.items():
+            if not per_player or card_type not in per_player_cards:
+                continue
+            if not _player_has(hass, name, requirement):
+                continue
+            if card_type in _PER_PLATFORM_CARDS:
+                group.extend(
+                    {"type": card_type, "config": {**base, "platform": platform}}
+                    for platform in _LIBRARY_PLATFORMS
+                    if flags[f"show_platform_{platform}"]
+                )
+            else:
+                group.append({"type": card_type, "config": base})
         if group:
             out.append(group)
     return out, None
