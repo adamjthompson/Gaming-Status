@@ -63,6 +63,11 @@ DISCORD_XBOX_CONNECTION_APP_ID = "622174530214821906"
 # next tick) and is only lightly shared with the real-time path (Xbox has no
 # recurring mid-session recheck today), so a slightly higher budget is safe.
 XBOX_LIBRARY_BACKFILL_BUDGET_PER_CYCLE = 8
+# Xbox titles per backfill tick whose displayImage stand-in gets swapped for
+# SteamGridDB art. Up to 5 SGDB calls each on the shared 2/sec limiter, so
+# 30 is ~75s of pacing per tick -- a ~4000-title library converges in about
+# a day and a half without the burst that got it 429'd inside one scan.
+XBOX_LIBRARY_ART_BACKFILL_BUDGET_PER_CYCLE = 30
 # PSN's per-title detail call costs 2 requests each (5 titles = 10 requests/
 # tick/player), kept lower than Xbox's because PSN's shared RateLimiter
 # BLOCKS/WAITS under contention rather than failing open -- an oversized

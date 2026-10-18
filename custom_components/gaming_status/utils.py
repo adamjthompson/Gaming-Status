@@ -644,12 +644,18 @@ async def fetch_game_grid_urls_remote(hass, game_name):
 
     Paced by its own shared rate limiter (5 capacity, 2/sec) -- a library
     scan can mean hundreds of lookups in one pass, unlike the current-game
-    path's implicit one-request-per-session-cover pacing. Never raises; returns
-    {"grid": None, "hero": None, "logo": None, "icon": None} on any
-    failure or missing API key."""
+    path's implicit one-request-per-session-cover pacing. Never raises;
+    returns (assets, transient) -- assets is {"grid", "hero", "logo",
+    "icon"} with None for anything not found, and transient is True when any
+    lookup failed for a reason that may clear up (non-200 such as 429, a
+    timeout, a limiter wait timeout) rather than SteamGridDB genuinely
+    having nothing. The caller must not cache a transient result as "no
+    art": live-observed on a ~4000-title library, a run of 429s otherwise
+    marked most of the library artless for 24h at a time."""
     assets = {"grid": None, "hero": None, "logo": None, "icon": None}
+    transient = False
     if not game_name:
-        return assets
+        return assets, transient
 
     search_name = _normalize_game_name(game_name)
     override_maps = {
@@ -674,7 +680,7 @@ async def fetch_game_grid_urls_remote(hass, game_name):
     # If the user provided all 4 overrides, skip the SteamGridDB API
     # entirely -- same short-circuit fetch_game_assets already applies.
     if all(assets.values()) or not STEAMGRIDDB_API_KEY:
-        return assets
+        return assets, transient
 
     try:
         from .const import RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS
@@ -692,10 +698,10 @@ async def fetch_game_grid_urls_remote(hass, game_name):
         ) as resp:
             if resp.status != 200:
                 _warn_steamgriddb_key_problem_once(resp.status)
-                return assets
+                return assets, True
             search_data = await resp.json()
         if not search_data.get("data"):
-            return assets
+            return assets, transient
         game_id = search_data["data"][0]["id"]
 
         endpoints = {
@@ -720,6 +726,7 @@ async def fetch_game_grid_urls_remote(hass, game_name):
             async with session.get(endpoint, headers=headers, timeout=10) as resp:
                 if resp.status != 200:
                     _warn_steamgriddb_key_problem_once(resp.status)
+                    transient = True
                     continue
                 asset_data = await resp.json()
             if not asset_data.get("data"):
@@ -732,8 +739,9 @@ async def fetch_game_grid_urls_remote(hass, game_name):
             game_name,
             e,
         )
+        transient = True
 
-    return assets
+    return assets, transient
 
 
 async def get_steamgriddb_game_cover(hass, game_name):

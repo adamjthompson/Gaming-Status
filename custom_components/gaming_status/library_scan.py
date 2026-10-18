@@ -65,6 +65,7 @@ from .const import (
     PLATFORM_CONFIG,
     PSN_LIBRARY_BACKFILL_BUDGET_PER_CYCLE,
     TARGET_AGGREGATE_STEAM_SCAN_BUDGET,
+    XBOX_LIBRARY_ART_BACKFILL_BUDGET_PER_CYCLE,
     XBOX_LIBRARY_BACKFILL_BUDGET_PER_CYCLE,
 )
 from .device import safe_owner_slug
@@ -209,6 +210,8 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         # repeat scans skip the search+asset lookup entirely for games
         # already resolved (only new/never-seen titles cost anything).
         self._art_cache = {}
+        # Set by _async_art_for; read by _backfill_art to stop a batch early.
+        self._last_art_transient = False
         # {"xbox"|"playstation": {title_id: iso_timestamp}} -- per-title
         # "last known activity" cursor for delta detection (see _scan_xbox/
         # _scan_psn). Steam has no equivalent timestamp signal -- its
@@ -433,7 +436,46 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
 
         return raw
 
-    async def _async_art_for(self, title):
+    def _fresh_cached_art(self, cache_key, overridden_now):
+        """The cached SGDB-derived art for cache_key, or None if there's no
+        entry, a previously-overridden type has since been un-overridden,
+        or it's a stale "nothing found" result due a recheck."""
+        cached = self._art_cache.get(cache_key)
+        if not (
+            isinstance(cached, dict)
+            and "art" in cached
+            and not (set(cached.get("overridden", [])) - overridden_now)
+        ):
+            return None
+        checked_at = cached.get("checked_at")
+        if checked_at is not None and (
+            time.time() - checked_at > ART_NOT_FOUND_RECHECK_SECONDS
+        ):
+            return None
+        return dict(cached["art"])
+
+    def _art_needs_lookup(self, title):
+        """True if `title` has no trustworthy SteamGridDB result cached yet
+        -- i.e. _async_art_for would currently be showing a platform-native
+        stand-in (or nothing) for it. Cheap, no I/O."""
+        if not title:
+            return False
+        cache_key = _normalize_game_name(title)
+        overridden_now = {
+            t
+            for t, m in (
+                ("grid", utils.CUSTOM_GRID_MAP),
+                ("hero", utils.CUSTOM_HERO_MAP),
+                ("logo", utils.CUSTOM_LOGO_MAP),
+                ("icon", utils.CUSTOM_ICON_MAP),
+            )
+            if cache_key in m
+        }
+        if len(overridden_now) == 4:
+            return False
+        return self._fresh_cached_art(cache_key, overridden_now) is None
+
+    async def _async_art_for(self, title, native_grid=None):
         """External-URL-only SteamGridDB lookup (see
         utils.fetch_game_grid_urls_remote) -- never downloaded/cached
         locally, unlike the current-game sensors' artwork. The SteamGridDB-
@@ -463,25 +505,21 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         }
         overridden_now = {t for t, m in override_maps.items() if cache_key in m}
 
-        cached = self._art_cache.get(cache_key)
-        art = None
-        if (
-            isinstance(cached, dict)
-            and "art" in cached
-            and not (set(cached.get("overridden", [])) - overridden_now)
-        ):
-            checked_at = cached.get("checked_at")
-            is_stale = checked_at is not None and (
-                time.time() - checked_at > ART_NOT_FOUND_RECHECK_SECONDS
-            )
-            if not is_stale:
-                # No previously-overridden type has since been un-overridden,
-                # and this isn't a stale "nothing found" result -- the
-                # cached SGDB-derived values are still trustworthy.
-                art = dict(cached["art"])
+        art = self._fresh_cached_art(cache_key, overridden_now)
+        self._last_art_transient = False
+
+        if art is None and native_grid:
+            # The platform already handed us a cover (Xbox title-history's
+            # displayImage) -- show it now instead of a SteamGridDB lookup.
+            # At 5 SGDB calls per title on a 2/sec limiter, a ~4000-title
+            # Game Pass-heavy library otherwise spent ~2.8h of every scan on
+            # art alone. Nothing is cached here, so the title stays pending
+            # for _backfill_art, which swaps in SteamGridDB's art (preferred
+            # -- consistent sizing) a budgeted batch per backfill tick.
+            art = {"grid": native_grid, "hero": None, "logo": None, "icon": None}
 
         if art is None:
-            art = await utils.fetch_game_grid_urls_remote(self.hass, title)
+            art, transient = await utils.fetch_game_grid_urls_remote(self.hass, title)
             sgdb_only = {
                 asset_type: (None if asset_type in overridden_now else value)
                 for asset_type, value in art.items()
@@ -489,7 +527,17 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             entry = {"art": sgdb_only, "overridden": sorted(overridden_now)}
             if not any(sgdb_only.values()):
                 entry["checked_at"] = time.time()
-            self._art_cache[cache_key] = entry
+            # A transient failure (429, timeout) caches nothing at all --
+            # not even partial results -- so the next scan retries this
+            # title instead of treating it as artless for 24h.
+            if not transient:
+                self._art_cache[cache_key] = entry
+            self._last_art_transient = transient
+
+        # SteamGridDB confirmed it has no cover -- keep the platform's own
+        # rather than showing none.
+        if native_grid and not art.get("grid"):
+            art["grid"] = native_grid
 
         for asset_type, override_map in override_maps.items():
             if cache_key in override_map:
@@ -815,7 +863,13 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             achievement = getattr(title, "achievement", None)
             earned = getattr(achievement, "current_achievements", 0) or 0
             total = getattr(achievement, "total_achievements", 0) or 0
-            art = await self._async_art_for(name)
+            # Xbox serves some displayImage URLs over plain http, which an
+            # https dashboard blocks as mixed content -- the same hosts
+            # answer on https.
+            display_image = getattr(title, "display_image", None) or None
+            if display_image and display_image.startswith("http://"):
+                display_image = "https://" + display_image[len("http://") :]
+            art = await self._async_art_for(name, native_grid=display_image)
 
             # title-history's own totalAchievements is live-confirmed
             # unreliable for some titles (observed 0 there despite a
@@ -941,6 +995,15 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 if detail:
                     earned = detail.get("earned", earned)
                     total = detail.get("total", total)
+                elif total == 0 and earned > 0 and previous.get("achievements_total"):
+                    # Live-observed: bulk title-history intermittently
+                    # reports totalAchievements=0 for older titles (mostly
+                    # 360/early Xbox One) while currentAchievements is
+                    # intact. A zero total with earned > 0 is impossible,
+                    # so this is the one floor that can't lock in a wrong
+                    # value -- only the previous total is kept, never a
+                    # previous earned count.
+                    total = previous["achievements_total"]
             games.append(
                 {
                     "title": name,
@@ -1208,7 +1271,15 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 "playstation", PSN_LIBRARY_BACKFILL_BUDGET_PER_CYCLE
             )
 
-        if not resolved_this_pass:
+        art_updated = await self._backfill_art(
+            XBOX_LIBRARY_ART_BACKFILL_BUDGET_PER_CYCLE
+        )
+        if art_updated:
+            # Art is display-only (no totals change), so push it straight
+            # to the sensors rather than waiting for the next full scan.
+            self.async_update_listeners()
+
+        if not resolved_this_pass and not art_updated:
             return
 
         remaining = sum(
@@ -1232,6 +1303,43 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 total_resolved,
             )
         await self._store.async_save(self._store_payload(self.data))
+
+    async def _backfill_art(self, budget):
+        """Swaps SteamGridDB art in for Xbox titles the scan showed with
+        Xbox's own displayImage stand-in (see _async_art_for's native_grid).
+        Walks up to `budget` pending titles, updating each game dict in
+        self.data in place (the same objects the summary's combined
+        `games` list holds). A title SGDB has no cover for keeps its Xbox
+        one. Stops early on a transient failure (429/timeout) so a rate-
+        limited SteamGridDB isn't hammered for the rest of the batch --
+        those titles stay pending for the next tick. Returns how many
+        titles' art actually changed."""
+        games = self.data.get("platforms", {}).get("xbox", {}).get("games", [])
+        pending = [g for g in games if self._art_needs_lookup(g.get("title"))]
+        updated = 0
+        for game in pending[:budget]:
+            art = await self._async_art_for(game["title"])
+            if self._last_art_transient:
+                break
+            changed = False
+            for asset_type, key in (
+                ("grid", "game_cover_art"),
+                ("hero", "game_hero_art"),
+                ("logo", "game_logo_art"),
+                ("icon", "game_icon_art"),
+            ):
+                if art.get(asset_type) and game.get(key) != art[asset_type]:
+                    game[key] = art[asset_type]
+                    changed = True
+            updated += changed
+        if pending:
+            _LOGGER.debug(
+                "Gaming Status: SteamGridDB art backfill for %s -- %d updated, %d still pending",
+                self._owner_name,
+                updated,
+                sum(1 for g in games if self._art_needs_lookup(g.get("title"))),
+            )
+        return updated
 
     async def _backfill_platform(self, platform, budget):
         games = self.data.get("platforms", {}).get(platform, {}).get("games", [])
@@ -1442,7 +1550,8 @@ def has_pending_library_backfill(coordinator) -> bool:
         done = coordinator._backfill_done.get(platform, {})
         if any(str(g.get("id")) not in done for g in games):
             return True
-    return False
+    xbox_games = coordinator.data.get("platforms", {}).get("xbox", {}).get("games", [])
+    return any(coordinator._art_needs_lookup(g.get("title")) for g in xbox_games)
 
 
 def _aggregate(raw_by_platform):

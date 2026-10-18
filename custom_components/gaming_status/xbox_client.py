@@ -20,6 +20,10 @@ import logging
 
 from homeassistant.util.dt import utc_from_timestamp
 from pythonxbox.api.client import XboxLiveClient
+from pythonxbox.api.provider.achievements.models import (
+    Achievement360Response,
+    AchievementResponse,
+)
 from pythonxbox.api.provider.catalog.models import AlternateIdType
 from pythonxbox.api.provider.titlehub.models import TitleFields, TitleHubResponse
 from pythonxbox.authentication.manager import AuthenticationManager
@@ -153,6 +157,41 @@ async def async_get_catalog_content_ratings(client, title_id):
         return None
 
 
+_ACHIEVEMENTS_PAGE_SIZE = 1000
+_ACHIEVEMENTS_MAX_PAGES = 10
+
+
+async def _async_get_all_pages(client, path, headers, response_model, xuid, title_id):
+    """Every achievement for one title, across all pages. pythonxbox's own
+    get_achievements_xboxone_gameprogress/get_achievements_xbox360_all send
+    no maxItems and ignore pagingInfo, so they return only the endpoint's
+    default first page (~32 items) -- live-observed as per-title totals
+    capped around 30-32 and earned counts lower than title-history's,
+    which made library totals flip-flop depending on whether a scan's
+    per-title calls ran or were rate-limited. Their **kwargs can't carry
+    maxItems either (they already pass params=), so this issues the same
+    request directly, still through the provider's own rate limiter."""
+    provider = client.achievements
+    url = f"{provider.ACHIEVEMENTS_URL}/users/xuid({xuid})/{path}?"
+    achievements = []
+    token = None
+    for _ in range(_ACHIEVEMENTS_MAX_PAGES):
+        params = {"titleId": title_id, "maxItems": _ACHIEVEMENTS_PAGE_SIZE}
+        if token:
+            params["continuationToken"] = token
+        resp = await provider.client.session.get(
+            url, params=params, headers=headers, rate_limits=provider.rate_limit_read
+        )
+        resp.raise_for_status()
+        page = response_model.model_validate_json(resp.text)
+        achievements.extend(page.achievements or [])
+        paging = getattr(page, "paging_info", None)
+        token = getattr(paging, "continuation_token", None)
+        if not token:
+            break
+    return achievements
+
+
 async def async_get_achievements(client, xuid, title_id, recent_limit=10):
     """Individual achievement detail for one title -- earned/total counts
     plus a bounded, newest-first recent-unlocks list (name/description/
@@ -161,10 +200,14 @@ async def async_get_achievements(client, xuid, title_id, recent_limit=10):
     no separate token-bucket limiter needed here. Never raises; returns None
     on failure (after also trying the legacy Xbox 360 endpoint below)."""
     try:
-        response = await client.achievements.get_achievements_xboxone_gameprogress(
-            xuid, title_id
+        achievements = await _async_get_all_pages(
+            client,
+            "achievements",
+            client.achievements.HEADERS_GAME_PROGRESS,
+            AchievementResponse,
+            xuid,
+            title_id,
         )
-        achievements = response.achievements or []
         # progress_state ("Achieved" vs "NotStarted"/"InProgress") is the
         # correct earned/locked signal -- progression.time_unlocked is a
         # non-optional datetime in the underlying model, so Xbox fills it
@@ -217,10 +260,14 @@ async def _async_get_achievements_legacy_360(client, xuid, title_id, recent_limi
     no placeholder-timestamp ambiguity to work around. Never raises; returns
     None on failure."""
     try:
-        response = await client.achievements.get_achievements_xbox360_all(
-            xuid, title_id
+        achievements = await _async_get_all_pages(
+            client,
+            "titleachievements",
+            client.achievements.HEADERS_GAME_360_PROGRESS,
+            Achievement360Response,
+            xuid,
+            title_id,
         )
-        achievements = response.achievements or []
         earned = [a for a in achievements if a.unlocked]
         earned.sort(key=lambda a: a.time_unlocked, reverse=True)
 
@@ -249,7 +296,15 @@ async def _async_get_achievements_legacy_360(client, xuid, title_id, recent_limi
         return None
 
 
-async def async_get_title_history(client, xuid, max_items=1000):
+# 1000 silently truncated a ~4000-title Game Pass-heavy library -- the
+# endpoint has no continuation token, so maxItems is the whole budget.
+# _TITLE_HISTORY_FALLBACK_MAX_ITEMS is retried only if Xbox rejects the
+# larger page outright (unverified that every account accepts 5000).
+_TITLE_HISTORY_MAX_ITEMS = 5000
+_TITLE_HISTORY_FALLBACK_MAX_ITEMS = 1000
+
+
+async def async_get_title_history(client, xuid, max_items=_TITLE_HISTORY_MAX_ITEMS):
     """Full-library-scan source for Xbox -- ONE non-paginated call returns
     every title's name + achievement earned/total + gamerscore already, no
     per-title achievement call needed for the library view (unlike Steam/
@@ -275,6 +330,17 @@ async def async_get_title_history(client, xuid, max_items=1000):
     resp = await client.session.get(
         url, params={"maxItems": max_items}, headers=titlehub._headers
     )
+    if resp.status_code == 400 and max_items > _TITLE_HISTORY_FALLBACK_MAX_ITEMS:
+        _LOGGER.debug(
+            "[Gaming Status] Xbox title history rejected maxItems=%s -- retrying with %s",
+            max_items,
+            _TITLE_HISTORY_FALLBACK_MAX_ITEMS,
+        )
+        resp = await client.session.get(
+            url,
+            params={"maxItems": _TITLE_HISTORY_FALLBACK_MAX_ITEMS},
+            headers=titlehub._headers,
+        )
     resp.raise_for_status()
     data = json.loads(resp.text)
     for title in data.get("titles") or []:
