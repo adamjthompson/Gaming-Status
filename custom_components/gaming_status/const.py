@@ -188,6 +188,7 @@ MENU_CUSTOM_ARTWORK = "custom_artwork"
 MENU_OVERRIDES = "overrides_exclusions"
 MENU_ACHIEVEMENTS_RATINGS = "achievements_ratings"
 MENU_ADVANCED = "advanced"
+MENU_PUBLIC_PAGE = "public_page"
 
 # ---------------------------------------------------------------------------
 # Option keys
@@ -376,3 +377,27 @@ PSN_RATE_LIMIT_PER_SECOND = 250 / 900  # ~250/15min effective ceiling
 # hundreds of lookups in one pass.
 STEAMGRIDDB_RATE_LIMIT_CAPACITY = 5
 STEAMGRIDDB_RATE_LIMIT_PER_SECOND = 2
+
+# ---------------------------------------------------------------------------
+# Public (no-login) status page -- see public_page.py. Which players appear
+# is a per-player opt-in (Player Details > "Show on public page"); these
+# options control whether the page is served at all and what it shows.
+# ---------------------------------------------------------------------------
+OPT_PUBLIC_PAGE_ENABLED = "public_page_enabled"
+OPT_PUBLIC_PAGE_TITLE = "public_page_title"
+DEFAULT_PUBLIC_PAGE_TITLE = "Who's Playing"
+# Dashboard view the public page mirrors, stored as "<dashboard url_path>|
+# <view path or index>" (url_path empty for the default Overview dashboard).
+# Unset = the built-in default layout below.
+OPT_PUBLIC_PAGE_SOURCE_VIEW = "public_page_source_view"
+PUBLIC_PAGE_DEFAULT_LAYOUT = "__default__"
+DEFAULT_PUBLIC_PAGE_CARDS = [
+    "gaming-status-card",
+    "gaming-status-weekly-activity-card",
+    "gaming-status-leaderboard-card",
+    "gaming-status-recent-sessions-card",
+    "gaming-status-recent-achievements-card",
+    "gaming-status-library-card",
+]
+OPT_PUBLIC_PAGE_SHOW_GAMERTAGS = "public_page_show_gamertags"
+OPT_PUBLIC_PAGE_CARDS_URL = "public_page_cards_url"

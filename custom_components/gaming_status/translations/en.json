@@ -58,6 +58,7 @@
           "custom_artwork": "Custom Artwork & Colors",
           "overrides_exclusions": "Overrides & Exclusions",
           "achievements_ratings": "Achievements & Ratings",
+          "public_page": "Public Page",
           "advanced": "Advanced Settings",
           "global_settings": "Global Settings"
         }
@@ -126,14 +127,16 @@
           "notify_end_destinations": "Session End Notification(s)",
           "suppresses_xbox_sensors": "Suppress other players' Xbox sensors",
           "exclude_games": "Games to exclude (one per line)",
-          "clear_achievements": "Clear Achievement/Trophy History"
+          "clear_achievements": "Clear Achievement/Trophy History",
+          "show_on_public_page": "Show on public page"
         },
         "data_description": {
           "notify_start_destinations": "Select notification method(s) when this player starts gaming.",
           "notify_end_destinations": "Select notification method(s) when this player stops gaming.",
           "suppresses_xbox_sensors": "When this player is confirmed playing on any of their own sensors, block the selected Xbox sensor(s) from also claiming the same game.",
           "exclude_games": "Game titles to ignore for this player, one per line.",
-          "clear_achievements": "Use with caution: Permanently deletes this player's entire recorded achievement/trophy unlock history, across every platform. Applies once on the next reload, then automatically switches back off. This cannot be undone."
+          "clear_achievements": "Use with caution: Permanently deletes this player's entire recorded achievement/trophy unlock history, across every platform. Applies once on the next reload, then automatically switches back off. This cannot be undone.",
+          "show_on_public_page": "Include this player on the no-login public page. Turn the page itself on and choose what it shows under Public Page in the main menu."
         },
         "sections": {
           "achievement_tracking_section": {
@@ -158,11 +161,15 @@
       },
       "notifications": {
         "title": "Notifications & Reporting",
-        "description": "Configure where and how notifications are sent.",
+        "description": "Turn notifications and the weekly report on or off, and configure where and how they're sent.",
         "data": {
+          "enable_notifications": "Enable Notifications & Reporting",
           "endpoint_choice": "Notification Menu",
           "endpoints": "Notification Methods",
           "weekly_report": "Weekly Report Settings"
+        },
+        "data_description": {
+          "enable_notifications": "Turns session alerts and weekly summaries on or off. Your notification settings are kept while this is off."
         }
       },
       "notification_artwork": {
@@ -243,12 +250,14 @@
       },
       "parental_controls": {
         "title": "Parental Controls",
-        "description": "Select a player to configure screen time, curfew, and game ratings rules.",
+        "description": "Turn parental controls on or off, and select a player to configure screen time, curfew, and game ratings rules. {info}",
         "data": {
-          "player_choice": "Player",
+          "enable_parental": "Enable Parental Controls",
+          "player_choice": "Player settings",
           "enable_native_ratings": "Enable Native Content Ratings (applies to all players)"
         },
         "data_description": {
+          "enable_parental": "Turns screen time limits, curfews, and rating rules on or off for every player. Each player's rules are kept while this is off.",
           "enable_native_ratings": "Looks up each game's ESRB rating directly from Steam/Xbox/PlayStation so Content Rating Limit has something to compare against. This is a global setting shared across all players -- the same toggle also appears under Achievements & Ratings; enabling it here or there has the same effect. Content Rating Limit's fields only appear on a player's screen once this is on."
         }
       },
@@ -322,8 +331,6 @@
         "title": "Global Settings",
         "data": {
           "enabled_platforms": "Platforms to Track",
-          "enable_notifications": "Enable Notifications & Reporting",
-          "enable_parental": "Enable Parental Controls",
           "use_local_cache": "Enable Local Image Caching",
           "extract_colors": "Enable Game Color Extraction",
           "cache_max_files": "Maximum Cached Images",
@@ -340,8 +347,6 @@
         },
         "data_description": {
           "enabled_platforms": "Select which platforms should appear in the player configuration menus.",
-          "enable_notifications": "Activates the Notifications & Reporting menu to configure session alerts and weekly summaries.",
-          "enable_parental": "Activates the Parental Controls menu to set screen time limits and curfews.",
           "use_local_cache": "Downloads artwork to your local storage. Disable this to use raw web URLs (recommended if you use Discord notifications without remote HA access).",
           "extract_colors": "Automatically calculates the dominant vibrant color of game artwork for use in dashboard cards. *Note: This will be automatically ignored if Local Caching is disabled.*",
           "cache_max_files": "The maximum number of images to keep on your drive. Set to 0 for unlimited. Default: 200",
@@ -366,6 +371,23 @@
           "custom_logo": "Custom Logo (Transparent Title)",
           "custom_icon": "Custom Icon (Small Square)",
           "custom_colors": "Custom Dominant Colors (Hex Codes)"
+        }
+      },
+      "public_page": {
+        "title": "Public Page",
+        "description": "A no-login page at {page_url} that uses the same cards as your Gaming Status Cards dashboards. Only players with 'Show on public page' turned on (Manage Players > Player Details) appear. Currently shown: {players}.",
+        "data": {
+          "public_page_enabled": "Enable public page",
+          "public_page_title": "Page title",
+          "public_page_source_view": "Dashboard view to mirror",
+          "public_page_show_gamertags": "Show gamertags",
+          "public_page_cards_url": "Cards script URL (optional)"
+        },
+        "data_description": {
+          "public_page_enabled": "Anyone with the link can view the page. Your Home Assistant must be reachable from the internet for people outside your network to see it.",
+          "public_page_source_view": "Design the page on any dashboard view using the cards' own editors, and the public page will show the Gaming Status cards from that view with the same settings. Other card types are skipped, as are cards pinned to a player who isn't public. Tip: use a dedicated dashboard hidden from the sidebar.",
+          "public_page_show_gamertags": "Off by default. When off, gamertags are removed before any data leaves Home Assistant.",
+          "public_page_cards_url": "Leave blank to use the Gaming Status Cards resource already installed in your dashboards. Falls back to a pinned public copy if none is found."
         }
       }
     },

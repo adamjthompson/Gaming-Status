@@ -40,6 +40,7 @@ from .const import (
 from .device import safe_owner_slug
 from .library_scan import has_pending_library_backfill
 from .notifier import GamingNotifier
+from .public_page import async_invalidate_public_cache, async_register_public_views
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor", "binary_sensor", "button"]
@@ -269,6 +270,11 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry):
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Gaming Status from a UI config entry."""
     hass.data.setdefault(DOMAIN, {})
+
+    # Public no-login status page (only serves players opted in under
+    # Player Details; 404s otherwise). Registered once per HA run.
+    async_register_public_views(hass)
+    async_invalidate_public_cache(hass)
 
     # --- Stale Entity Registry Cleanup ---
     from homeassistant.helpers import entity_registry as er

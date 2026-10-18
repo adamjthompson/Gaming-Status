@@ -47,6 +47,7 @@ from .const import (
     MENU_NOTIFICATIONS,
     MENU_OVERRIDES,
     MENU_PARENTAL,
+    MENU_PUBLIC_PAGE,
     MIN_ACHIEVEMENT_RECHECK_SECONDS,
     MIN_LIBRARY_SCAN_INTERVAL_HOURS,
     OPT_ACHIEVEMENT_RECHECK_SECONDS,
@@ -484,21 +485,18 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 self.hass, token, server_id
             )
 
-        from .const import OPT_ENABLE_NOTIFICATIONS, OPT_ENABLE_PARENTAL
-
-        menu_options = [MENU_MANAGE_PLAYERS]
-
-        if self._options.get(OPT_ENABLE_NOTIFICATIONS, False):
-            menu_options.append(MENU_NOTIFICATIONS)
-
-        if self._options.get(OPT_ENABLE_PARENTAL, False):
-            menu_options.append(MENU_PARENTAL)
+        # Every menu is always listed; features that can be switched off
+        # (Notifications & Reporting, Parental Controls, Public Page) carry
+        # their own on/off toggle inside their menu instead of a separate
+        # switch under Global Settings that hides/shows the menu.
+        menu_options = [MENU_MANAGE_PLAYERS, MENU_NOTIFICATIONS, MENU_PARENTAL]
 
         menu_options.extend(
             [
                 MENU_CUSTOM_ARTWORK,
                 MENU_OVERRIDES,
                 MENU_ACHIEVEMENTS_RATINGS,
+                MENU_PUBLIC_PAGE,
                 MENU_ADVANCED,
                 MENU_GLOBAL_SETTINGS,
             ]
@@ -515,16 +513,12 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_global_settings(self, user_input=None):
         from .const import (
-            DEFAULT_ENABLE_NOTIFICATIONS,
-            DEFAULT_ENABLE_PARENTAL,
             DEFAULT_ENABLE_PS3_TRACKING,
             DEFAULT_ENABLED_PLATFORMS,
             DEFAULT_MASTER_HANDOFF_GRACE_SECONDS,
             DEFAULT_REMOVE_DISABLED_SENSORS,
             DEFAULT_SESSION_START_CONFIRM_SECONDS,
             DEFAULT_USE_CACHE,
-            OPT_ENABLE_NOTIFICATIONS,
-            OPT_ENABLE_PARENTAL,
             OPT_ENABLE_PS3_TRACKING,
             OPT_ENABLED_PLATFORMS,
             OPT_MASTER_HANDOFF_GRACE,
@@ -538,12 +532,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             opts[OPT_ENABLED_PLATFORMS] = user_input.get(
                 OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS
-            )
-            opts[OPT_ENABLE_NOTIFICATIONS] = user_input.get(
-                OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS
-            )
-            opts[OPT_ENABLE_PARENTAL] = user_input.get(
-                OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL
             )
             opts[OPT_USE_CACHE] = user_input.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
             # Field is only in the form (and thus in user_input) when caching
@@ -635,16 +623,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             ] = bool
         global_schema.update(
             {
-                vol.Optional(
-                    OPT_ENABLE_NOTIFICATIONS,
-                    default=opts.get(
-                        OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS
-                    ),
-                ): bool,
-                vol.Optional(
-                    OPT_ENABLE_PARENTAL,
-                    default=opts.get(OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL),
-                ): bool,
                 vol.Optional(
                     OPT_USE_CACHE, default=opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
                 ): bool,
@@ -895,6 +873,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 e.strip() for e in exclude_raw.splitlines() if e.strip()
             ]
             existing["clear_achievements"] = user_input.get("clear_achievements", False)
+            existing["show_on_public_page"] = user_input.get(
+                "show_on_public_page", False
+            )
             # Per-platform, grouped under two collapsible Sections (see the
             # schema below) rather than the old single flat toggle -- only
             # write a key for a platform this player actually has configured
@@ -1007,6 +988,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     "exclude_games", description={"suggested_value": exclude_default}
                 ): selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
                 vol.Optional(
+                    "show_on_public_page",
+                    default=existing.get("show_on_public_page", False),
+                ): bool,
+                vol.Optional(
                     "clear_achievements",
                     default=existing.get("clear_achievements", False),
                 ): bool,
@@ -1083,10 +1068,17 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     # -----------------------------------------------------------------------
 
     async def async_step_notifications(self, user_input=None):
+        from .const import DEFAULT_ENABLE_NOTIFICATIONS, OPT_ENABLE_NOTIFICATIONS
+
         opts = self._options
         endpoints = _endpoints(opts)
 
         if user_input is not None:
+            # Saved before routing on, so whichever step comes next (and
+            # its own _update_and_return) persists it too.
+            opts[OPT_ENABLE_NOTIFICATIONS] = user_input.get(
+                OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS
+            )
             selection = user_input.get("endpoint_choice")
             if selection == "__add_new__":
                 self._editing_endpoint = None
@@ -1103,10 +1095,14 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
             return await self._update_and_return()
 
-        # Pure navigation menu -- this dropdown only routes to other steps;
-        # each destination step (including Notification Artwork) saves its
-        # own settings and returns via _update_and_return().
+        # The dropdown routes to other steps; each destination step
+        # (including Notification Artwork) saves its own settings and returns
+        # via _update_and_return(). "__save__" (anything unrecognized) just
+        # saves the on/off toggle and returns to the main menu.
         choices = [
+            selector.SelectOptionDict(
+                value="__save__", label="Save and return to main menu"
+            ),
             selector.SelectOptionDict(
                 value="__add_new__", label="➕ Add New Notification"
             ),
@@ -1130,8 +1126,14 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             step_id=MENU_NOTIFICATIONS,
             data_schema=vol.Schema(
                 {
+                    vol.Optional(
+                        OPT_ENABLE_NOTIFICATIONS,
+                        default=opts.get(
+                            OPT_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS
+                        ),
+                    ): bool,
                     vol.Required(
-                        "endpoint_choice", default="__add_new__"
+                        "endpoint_choice", default="__save__"
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=choices, mode=selector.SelectSelectorMode.DROPDOWN
@@ -1424,20 +1426,15 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     # -----------------------------------------------------------------------
 
     async def async_step_parental_controls(self, user_input=None):
+        from .const import DEFAULT_ENABLE_PARENTAL, OPT_ENABLE_PARENTAL
+
         players = _players(self._options)
         player_names = list(players.keys())
 
-        if not player_names:
-            return self.async_show_form(
-                step_id=MENU_PARENTAL,
-                data_schema=vol.Schema({}),
-                description_placeholders={
-                    "info": "No players configured yet. Add players first."
-                },
-            )
-
         if user_input is not None:
-            self._editing_player = user_input.get("player_choice")
+            self._options[OPT_ENABLE_PARENTAL] = user_input.get(
+                OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL
+            )
             # Set before navigating on, so async_step_parental_player (a
             # later step in this same flow session) sees the just-submitted
             # value immediately -- unlike fields co-located on the SAME
@@ -1447,21 +1444,52 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             self._options[OPT_ENABLE_NATIVE_RATINGS] = user_input.get(
                 OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS
             )
-            return await self.async_step_parental_player()
+            choice = user_input.get("player_choice")
+            if choice in players:
+                self._editing_player = choice
+                return await self.async_step_parental_player()
+            return await self._update_and_return()
+
+        schema = {
+            vol.Optional(
+                OPT_ENABLE_PARENTAL,
+                default=self._options.get(OPT_ENABLE_PARENTAL, DEFAULT_ENABLE_PARENTAL),
+            ): bool,
+        }
+        if player_names:
+            schema[vol.Required("player_choice", default="__save__")] = (
+                selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(
+                                value="__save__", label="Save and return to main menu"
+                            )
+                        ]
+                        + [
+                            selector.SelectOptionDict(value=n, label=f"Edit: {n}")
+                            for n in player_names
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                )
+            )
+        schema[
+            vol.Optional(
+                OPT_ENABLE_NATIVE_RATINGS,
+                default=self._options.get(
+                    OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS
+                ),
+            )
+        ] = bool
 
         return self.async_show_form(
             step_id=MENU_PARENTAL,
-            data_schema=vol.Schema(
-                {
-                    vol.Required("player_choice"): vol.In(player_names),
-                    vol.Optional(
-                        OPT_ENABLE_NATIVE_RATINGS,
-                        default=self._options.get(
-                            OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS
-                        ),
-                    ): bool,
-                }
-            ),
+            data_schema=vol.Schema(schema),
+            description_placeholders={
+                "info": ""
+                if player_names
+                else "No players configured yet. Add players first."
+            },
         )
 
     async def async_step_parental_player(self, user_input=None):
@@ -2458,6 +2486,107 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     registry.async_remove(entity_id)
                 except Exception as e:
                     _LOGGER.warning(f"Could not remove {entity_id}: {e}")
+
+    # -----------------------------------------------------------------------
+    # Public page
+    # -----------------------------------------------------------------------
+
+    async def async_step_public_page(self, user_input=None):
+        from .const import (
+            DEFAULT_PUBLIC_PAGE_TITLE,
+            OPT_PUBLIC_PAGE_CARDS_URL,
+            OPT_PUBLIC_PAGE_ENABLED,
+            OPT_PUBLIC_PAGE_SHOW_GAMERTAGS,
+            OPT_PUBLIC_PAGE_SOURCE_VIEW,
+            OPT_PUBLIC_PAGE_TITLE,
+            PUBLIC_PAGE_DEFAULT_LAYOUT,
+        )
+        from .public_page import (
+            PUBLIC_PAGE_URL,
+            async_list_dashboard_views,
+            public_players,
+        )
+
+        if user_input is not None:
+            self._options[OPT_PUBLIC_PAGE_ENABLED] = user_input.get(
+                OPT_PUBLIC_PAGE_ENABLED, False
+            )
+            self._options[OPT_PUBLIC_PAGE_TITLE] = (
+                user_input.get(OPT_PUBLIC_PAGE_TITLE) or DEFAULT_PUBLIC_PAGE_TITLE
+            ).strip()
+            self._options[OPT_PUBLIC_PAGE_SOURCE_VIEW] = user_input.get(
+                OPT_PUBLIC_PAGE_SOURCE_VIEW, PUBLIC_PAGE_DEFAULT_LAYOUT
+            )
+            self._options[OPT_PUBLIC_PAGE_SHOW_GAMERTAGS] = user_input.get(
+                OPT_PUBLIC_PAGE_SHOW_GAMERTAGS, False
+            )
+            self._options[OPT_PUBLIC_PAGE_CARDS_URL] = (
+                user_input.get(OPT_PUBLIC_PAGE_CARDS_URL) or ""
+            ).strip()
+            return await self._update_and_return()
+
+        views = await async_list_dashboard_views(self.hass)
+        view_options = [
+            selector.SelectOptionDict(
+                value=PUBLIC_PAGE_DEFAULT_LAYOUT, label="Built-in default layout"
+            )
+        ] + [selector.SelectOptionDict(value=v, label=label) for v, label in views]
+        current_view = self._options.get(
+            OPT_PUBLIC_PAGE_SOURCE_VIEW, PUBLIC_PAGE_DEFAULT_LAYOUT
+        )
+        if current_view not in {o["value"] for o in view_options}:
+            # Previously chosen view was deleted/renamed: keep it visible
+            # so saving the form doesn't silently switch layouts.
+            view_options.append(
+                selector.SelectOptionDict(
+                    value=current_view, label=f"Missing view ({current_view})"
+                )
+            )
+
+        shown = public_players(self._config_entry) or []
+        try:
+            page_url = f"{get_url(self.hass)}{PUBLIC_PAGE_URL}"
+        except NoURLAvailableError:
+            page_url = PUBLIC_PAGE_URL
+
+        schema = {
+            vol.Optional(
+                OPT_PUBLIC_PAGE_ENABLED,
+                default=self._options.get(OPT_PUBLIC_PAGE_ENABLED, False),
+            ): bool,
+            vol.Optional(
+                OPT_PUBLIC_PAGE_TITLE,
+                default=self._options.get(
+                    OPT_PUBLIC_PAGE_TITLE, DEFAULT_PUBLIC_PAGE_TITLE
+                ),
+            ): str,
+            vol.Optional(
+                OPT_PUBLIC_PAGE_SOURCE_VIEW, default=current_view
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=view_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional(
+                OPT_PUBLIC_PAGE_SHOW_GAMERTAGS,
+                default=self._options.get(OPT_PUBLIC_PAGE_SHOW_GAMERTAGS, False),
+            ): bool,
+            vol.Optional(
+                OPT_PUBLIC_PAGE_CARDS_URL,
+                description={
+                    "suggested_value": self._options.get(OPT_PUBLIC_PAGE_CARDS_URL, "")
+                },
+            ): str,
+        }
+        return self.async_show_form(
+            step_id="public_page",
+            data_schema=vol.Schema(schema),
+            description_placeholders={
+                "page_url": page_url,
+                "players": ", ".join(shown) if shown else "none yet",
+            },
+        )
 
     async def _update_and_return(self):
         """Save the updated options to Home Assistant and return to the main menu."""
