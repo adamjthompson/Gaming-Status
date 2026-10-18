@@ -51,6 +51,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     DEFAULT_PUBLIC_PAGE_GENERAL_CARDS,
+    DEFAULT_PUBLIC_PAGE_HIDE_ZERO_ACHIEVEMENTS,
     DEFAULT_PUBLIC_PAGE_PLAYER_CARDS,
     DEFAULT_PUBLIC_PAGE_THEME_MODE,
     DEFAULT_PUBLIC_PAGE_TITLE,
@@ -59,6 +60,7 @@ from .const import (
     OPT_PUBLIC_PAGE_CARDS_URL,
     OPT_PUBLIC_PAGE_ENABLED,
     OPT_PUBLIC_PAGE_GENERAL_CARDS,
+    OPT_PUBLIC_PAGE_HIDE_ZERO_ACHIEVEMENTS,
     OPT_PUBLIC_PAGE_PLAYER_CARDS,
     OPT_PUBLIC_PAGE_SHOW_GAMERTAGS,
     OPT_PUBLIC_PAGE_SOURCE_VIEW,
@@ -127,6 +129,8 @@ _LIBRARY_PLATFORMS = ("steam", "xbox", "playstation")
 # visible (showing its idle placeholder) rather than hiding when nobody's
 # playing, so the page doesn't shift around.
 _GENERAL_CARD_CONFIG = {"gaming-slideshow-card": {"auto_hide": False}}
+
+_LIBRARY_CARD = "gaming-status-library-card"
 
 # Never allowed on a public page, even if it's on the mirrored view: it calls services
 # that edit/delete history.
@@ -407,6 +411,21 @@ def _player_has(hass, name: str, requirement: str | None) -> bool:
     return bool(st and st.attributes.get(attr))
 
 
+def _library_earned(hass, name: str, platform: str | None = None) -> bool:
+    """Whether the player's library (or one platform's) has any
+    achievements earned -- the library sensors' state is that count."""
+    slug = safe_owner_slug(name)
+    suffix = f"library_{platform}" if platform else "library_summary"
+    entity_id = er.async_get(hass).async_get_entity_id(
+        "sensor", DOMAIN, f"gaming_status_{slug}_{suffix}"
+    ) or (f"sensor.gaming_status_{slug}_{suffix}")
+    st = hass.states.get(entity_id)
+    try:
+        return float(st.state) > 0
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
 def _platform_flags(hass, name: str) -> dict:
     return {
         f"show_platform_{platform}": _player_has(hass, name, f"library_{platform}")
@@ -440,14 +459,19 @@ def _build_layout(
                 out.append(kept)
         return out, None
 
-    # Built-in default layout: the chosen general cards in catalog order,
-    # then one group per public player holding their chosen per-player
-    # cards, skipping any they don't have the data for.
+    # Built-in default layout: the chosen general cards, then one group per
+    # public player holding their chosen per-player cards, skipping any they
+    # don't have the data for. Both follow the order the cards are listed in
+    # the Public Page settings, so that order is the page's order.
     general = entry.options.get(
         OPT_PUBLIC_PAGE_GENERAL_CARDS, DEFAULT_PUBLIC_PAGE_GENERAL_CARDS
     )
     per_player_cards = entry.options.get(
         OPT_PUBLIC_PAGE_PLAYER_CARDS, DEFAULT_PUBLIC_PAGE_PLAYER_CARDS
+    )
+    hide_zero = entry.options.get(
+        OPT_PUBLIC_PAGE_HIDE_ZERO_ACHIEVEMENTS,
+        DEFAULT_PUBLIC_PAGE_HIDE_ZERO_ACHIEVEMENTS,
     )
     out = [
         [
@@ -456,8 +480,8 @@ def _build_layout(
                 "config": {"mode": "all", **_GENERAL_CARD_CONFIG.get(card_type, {})},
             }
         ]
-        for card_type, (_label, per_player, _req) in PUBLIC_CARD_CATALOG.items()
-        if not per_player and card_type in general
+        for card_type in general
+        if card_type in PUBLIC_CARD_CATALOG and not PUBLIC_CARD_CATALOG[card_type][1]
     ]
     for name in names:
         if name not in masters:
@@ -472,10 +496,11 @@ def _build_layout(
             "single_entity": masters[name],
         }
         group = []
-        for card_type, (_label, per_player, requirement) in PUBLIC_CARD_CATALOG.items():
-            if not per_player or card_type not in per_player_cards:
-                continue
-            if not _player_has(hass, name, requirement):
+        for card_type in per_player_cards:
+            _label, per_player, requirement = PUBLIC_CARD_CATALOG.get(
+                card_type, ("", False, None)
+            )
+            if not per_player or not _player_has(hass, name, requirement):
                 continue
             if card_type in _PER_PLATFORM_CARDS:
                 group.extend(
@@ -493,6 +518,22 @@ def _build_layout(
                     }
                     for platform in _LIBRARY_PLATFORMS
                     if flags[f"show_platform_{platform}"]
+                )
+            elif card_type == _LIBRARY_CARD and hide_zero:
+                # Leave out games with nothing earned, and skip the card (or
+                # a platform's tab) when that would leave it empty.
+                if not _library_earned(hass, name):
+                    continue
+                tabs = {
+                    f"show_platform_{p}": flags[f"show_platform_{p}"]
+                    and _library_earned(hass, name, p)
+                    for p in _LIBRARY_PLATFORMS
+                }
+                group.append(
+                    {
+                        "type": card_type,
+                        "config": {**base, **tabs, "exclude_zero_completion": True},
+                    }
                 )
             else:
                 group.append({"type": card_type, "config": base})

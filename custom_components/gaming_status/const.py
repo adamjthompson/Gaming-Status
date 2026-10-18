@@ -403,6 +403,10 @@ DEFAULT_PUBLIC_PAGE_GENERAL_CARDS = [
 ]
 OPT_PUBLIC_PAGE_PLAYER_CARDS = "public_page_player_cards"
 DEFAULT_PUBLIC_PAGE_PLAYER_CARDS = ["gaming-status-library-card"]
+# Default layout only: the Library card leaves out games with no
+# achievements earned, and is skipped for a player with none at all.
+OPT_PUBLIC_PAGE_HIDE_ZERO_ACHIEVEMENTS = "public_page_hide_zero_achievements"
+DEFAULT_PUBLIC_PAGE_HIDE_ZERO_ACHIEVEMENTS = True
 OPT_PUBLIC_PAGE_SHOW_GAMERTAGS = "public_page_show_gamertags"
 OPT_PUBLIC_PAGE_CARDS_URL = "public_page_cards_url"
 # "auto" follows the visitor's device; "light"/"dark" force one for everyone.

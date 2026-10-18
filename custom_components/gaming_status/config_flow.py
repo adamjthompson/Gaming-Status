@@ -2497,12 +2497,14 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     async def async_step_public_page(self, user_input=None):
         from .const import (
             DEFAULT_PUBLIC_PAGE_GENERAL_CARDS,
+            DEFAULT_PUBLIC_PAGE_HIDE_ZERO_ACHIEVEMENTS,
             DEFAULT_PUBLIC_PAGE_PLAYER_CARDS,
             DEFAULT_PUBLIC_PAGE_THEME_MODE,
             DEFAULT_PUBLIC_PAGE_TITLE,
             OPT_PUBLIC_PAGE_CARDS_URL,
             OPT_PUBLIC_PAGE_ENABLED,
             OPT_PUBLIC_PAGE_GENERAL_CARDS,
+            OPT_PUBLIC_PAGE_HIDE_ZERO_ACHIEVEMENTS,
             OPT_PUBLIC_PAGE_PLAYER_CARDS,
             OPT_PUBLIC_PAGE_SHOW_GAMERTAGS,
             OPT_PUBLIC_PAGE_SOURCE_VIEW,
@@ -2547,6 +2549,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             )
             self._options[OPT_PUBLIC_PAGE_PLAYER_CARDS] = user_input.get(
                 OPT_PUBLIC_PAGE_PLAYER_CARDS, []
+            )
+            self._options[OPT_PUBLIC_PAGE_HIDE_ZERO_ACHIEVEMENTS] = user_input.get(
+                OPT_PUBLIC_PAGE_HIDE_ZERO_ACHIEVEMENTS,
+                DEFAULT_PUBLIC_PAGE_HIDE_ZERO_ACHIEVEMENTS,
             )
             return await self._update_and_return()
 
@@ -2646,6 +2652,13 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
+            vol.Optional(
+                OPT_PUBLIC_PAGE_HIDE_ZERO_ACHIEVEMENTS,
+                default=self._options.get(
+                    OPT_PUBLIC_PAGE_HIDE_ZERO_ACHIEVEMENTS,
+                    DEFAULT_PUBLIC_PAGE_HIDE_ZERO_ACHIEVEMENTS,
+                ),
+            ): bool,
             vol.Optional(
                 OPT_PUBLIC_PAGE_THEME_MODE,
                 default=self._options.get(
