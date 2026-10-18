@@ -41,6 +41,7 @@ import json
 import logging
 import re
 import time
+from typing import Any
 
 from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
@@ -128,7 +129,7 @@ _LIBRARY_PLATFORMS = ("steam", "xbox", "playstation")
 # Extra config for general cards on the default layout. The slideshow stays
 # visible (showing its idle placeholder) rather than hiding when nobody's
 # playing, so the page doesn't shift around.
-_GENERAL_CARD_CONFIG = {
+_GENERAL_CARD_CONFIG: dict[str, dict[str, Any]] = {
     "gaming-slideshow-card": {"auto_hide": False},
     # Labels for cards that have no heading of their own by default.
     "gaming-status-donut-card": {"title": "Platform Split"},
