@@ -136,6 +136,8 @@ _LIBRARY_PLATFORMS = ("steam", "xbox", "playstation")
 # playing, so the page doesn't shift around.
 _GENERAL_CARD_CONFIG: dict[str, dict[str, Any]] = {
     "gaming-slideshow-card": {"auto_hide": False},
+    # The card defaults to the top 3.
+    "gaming-status-leaderboard-card": {"max_players": "10"},
     # Labels for cards that have no heading of their own by default.
     "gaming-status-donut-card": {"title": "Platform Split"},
     "gaming-status-weekly-activity-card": {"title": "Weekly Stats"},
@@ -766,12 +768,13 @@ body{margin:0;background:var(--primary-background-color);color:var(--primary-tex
   font-family:var(--primary-font-family);
   padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
 header{max-width:1280px;margin:0 auto;padding:24px 16px 8px;
-  display:flex;align-items:stretch;gap:12px}
-/* Stretched to the height of the title + subtitle block beside it. */
-header .icon{flex:none;display:flex}
-header .icon img{height:100%;width:auto;aspect-ratio:1;object-fit:contain}
-h1{font-size:28px;font-weight:400;margin:0}
-#sub{color:var(--secondary-text-color);margin:4px 0 0;font-size:14px}
+  display:flex;align-items:center;gap:12px}
+/* Sized to the title + subtitle block beside it: both line heights plus
+   the gap between them (kept in sync with h1/#sub below). */
+header .icon{flex:none;display:block;object-fit:contain;
+  width:calc(28px*1.2 + 4px + 14px*1.2);height:calc(28px*1.2 + 4px + 14px*1.2)}
+h1{font-size:28px;line-height:1.2;font-weight:400;margin:0}
+#sub{color:var(--secondary-text-color);margin:4px 0 0;font-size:14px;line-height:1.2}
 main{max-width:1280px;margin:0 auto;padding:8px 16px 32px;
   columns:3 420px;column-gap:16px}
 main>*{break-inside:avoid;display:block;margin-bottom:16px}
@@ -785,7 +788,7 @@ footer{text-align:center;color:var(--secondary-text-color);font-size:12px;paddin
 </style>
 </head>
 <body>
-<header><div class="icon"><img src="__ICON_URL__" alt=""></div>
+<header><img class="icon" src="__ICON_URL__" alt="">
 <div><h1 id="title">Gaming Status</h1><p id="sub">Loading…</p></div></header>
 <main id="cards" aria-live="polite"></main>
 <footer>Powered by Gaming Status for Home Assistant</footer>
