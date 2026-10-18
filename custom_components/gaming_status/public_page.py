@@ -471,11 +471,14 @@ def _build_layout(
                 group.extend(
                     {
                         "type": card_type,
-                        # One recent game keeps each Gamercard compact.
+                        # Kept compact: one recent game, and no Steam
+                        # playtime or PlayStation trophy-tier row.
                         "config": {
                             **base,
                             "platform": platform,
                             "recent_games_count": 1,
+                            "show_total_playtime": False,
+                            "show_trophy_breakdown": False,
                         },
                     }
                     for platform in _LIBRARY_PLATFORMS
