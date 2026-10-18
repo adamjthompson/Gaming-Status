@@ -432,7 +432,13 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                     raw["error"],
                     len(previous_games),
                 )
-                raw = {**raw, "games": previous_games}
+                raw = {
+                    **raw,
+                    "games": previous_games,
+                    "account_id": previous_platforms.get(platform, {}).get(
+                        "account_id"
+                    ),
+                }
 
         return raw
 
@@ -578,13 +584,33 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         # no fallback and no visibility at all: it just silently contributed
         # 0/0 to that scan's total, corrupting the aggregate with nothing
         # showing up in platform_errors to explain it.
-        previous_games = {
-            g.get("id"): g
-            for g in (self.data or {})
-            .get("platforms", {})
-            .get("steam", {})
-            .get("games", [])
-        }
+        previous_steam = (self.data or {}).get("platforms", {}).get("steam", {})
+        previous_games = {g.get("id"): g for g in previous_steam.get("games", [])}
+        # The stored games must belong to the account being scanned now.
+        # Older versions could resolve a tracked friend to the API key
+        # owner's own steamid, saving the owner's games into the friend's
+        # library, and the carry-forward below then kept them forever.
+        # Libraries saved before the account was recorded have no id, so
+        # they're rebuilt once too: games missing from this account's list
+        # aren't carried forward, while games still in it keep their last
+        # counts until the rotation refreshes them. Only on a successful
+        # fetch: a failed one keeps the old games (and old id) as before.
+        account_id = str(steamid64)
+        carry_forward = True
+        if previous_steam.get("account_id") != account_id:
+            if fetch_error:
+                account_id = previous_steam.get("account_id")
+            else:
+                if previous_games:
+                    _LOGGER.info(
+                        "Gaming Status: rebuilding %s's Steam library from "
+                        "Steam account %s; stored games not in it (of %d) "
+                        "are dropped",
+                        self._owner_name,
+                        steamid64,
+                        len(previous_games),
+                    )
+                carry_forward = False
         # Tracked regardless of exclusion, so an excluded game is never
         # carried forward by the "missing title" fallback below.
         seen_ids = set()
@@ -740,11 +766,12 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         # vanish from someone's real Steam library. Carrying it forward
         # unchanged is strictly safer than letting its contribution to the
         # total quietly disappear.
-        for prev_id, prev_game in previous_games.items():
-            if prev_id not in seen_ids:
-                games.append(prev_game)
+        if carry_forward:
+            for prev_id, prev_game in previous_games.items():
+                if prev_id not in seen_ids:
+                    games.append(prev_game)
 
-        return {"games": games, "error": fetch_error}
+        return {"games": games, "error": fetch_error, "account_id": account_id}
 
     async def _scan_xbox(self, source_entity_id):
         entry, session, xuid = await utils.resolve_xbox_entry_and_session(
@@ -1586,6 +1613,10 @@ def _aggregate(raw_by_platform):
             "game_count": len(games),
             "games": games,
         }
+        if raw.get("account_id"):
+            # Persisted only (not a sensor attribute) -- lets the next scan
+            # tell whether the stored games belong to the same account.
+            summary["account_id"] = raw["account_id"]
         if platform == "steam":
             summary["playtime_hours"] = round(
                 sum(g.get("playtime_hours", 0) for g in games), 1
