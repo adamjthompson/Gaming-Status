@@ -991,10 +991,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     "show_on_public_page",
                     default=existing.get("show_on_public_page", False),
                 ): bool,
-                vol.Optional(
-                    "clear_achievements",
-                    default=existing.get("clear_achievements", False),
-                ): bool,
             }
         )
 
@@ -1056,6 +1052,13 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             schema_dict[vol.Required("library_scan_section")] = section(
                 vol.Schema(library_fields), {"collapsed": False}
             )
+        # Last on the form: destructive, so kept apart from everyday settings.
+        schema_dict[
+            vol.Optional(
+                "clear_achievements",
+                default=existing.get("clear_achievements", False),
+            )
+        ] = bool
 
         return self.async_show_form(
             step_id="player_details",
