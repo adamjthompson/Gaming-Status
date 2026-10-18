@@ -123,6 +123,11 @@ PUBLIC_CARD_CATALOG: dict[str, tuple[str, bool, str | None]] = {
 _PER_PLATFORM_CARDS = {"gaming-status-gamercard-card"}
 _LIBRARY_PLATFORMS = ("steam", "xbox", "playstation")
 
+# Extra config for general cards on the default layout. The slideshow stays
+# visible (showing its idle placeholder) rather than hiding when nobody's
+# playing, so the page doesn't shift around.
+_GENERAL_CARD_CONFIG = {"gaming-slideshow-card": {"auto_hide": False}}
+
 # Never allowed on a public page, even if it's on the mirrored view: it calls services
 # that edit/delete history.
 _FORBIDDEN_CARD_TYPES = {"gaming-status-game-management-card"}
@@ -445,7 +450,12 @@ def _build_layout(
         OPT_PUBLIC_PAGE_PLAYER_CARDS, DEFAULT_PUBLIC_PAGE_PLAYER_CARDS
     )
     out = [
-        [{"type": card_type, "config": {"mode": "all"}}]
+        [
+            {
+                "type": card_type,
+                "config": {"mode": "all", **_GENERAL_CARD_CONFIG.get(card_type, {})},
+            }
+        ]
         for card_type, (_label, per_player, _req) in PUBLIC_CARD_CATALOG.items()
         if not per_player and card_type in general
     ]
@@ -688,6 +698,9 @@ main{max-width:1280px;margin:0 auto;padding:8px 16px 32px;
 main>*{break-inside:avoid;display:block;margin-bottom:16px}
 .group{display:flex;flex-direction:column;gap:16px}
 .group>*{display:block}
+/* A card that hides itself (e.g. an auto-hiding slideshow) sets an inline
+   display:none; hide its wrapper too so no empty gap is left behind. */
+.group:not(:has(>:not([style*="display: none"]))){display:none}
 .msg{color:var(--secondary-text-color);column-span:all}
 footer{text-align:center;color:var(--secondary-text-color);font-size:12px;padding-bottom:24px}
 </style>
