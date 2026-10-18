@@ -26,6 +26,7 @@ Some of the key features are listed below.
 * **Native Content Ratings:** Look up each game's ESRB/age rating directly from Steam, Xbox, or PlayStation — no extra API key or account, and it reuses whatever credentials your existing integrations already have.
 * **Native Achievement/Trophy Tracking:** Pull real achievement/trophy counts, recent unlocks, and gamerscore for whatever game is currently being played, straight from Steam, Xbox, or PlayStation.
 * **Full Game Library Scan:** Periodically scans a player's *entire* game library (not just what's currently running), tracking total achievements/trophies, completion percentage, and — for Steam — playtime per game, with a manual refresh button for instant updates.
+* **Public Status Page:** An optional, read-only page served by Home Assistant that anyone with the link can view without logging in, showing only the players you choose, using the same cards as your dashboards.
 * **Per-Player Devices:** Every player's sensors and buttons are grouped under one Home Assistant device (Settings → Devices & Services) for a clean, unified view instead of a flat list of unrelated entities.
 
 ## Prerequisites
@@ -53,7 +54,7 @@ To display beautiful, high-resolution game covers on your dashboard, this integr
 6. Copy the generated key and paste it into the **SteamGridDB API Key** field during Initial Setup or under the Advanced menu. 
 
 ### Content Ratings
-If you plan to use the **Content Rating Limit** parental control, enable **Enable Native Content Ratings** (either under the **Achievements & Ratings** menu or on the main **Parental Controls** screen, right above the player picker). It's the same setting, shown in both places for convenience. This looks up each game's ESRB rating directly from Steam, Xbox, or PlayStation, reusing whatever credentials you already have configured on the official integrations. No separate API key or account needed. This is independent from achievement/trophy tracking, so you don't need to enable that (or its heavier credential/polling requirements) just to get ratings working. Content Rating Limit's own fields only appear on a player's screen once this is on, since there's nothing for the rule to check against otherwise.
+If you plan to use the **Content Rating Limit** parental control, enable **Enable Native Content Ratings** (either under the **Achievements & Ratings** menu or on the main **Parental Controls** screen). It's the same setting, shown in both places for convenience. This looks up each game's ESRB rating directly from Steam, Xbox, or PlayStation, reusing whatever credentials you already have configured on the official integrations. No separate API key or account needed. This is independent from achievement/trophy tracking, so you don't need to enable that (or its heavier credential/polling requirements) just to get ratings working. Content Rating Limit's own fields only appear on a player's screen once this is on, since there's nothing for the rule to check against otherwise.
 
 *Note: native rating coverage isn't complete for every title. If a game comes back unrated, you can manually assign it a rating using the Content Rating Overrides field under Overrides & Exclusions (see below).*
 
@@ -80,12 +81,12 @@ Gaming Status is configured entirely through the Home Assistant UI. **There is n
 ### Initial Setup
 1. In Home Assistant, navigate to **Settings** > **Devices & Services**.
 2. Click **+ Add Integration** and search for **Gaming Status**.
-3. On the first screen, choose which **Platforms to Track**, whether to enable **Notifications** and **Parental Controls**, enter an optional **SteamGridDB API Key** (highly recommended for artwork; get a free key [here](https://www.steamgriddb.com/profile/api) or add it later under Advanced), and toggle **Local Image Caching** (pre-checked only when Home Assistant has an external HTTPS URL).
+3. On the first screen, choose which **Platforms to Track**, whether to turn on **Notifications** and **Parental Controls** (both can be switched on or off later from their own menus), enter an optional **SteamGridDB API Key** (highly recommended for artwork; get a free key [here](https://www.steamgriddb.com/profile/api) or add it later under Advanced), and toggle **Local Image Caching** (pre-checked only when Home Assistant has an external HTTPS URL).
 4. If **Discord** was selected, a dedicated step asks for your Discord Bot Token and Server ID (see [Setting up Discord Tracking](#pc-tracking--discord-setup)).
 5. Finally, name your first player and map their platform sensors. Click Submit.
 
 ### Options & Features
-To configure your players, notifications, and rules, click the **Configure** button (gear icon) on the Gaming Status integration card. This opens the main configuration hub, which is divided into eight menus based on your enabled features:
+To configure your players, notifications, and rules, click the **Configure** button (gear icon) on the Gaming Status integration card. This opens the main configuration hub, which is divided into nine menus. Every menu is always listed; features that can be switched off (Notifications & Reporting, Parental Controls, and Public Page) have their own on/off toggle inside their menu.
 
 #### 1. Manage Players
 Add, edit, or delete the gamers in your household.
@@ -95,11 +96,13 @@ Add, edit, or delete the gamers in your household.
   * **Session Notifications:** Select notification methods separately for when this specific player starts gaming and when they stop. *Note: These must be configured under Notifications.*
   * **Suppress other players' Xbox sensors:** Configured on the player whose *own* sensor(s) are accurate. Pick which other players' Xbox sensors should be suppressed whenever this player is confirmed playing on any of their own enabled platforms — including their own Xbox sensor. Fixes a shared-PC Xbox app misattributing this player's session to someone else's Xbox account. *Only for cross-player mixups; the same player's own overlapping sensors are already handled automatically.*
   * **Exclude Games:** One game per line to ignore to ignore for this specific player. This  applies to both current-game tracking and their full game library scan (see [Overrides & Exclusions](#5-overrides--exclusions) below for exactly how matching works).
+  * **Show on public page:** Include this player on the [Public Page](#7-public-page). Off by default.
   * **Achievement/Trophy Tracking & Library Scan (per platform):** *(Only shown when the matching global toggle under [Achievements & Ratings](#6-achievements--ratings) is on)* Per-player Steam/Xbox/PlayStation checkboxes to turn achievement tracking and the full library scan on or off for each of this player's configured platforms individually.
-  * **Clear achievement/trophy history:** *Use with caution.* Permanently deletes this player's entire recorded achievement/trophy unlock history, across every platform they're tracked on. Applies once on the next reload, then automatically switches itself back off — unlike other settings, you don't need to remember to undo it.
+  * **Clear achievement/trophy history:** *Use with caution.* The last item on the screen. Permanently deletes this player's entire recorded achievement/trophy unlock history, across every platform they're tracked on. Applies once on the next reload, then automatically switches itself back off — unlike other settings, you don't need to remember to undo it.
 
-#### 2. Notifications (Requires Global Toggle)
+#### 2. Notifications & Reporting
 Manage where your [gaming alerts and weekly reports](docs/notifications.md) are sent.
+* **Enable Notifications & Reporting:** Turns session alerts and weekly summaries on or off. Your notification methods and settings are kept while it's off. To flip it without opening another screen, leave the menu dropdown on **Save and return to main menu** and submit.
 * **Notification Artwork:** Choose which fetched artwork type (Cover, Hero, Logo, Icon, or No Artwork) attaches to your notifications. Default: Cover.
 * **Add Notification:** Map a friendly name (e.g., "Dad's Phone") to an existing Home Assistant `notify.` service. It fully supports standard mobile app notifications, Discord, and SMS.
 * **Discord Notification Colors:** Customize the embed colors for Discord alerts (Default, Platform Colors, Game Color, or Custom Hex). Custom Hex has a separate color per event: started playing (default `#00FF00`), finished playing (`#FF0000`), parental alerts (`#0000FF`), and the Rich weekly report (`#F1C40F`).
@@ -118,9 +121,11 @@ Manage where your [gaming alerts and weekly reports](docs/notifications.md) are 
   * **Number of Top Games to Show:** *(Rich style only, shown when the option above is on)* How many of each player's top games to list, 1-5 (default: 1).
   * **Show rank numbers / Show total summary line:** *(Rich style only)* Both on by default, matching the original Rich format — turn either off to trim the report down.
 
-#### 3. Parental Controls (Requires Global Toggle)
+#### 3. Parental Controls
 Set automated rules based on accumulated playtime, time of day, or game content rating.
-* **Enable Native Content Ratings:** Shown on the main Parental Controls screen, above the player picker — see [Content Ratings](#content-ratings). This is what actually turns the rating pipeline on; Content Rating Limit below only appears on a player's screen once this is checked and saved, since there'd be nothing for the rule to compare against otherwise.
+* **Enable Parental Controls:** Turns screen time limits, curfews, and rating rules on or off for every player. Each player's rules are kept while it's off.
+* **Player settings:** Choose **Edit: <name>** to configure a player's rules, or leave it on **Save and return to main menu** to just save the toggles.
+* **Enable Native Content Ratings:** Shown on the main Parental Controls screen, below the player picker — see [Content Ratings](#content-ratings). This is what actually turns the rating pipeline on; Content Rating Limit below only appears on a player's screen once this is checked and saved, since there'd be nothing for the rule to compare against otherwise.
 * **Screen Time:** Set distinct weekday and weekend daily minute limits.
 * **Curfew:** Set distinct weekday and weekend cutoff times (e.g., 22:00).
 * **Content Rating Limit:** Set a maximum allowed age rating (e.g., "Ages 13+"). Ratings are looked up automatically from Steam/Xbox/PlayStation's own native rating data and cached indefinitely once found for a game. If the player's active game rating exceeds the configured age, a notification is sent the moment that game starts — switching to a *different* over-the-limit game always sends a fresh notification, but the same game won't spam you again while it keeps running. The notification-method picker for this rule appears alongside **Enable content rating limit** as soon as **Enable Native Content Ratings** is enabled.
@@ -138,27 +143,55 @@ Manually adjust game titles, ratings, and what gets tracked.
 * **Title Cleanups:** A list of regex patterns (or plain text, which works the same as a literal pattern) to automatically strip from game names, one per line. *(Example: `Tom Clancy's` on one line, `Sid Meier's` on the next, or a pattern like `(?<=Minecraft)\*.*` to strip any version suffix Minecraft appends after the word "Minecraft*")*
 * **Global Exclusions:** Games or apps that should be universally ignored by the tracker, for every player, one per line. *(Example: `YouTube` on one line, `Netflix` on the next)* Overrides are applied first, then Cleanups, in that order. An Override is a whole-name swap, and any Cleanup pattern still gets a chance to run against its result afterward. Exclusions are checked against *both* the pre-Cleanup and the fully-cleaned name, so it doesn't matter which form your exclusion entry happens to match: excluding `Minecraft` catches it even if a Cleanup is what produces that name from something longer, and excluding `Minecraft Launcher` still works even if a separate Cleanup (e.g. one that strips `Launcher` generally) would otherwise erase the very word that entry is matching on. Matching ignores case and punctuation (commas, colons, dashes, trademark symbols), so `Marvel Rivals™` and `marvel rivals` both match an exclusion entry of `Marvel Rivals`.
   * These same Global Exclusions, combined with each player's own **Exclude Games** list (see Manage Players above), are also applied to that player's **Full Game Library Scan** if it's enabled — an excluded title won't show up in their Game Library sensors, and won't count toward the totals, achievement fetches, or artwork lookups either. Library scan data is cached, though, so a newly-added exclusion won't disappear until the next scheduled scan — press that player's **Game Library Refresh** button to apply it immediately instead of waiting.
-* **Content Rating Overrides:** *(Only shown when Parental Controls is enabled)* Manually assign a rating to games your rating provider has no data for. One per line, formatted as `Game = Code`, using the codes `E`, `E10`, `T`, `M`, or `AO`. *(Example: `Skull and Bones = M`)*
+* **Content Rating Overrides:** *(Only shown when Parental Controls is turned on in its menu)* Manually assign a rating to games your rating provider has no data for. One per line, formatted as `Game = Code`, using the codes `E`, `E10`, `T`, `M`, or `AO`. *(Example: `Skull and Bones = M`)*
 
 #### 6. Achievements & Ratings
 Native achievement/trophy/rating enrichment and full game library scanning, all in one place -- every field here is always visible together, regardless of which toggles are on, so you never have to save and reopen the menu just to find a setting.
-* **Enable Native Content Ratings:** See [Content Ratings](#content-ratings) above. Off by default. Independent from achievement tracking below — Steam ratings need no credential at all, while Xbox and PlayStation each reuse the same session achievement tracking uses (Xbox's numeric age limit is still free either way, from the same official Xbox integration sensor it always was; the credential is only needed for the ESRB/PEGI text label alongside it). This same setting is also shown on the main Parental Controls screen, above the player picker.
+* **Enable Native Content Ratings:** See [Content Ratings](#content-ratings) above. Off by default. Independent from achievement tracking below — Steam ratings need no credential at all, while Xbox and PlayStation each reuse the same session achievement tracking uses (Xbox's numeric age limit is still free either way, from the same official Xbox integration sensor it always was; the credential is only needed for the ESRB/PEGI text label alongside it). This same setting is also shown on the main Parental Controls screen.
 * **Enable Achievement/Trophy Tracking:** Adds achievement/trophy counts and recent-unlock details to the current game's Steam/Xbox/PlayStation sensor. Off by default; the recheck interval, credential overrides, and library scan fields below only take effect once this is on.
 * **Achievement/Trophy Recheck Interval:** How often to re-check for newly-earned achievements/trophies while a game keeps running. Default 900 seconds (15 min), minimum 300 (5 min).
 * **Steam Web API Key Override / PSN NPSSO Override:** *(Optional)* Only needed if the Steam /PlayStation Network integration isn't installed, or you want to use a different credential than the one already configured there. Leave blank to auto-detect. The PSN override is used by both native ratings and achievement tracking.
 * **Enable Full Game Library Scan:** Adds a Game Library sensor (plus one per tracked platform) with your full game collection — total achievements/trophies, completion percentage, and per-game details — scanned periodically in the background. Only created for platforms you already track. Games matching Global Exclusions or that player's own Exclude Games list (see [Overrides & Exclusions](#5-overrides--exclusions)) are skipped entirely. Off by default.
 * **Library Scan Interval:** How often to rescan your full game library. Default 12 hours, range 1–24.
 
-#### 7. Advanced
+#### 7. Public Page
+An optional page that anyone with the link can view **without logging in**, at `/gaming_status/public` on your Home Assistant address (e.g. `http://<your-ha-ip>:8123/gaming_status/public`). It uses the same cards as [Gaming Status Cards](https://github.com/adamjthompson/Gaming-Status-Cards), so it looks like your own dashboards, and refreshes about once a minute. The settings screen shows the page's full link.
+
+The page returns "Not found" until **Enable public page** is on *and* at least one player has **Show on public page** checked (Manage Players → Player Details). Only those players appear, and the page's "players online" counts include only them.
+* **Enable public page:** Serves the page. Your Home Assistant must be reachable from the internet for people outside your network to see it (see [Sharing the page outside your network](#sharing-the-page-outside-your-network)).
+* **Page title:** Shown as the page heading and browser tab title. Default: Gaming Status.
+* **Dashboard view to mirror:** Design the page on any dashboard view with the cards' own editors, and the public page shows the Gaming Status cards from that view with the same settings and grouping (sections and stacks stay together). Other card types are skipped, as are cards pinned to a player who isn't public. A dedicated dashboard hidden from the sidebar works well. Leave it on **Built-in default layout** to have the page laid out automatically instead.
+* **Default layout: general cards / cards for each player:** *(Built-in default layout only)* Which cards to show once for everyone (e.g. player list, slideshow, leaderboard, weekly stats) and which to show grouped under each public player (e.g. Gamercard, game library, 100% completed games). Cards appear in the order listed; to reorder, remove a card and add it back to move it to the end. A per-player card is skipped for a player who doesn't have the data it needs, and the Gamercard is shown once per platform the player has a library on.
+* **Exclude libraries with zero tracked achievements:** *(Built-in default layout only)* On by default. Game library cards leave out games with no achievements earned, and are skipped (or hide a platform's tab) when a player has none at all.
+* **Light or dark mode:** **Auto** follows each visitor's device; **Light** or **Dark** forces it for everyone.
+* **Theme:** An installed Home Assistant theme for the page. The default uses the mirrored view's own theme if it sets one, otherwise Home Assistant's default colors.
+* **Show gamertags:** Off by default. When off, gamertags are removed before any data leaves Home Assistant.
+* **Cards script URL:** *(Optional)* Leave blank to use the Gaming Status Cards resource already installed in your dashboards; falls back to a pinned public copy if none is found.
+
+**What's never shared:** Credentials, account IDs, parental control data, and (unless enabled) gamertags are stripped from the page's data. The Game Management card is never shown, and the page can't call any services or change anything.
+
+##### Sharing the page outside your network
+If you put the page behind a reverse proxy or tunnel (e.g. Cloudflare Tunnel) and only want to expose the page rather than all of Home Assistant, allow these paths:
+
+| Path | Why |
+| --- | --- |
+| `/gaming_status/public` | The page itself |
+| `/api/gaming_status/public.json` | The data the page loads |
+| Your Gaming Status Cards resource, e.g. `/hacsfiles/Gaming-Status-Cards/` | The cards script (match the path and capitalization under Settings → Dashboards → Resources), unless you set **Cards script URL** to a public copy |
+| `/local/gaming_status_cache/` | Cached game artwork |
+| `/api/image_proxy/` | Xbox and PlayStation gamerpics |
+
+Add any other `/local/` folders that hold images (such as `/local/gaming_status/`) you've set as overrides. Home Assistant also needs `use_x_forwarded_for` and `trusted_proxies` set under `http:` in `configuration.yaml` for proxied requests to be accepted.
+
+#### 8. Advanced
 Update your API keys and fine-tune the game-matching engine.
 * **API Keys & Tokens:** Update your SteamGridDB API key, or your Discord Bot Token and Server ID.
 * **Same-Game Prefix Match:** Game names starting with this many matching leading words (e.g. "Call of Duty ...") are treated as the same game instead of a switch. Default: 2. Set to 0 to disable.
 
-#### 8. Global Settings
+#### 9. Global Settings
 These variables control how the integration handles platforms, caching, and network drops across all players.
 * **Enabled Platforms:** Select which gaming platforms to track (Steam, Xbox, PlayStation, Discord, Playnite, Gaming Status Agent, and Custom).
 * **Enable PS3 Tracking:** Adds the PS3 Media Player field (see Manage Players above) to PlayStation-enabled player profiles.
-* **Master Toggles:** Enable or disable the Notifications and Parental Controls configuration hubs.
 * **Cache Settings:** Toggle local image caching (default: on), automatic vibrant color extraction (default: on), and configure background cleanup limits (Max Files, default 200 & Max Days, default 30).
 * **Grace Periods (Network / Away / Transition):** Configure exactly how long the integration waits during network drops, idle statuses, or game switches before ending a session. Defaults: 300 / 600 / 120 seconds.
 * **Minimum Session Duration:** Prevents quickly opening and closing a game (like launching a launcher) from cluttering your play history. Default: 300 seconds.
@@ -393,6 +426,8 @@ The sensor's **state** on both the summary and per-platform Library sensors is a
 | achievement_backfill_by_platform | The same progress broken out per platform: `{xbox: {pending, total}, playstation: {pending, total}}` |
 
 *Paced backfill:* Per-game achievement details on Xbox and PlayStation are fetched gradually in the background, every 15 minutes. A small batch per player (8 Xbox / 5 PlayStation titles), staggered between players, is used to stay within platform rate limits; a title that fails 5 times is skipped. Steam refreshes a rotating slice of the library each scan instead. A large library can therefore take a while to fully populate.
+
+*Steam account check:* Each Steam library remembers which Steam account it was scanned from. If that changes (or on the first scan after updating from a version that didn't record it), games that aren't in the current account's library are dropped instead of kept. This cleans up libraries where an older version mixed in games from the Steam API key owner's account.
 
 **Platform Sensors (`..._library_steam`, `..._library_xbox`, `..._library_playstation`)**
 | Attribute | Description |

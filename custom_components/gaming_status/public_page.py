@@ -110,9 +110,9 @@ PUBLIC_CARD_CATALOG: dict[str, tuple[str, bool, str | None]] = {
     "gaming-status-achievement-icons-card": ("Achievement icons", False, None),
     "gaming-status-library-card": ("Game library (per player)", True, "library"),
     "gaming-status-completion-tracker-card": (
-        "Completion tracker (per player)",
+        "100% completed games (per player)",
         True,
-        "library",
+        "library_complete",
     ),
     "gaming-status-playstation-trophies-card": (
         "PlayStation trophies (per player)",
@@ -128,7 +128,14 @@ _LIBRARY_PLATFORMS = ("steam", "xbox", "playstation")
 # Extra config for general cards on the default layout. The slideshow stays
 # visible (showing its idle placeholder) rather than hiding when nobody's
 # playing, so the page doesn't shift around.
-_GENERAL_CARD_CONFIG = {"gaming-slideshow-card": {"auto_hide": False}}
+_GENERAL_CARD_CONFIG = {
+    "gaming-slideshow-card": {"auto_hide": False},
+    # Labels for cards that have no heading of their own by default.
+    "gaming-status-donut-card": {"title": "Platform Split"},
+    "gaming-status-weekly-activity-card": {"title": "Weekly Stats"},
+    "gaming-status-recent-achievements-card": {"title": "Recent Achievements"},
+    "gaming-status-recent-sessions-card": {"title": "Recent Sessions"},
+}
 
 _LIBRARY_CARD = "gaming-status-library-card"
 
@@ -393,7 +400,7 @@ def _player_has(hass, name: str, requirement: str | None) -> bool:
     if requirement is None:
         return True
     slug = safe_owner_slug(name)
-    if requirement == "library":
+    if requirement in ("library", "library_complete"):
         uid, guess = (
             f"gaming_status_{slug}_library_summary",
             f"sensor.gaming_status_{slug}_library_summary",
@@ -408,6 +415,12 @@ def _player_has(hass, name: str, requirement: str | None) -> bool:
         attr = "game_count"
     entity_id = er.async_get(hass).async_get_entity_id("sensor", DOMAIN, uid) or guess
     st = hass.states.get(entity_id)
+    if requirement == "library_complete":
+        # The completion tracker lists only 100% games, so it'd be empty.
+        return bool(st) and any(
+            isinstance(g, dict) and (g.get("percent") or 0) >= 100
+            for g in st.attributes.get("games") or []
+        )
     return bool(st and st.attributes.get(attr))
 
 
