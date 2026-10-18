@@ -327,7 +327,15 @@ def _view_card_groups(view: dict) -> list[list[dict]]:
 
 
 def _public_url_ok(value: str) -> bool:
-    return value.startswith(("https://", "http://", "/local/", "/hacsfiles/"))
+    if value.startswith(("https://", "http://", "/local/", "/hacsfiles/")):
+        return True
+    # Image entities (the Xbox/PSN gamerpics) are served through
+    # image_proxy with a short-lived per-entity token in the URL, which is
+    # how HA's own frontend loads them without a login header. The token
+    # only unlocks that one image and rotates every few minutes; the page
+    # refreshes often enough to pick up the new one. Only player-device
+    # entities ever reach this filter, so it can't expose other images.
+    return value.startswith("/api/image_proxy/") and "token=" in value
 
 
 def _filter_attrs(attrs: dict, show_gamertags: bool):
@@ -342,7 +350,7 @@ def _filter_attrs(attrs: dict, show_gamertags: bool):
             and value.startswith("/")
             and not _public_url_ok(value)
         ):
-            # e.g. /api/image_proxy/... needs a login; drop rather than
+            # e.g. /api/camera_proxy/... needs a login; drop rather than
             # hand the card a URL that renders as a broken image.
             continue
         out[key] = value
@@ -461,7 +469,15 @@ def _build_layout(
                 continue
             if card_type in _PER_PLATFORM_CARDS:
                 group.extend(
-                    {"type": card_type, "config": {**base, "platform": platform}}
+                    {
+                        "type": card_type,
+                        # One recent game keeps each Gamercard compact.
+                        "config": {
+                            **base,
+                            "platform": platform,
+                            "recent_games_count": 1,
+                        },
+                    }
                     for platform in _LIBRARY_PLATFORMS
                     if flags[f"show_platform_{platform}"]
                 )
