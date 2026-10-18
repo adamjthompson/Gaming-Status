@@ -391,13 +391,25 @@ DEFAULT_PUBLIC_PAGE_TITLE = "Who's Playing"
 # Unset = the built-in default layout below.
 OPT_PUBLIC_PAGE_SOURCE_VIEW = "public_page_source_view"
 PUBLIC_PAGE_DEFAULT_LAYOUT = "__default__"
-DEFAULT_PUBLIC_PAGE_CARDS = [
+# Cards the built-in default layout shows: general cards once (all public
+# players), per-player cards grouped under each public player.
+OPT_PUBLIC_PAGE_GENERAL_CARDS = "public_page_general_cards"
+DEFAULT_PUBLIC_PAGE_GENERAL_CARDS = [
     "gaming-status-card",
     "gaming-status-weekly-activity-card",
     "gaming-status-leaderboard-card",
     "gaming-status-recent-sessions-card",
     "gaming-status-recent-achievements-card",
-    "gaming-status-library-card",
 ]
+OPT_PUBLIC_PAGE_PLAYER_CARDS = "public_page_player_cards"
+DEFAULT_PUBLIC_PAGE_PLAYER_CARDS = ["gaming-status-library-card"]
 OPT_PUBLIC_PAGE_SHOW_GAMERTAGS = "public_page_show_gamertags"
 OPT_PUBLIC_PAGE_CARDS_URL = "public_page_cards_url"
+# "auto" follows the visitor's device; "light"/"dark" force one for everyone.
+OPT_PUBLIC_PAGE_THEME_MODE = "public_page_theme_mode"
+DEFAULT_PUBLIC_PAGE_THEME_MODE = "auto"
+PUBLIC_PAGE_THEME_MODES = ("auto", "light", "dark")
+# An installed Home Assistant theme, or the default below: the mirrored
+# view's own theme if it sets one, else Home Assistant's default colors.
+OPT_PUBLIC_PAGE_THEME = "public_page_theme"
+PUBLIC_PAGE_THEME_DEFAULT = "__default__"

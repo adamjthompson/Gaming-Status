@@ -2493,17 +2493,27 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_public_page(self, user_input=None):
         from .const import (
+            DEFAULT_PUBLIC_PAGE_GENERAL_CARDS,
+            DEFAULT_PUBLIC_PAGE_PLAYER_CARDS,
+            DEFAULT_PUBLIC_PAGE_THEME_MODE,
             DEFAULT_PUBLIC_PAGE_TITLE,
             OPT_PUBLIC_PAGE_CARDS_URL,
             OPT_PUBLIC_PAGE_ENABLED,
+            OPT_PUBLIC_PAGE_GENERAL_CARDS,
+            OPT_PUBLIC_PAGE_PLAYER_CARDS,
             OPT_PUBLIC_PAGE_SHOW_GAMERTAGS,
             OPT_PUBLIC_PAGE_SOURCE_VIEW,
+            OPT_PUBLIC_PAGE_THEME,
+            OPT_PUBLIC_PAGE_THEME_MODE,
             OPT_PUBLIC_PAGE_TITLE,
             PUBLIC_PAGE_DEFAULT_LAYOUT,
+            PUBLIC_PAGE_THEME_DEFAULT,
         )
         from .public_page import (
+            PUBLIC_CARD_CATALOG,
             PUBLIC_PAGE_URL,
             async_list_dashboard_views,
+            installed_theme_names,
             public_players,
         )
 
@@ -2523,6 +2533,18 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             self._options[OPT_PUBLIC_PAGE_CARDS_URL] = (
                 user_input.get(OPT_PUBLIC_PAGE_CARDS_URL) or ""
             ).strip()
+            self._options[OPT_PUBLIC_PAGE_THEME_MODE] = user_input.get(
+                OPT_PUBLIC_PAGE_THEME_MODE, DEFAULT_PUBLIC_PAGE_THEME_MODE
+            )
+            self._options[OPT_PUBLIC_PAGE_THEME] = user_input.get(
+                OPT_PUBLIC_PAGE_THEME, PUBLIC_PAGE_THEME_DEFAULT
+            )
+            self._options[OPT_PUBLIC_PAGE_GENERAL_CARDS] = user_input.get(
+                OPT_PUBLIC_PAGE_GENERAL_CARDS, []
+            )
+            self._options[OPT_PUBLIC_PAGE_PLAYER_CARDS] = user_input.get(
+                OPT_PUBLIC_PAGE_PLAYER_CARDS, []
+            )
             return await self._update_and_return()
 
         views = await async_list_dashboard_views(self.hass)
@@ -2542,6 +2564,35 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     value=current_view, label=f"Missing view ({current_view})"
                 )
             )
+
+        theme_options = [
+            selector.SelectOptionDict(
+                value=PUBLIC_PAGE_THEME_DEFAULT,
+                label="Mirrored view's theme, or Home Assistant default",
+            )
+        ] + [
+            selector.SelectOptionDict(value=n, label=n)
+            for n in installed_theme_names(self.hass)
+        ]
+        current_theme = self._options.get(
+            OPT_PUBLIC_PAGE_THEME, PUBLIC_PAGE_THEME_DEFAULT
+        )
+        if current_theme not in {o["value"] for o in theme_options}:
+            # Same as a missing view: don't silently switch on save.
+            theme_options.append(
+                selector.SelectOptionDict(
+                    value=current_theme, label=f"Missing theme ({current_theme})"
+                )
+            )
+
+        def _card_options(per_player: bool):
+            return [
+                selector.SelectOptionDict(value=card_type, label=label)
+                for card_type, (label, is_per_player, _req) in (
+                    PUBLIC_CARD_CATALOG.items()
+                )
+                if is_per_player == per_player
+            ]
 
         shown = public_players(self._config_entry) or []
         try:
@@ -2565,6 +2616,55 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=view_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional(
+                OPT_PUBLIC_PAGE_GENERAL_CARDS,
+                default=self._options.get(
+                    OPT_PUBLIC_PAGE_GENERAL_CARDS, DEFAULT_PUBLIC_PAGE_GENERAL_CARDS
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=_card_options(False),
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional(
+                OPT_PUBLIC_PAGE_PLAYER_CARDS,
+                default=self._options.get(
+                    OPT_PUBLIC_PAGE_PLAYER_CARDS, DEFAULT_PUBLIC_PAGE_PLAYER_CARDS
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=_card_options(True),
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional(
+                OPT_PUBLIC_PAGE_THEME_MODE,
+                default=self._options.get(
+                    OPT_PUBLIC_PAGE_THEME_MODE, DEFAULT_PUBLIC_PAGE_THEME_MODE
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(
+                            value="auto", label="Auto (follow visitor's device)"
+                        ),
+                        selector.SelectOptionDict(value="light", label="Light"),
+                        selector.SelectOptionDict(value="dark", label="Dark"),
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional(
+                OPT_PUBLIC_PAGE_THEME, default=current_theme
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=theme_options,
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),

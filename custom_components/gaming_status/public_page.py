@@ -50,16 +50,24 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    DEFAULT_PUBLIC_PAGE_CARDS,
+    DEFAULT_PUBLIC_PAGE_GENERAL_CARDS,
+    DEFAULT_PUBLIC_PAGE_PLAYER_CARDS,
+    DEFAULT_PUBLIC_PAGE_THEME_MODE,
     DEFAULT_PUBLIC_PAGE_TITLE,
     DOMAIN,
     OPT_PLAYERS,
     OPT_PUBLIC_PAGE_CARDS_URL,
     OPT_PUBLIC_PAGE_ENABLED,
+    OPT_PUBLIC_PAGE_GENERAL_CARDS,
+    OPT_PUBLIC_PAGE_PLAYER_CARDS,
     OPT_PUBLIC_PAGE_SHOW_GAMERTAGS,
     OPT_PUBLIC_PAGE_SOURCE_VIEW,
+    OPT_PUBLIC_PAGE_THEME,
+    OPT_PUBLIC_PAGE_THEME_MODE,
     OPT_PUBLIC_PAGE_TITLE,
     PUBLIC_PAGE_DEFAULT_LAYOUT,
+    PUBLIC_PAGE_THEME_DEFAULT,
+    PUBLIC_PAGE_THEME_MODES,
 )
 from .device import resolve_master_entity_id, safe_owner_slug
 
@@ -123,6 +131,10 @@ _DENY_ATTR_RE = re.compile(
     re.IGNORECASE,
 )
 _GAMERTAG_RE = re.compile(r"gamertag", re.IGNORECASE)
+# Where the frontend integration keeps installed themes (themes: in
+# configuration.yaml), keyed by theme name.
+_FRONTEND_THEMES_KEY = "frontend_themes"
+_FRONTEND_DEFAULT_THEME_KEY = "frontend_default_theme"
 _HUB_ONLINE = "sensor.gaming_status_players_online"
 _HUB_ANYONE = "binary_sensor.gaming_status_anyone_gaming"
 _OFFLINE_STATES = {"offline", "unknown", "unavailable", "source missing", ""}
@@ -186,6 +198,42 @@ def page_enabled(entry) -> bool:
     )
 
 
+def theme_mode(entry) -> str:
+    mode = entry.options.get(OPT_PUBLIC_PAGE_THEME_MODE) if entry else None
+    return mode if mode in PUBLIC_PAGE_THEME_MODES else DEFAULT_PUBLIC_PAGE_THEME_MODE
+
+
+def installed_theme_names(hass) -> list[str]:
+    return sorted(hass.data.get(_FRONTEND_THEMES_KEY) or {}, key=str.lower)
+
+
+def _theme_vars(hass, name: str | None) -> dict | None:
+    """An installed theme as CSS variables: {"base", "light", "dark"},
+    each {"--var": value}. Mode sections come from the theme's own
+    "modes:" block, applied over the base on top of the page's defaults."""
+    if name == "Backend-selected":
+        name = hass.data.get(_FRONTEND_DEFAULT_THEME_KEY)
+    theme = (hass.data.get(_FRONTEND_THEMES_KEY) or {}).get(name) if name else None
+    if not isinstance(theme, dict):
+        return None
+
+    def css(values) -> dict:
+        if not isinstance(values, dict):
+            return {}
+        return {
+            f"--{key}": str(value)
+            for key, value in values.items()
+            if key != "modes" and isinstance(value, (str, int, float))
+        }
+
+    modes = theme.get("modes") or {}
+    return {
+        "base": css(theme),
+        "light": css(modes.get("light")),
+        "dark": css(modes.get("dark")),
+    }
+
+
 def _lovelace_dashboards(hass) -> dict:
     """url_path -> dashboard config object. Lovelace's hass.data shape has
     changed across HA versions (dict, then a LovelaceData dataclass), so
@@ -240,10 +288,9 @@ def _walk_cards(cards):
             yield from _walk_cards([card["card"]])
 
 
-async def _view_card_groups(hass, source: str) -> list[list[dict]] | None:
-    """Card groups from the mirrored view: one group per section (sections
-    views) or per top-level card/stack (masonry/panel views). None if the
-    dashboard or view no longer exists."""
+async def _load_view(hass, source: str) -> dict | None:
+    """The mirrored view's config, or None if the dashboard or view no
+    longer exists."""
     url_path, _, ref = source.partition("|")
     dash = _lovelace_dashboards(hass).get(url_path or None)
     if dash is None:
@@ -252,12 +299,15 @@ async def _view_card_groups(hass, source: str) -> list[list[dict]] | None:
     if not config:
         return None
     views = config.get("views") or []
-    view = next(
+    return next(
         (v for i, v in enumerate(views) if v.get("path") == ref or str(i) == ref),
         None,
     )
-    if view is None:
-        return None
+
+
+def _view_card_groups(view: dict) -> list[list[dict]]:
+    """Card groups from the mirrored view: one group per section (sections
+    views) or per top-level card/stack (masonry/panel views)."""
     if view.get("sections"):
         raw_groups = [section.get("cards") or [] for section in view["sections"]]
     else:
@@ -346,17 +396,17 @@ def _platform_flags(hass, name: str) -> dict:
     }
 
 
-async def _build_layout(hass, entry, names: list[str], masters: dict):
+def _build_layout(
+    hass, entry, names: list[str], masters: dict, mirrored: bool, view: dict | None
+):
     """Returns (groups, notice). Each group is a list of {type, config}."""
     public_masters = set(masters.values())
-    source = entry.options.get(OPT_PUBLIC_PAGE_SOURCE_VIEW) or ""
 
-    if source and source != PUBLIC_PAGE_DEFAULT_LAYOUT:
-        groups = await _view_card_groups(hass, source)
-        if groups is None:
+    if mirrored:
+        if view is None:
             return [], "The dashboard view this page mirrors can’t be found."
         out = []
-        for group in groups:
+        for group in _view_card_groups(view):
             kept = []
             for card in group:
                 config = {k: v for k, v in card.items() if k != "type"}
@@ -372,30 +422,44 @@ async def _build_layout(hass, entry, names: list[str], masters: dict):
                 out.append(kept)
         return out, None
 
-    # Built-in default layout.
-    out = []
-    for card_type in DEFAULT_PUBLIC_PAGE_CARDS:
-        _label, per_player, requirement = PUBLIC_CARD_CATALOG[card_type]
-        if not per_player:
-            out.append([{"type": card_type, "config": {"mode": "all"}}])
+    # Built-in default layout: the chosen general cards in catalog order,
+    # then one group per public player holding their chosen per-player
+    # cards, skipping any they don't have the data for.
+    general = entry.options.get(
+        OPT_PUBLIC_PAGE_GENERAL_CARDS, DEFAULT_PUBLIC_PAGE_GENERAL_CARDS
+    )
+    per_player_cards = entry.options.get(
+        OPT_PUBLIC_PAGE_PLAYER_CARDS, DEFAULT_PUBLIC_PAGE_PLAYER_CARDS
+    )
+    out = [
+        [{"type": card_type, "config": {"mode": "all"}}]
+        for card_type, (_label, per_player, _req) in PUBLIC_CARD_CATALOG.items()
+        if not per_player and card_type in general
+    ]
+    for name in names:
+        if name not in masters:
             continue
-        for name in names:
-            if name in masters and _player_has(hass, name, requirement):
-                out.append(
-                    [
-                        {
-                            "type": card_type,
-                            "config": {
-                                # Hide platform tabs this player has no
-                                # library for, and label each copy.
-                                **_platform_flags(hass, name),
-                                "title": name,
-                                "mode": "single",
-                                "single_entity": masters[name],
-                            },
-                        }
-                    ]
-                )
+        group = [
+            {
+                "type": card_type,
+                "config": {
+                    # Hide platform tabs this player has no library for,
+                    # and label each copy.
+                    **_platform_flags(hass, name),
+                    "title": name,
+                    "mode": "single",
+                    "single_entity": masters[name],
+                },
+            }
+            for card_type, (_label, per_player, requirement) in (
+                PUBLIC_CARD_CATALOG.items()
+            )
+            if per_player
+            and card_type in per_player_cards
+            and _player_has(hass, name, requirement)
+        ]
+        if group:
+            out.append(group)
     return out, None
 
 
@@ -475,9 +539,19 @@ async def build_public_payload(hass: HomeAssistant) -> dict | None:
             "last_updated": stamp,
         }
 
-    layout, notice = await _build_layout(hass, entry, names, masters)
+    source = entry.options.get(OPT_PUBLIC_PAGE_SOURCE_VIEW) or ""
+    mirrored = bool(source) and source != PUBLIC_PAGE_DEFAULT_LAYOUT
+    view = await _load_view(hass, source) if mirrored else None
+    layout, notice = _build_layout(hass, entry, names, masters, mirrored, view)
+
+    theme_name = entry.options.get(OPT_PUBLIC_PAGE_THEME) or PUBLIC_PAGE_THEME_DEFAULT
+    if theme_name == PUBLIC_PAGE_THEME_DEFAULT:
+        theme_name = (view or {}).get("theme")
+
     payload = {
         "title": entry.options.get(OPT_PUBLIC_PAGE_TITLE) or DEFAULT_PUBLIC_PAGE_TITLE,
+        "theme_mode": theme_mode(entry),
+        "theme": _theme_vars(hass, theme_name),
         "cards_url": await _cards_script_url(hass, entry),
         "generated_at": dt_util.now().isoformat(),
         "refresh_seconds": CACHE_SECONDS * 2,
@@ -522,12 +596,13 @@ class GamingStatusPublicPageView(HomeAssistantView):
 
     async def get(self, request: web.Request) -> web.Response:
         hass = request.app["hass"]
-        if not page_enabled(_loaded_entry(hass)):
+        entry = _loaded_entry(hass)
+        if not page_enabled(entry):
             return web.Response(status=404, text="Not found")
         return web.Response(
-            text=PAGE_HTML.replace("__JSON_URL__", PUBLIC_JSON_URL).replace(
-                "__MDI_CSS__", MDI_FONT_CSS
-            ),
+            text=PAGE_HTML.replace("__JSON_URL__", PUBLIC_JSON_URL)
+            .replace("__MDI_CSS__", MDI_FONT_CSS)
+            .replace("__THEME_MODE__", theme_mode(entry)),
             content_type="text/html",
             headers={
                 "Cache-Control": "no-cache",
@@ -542,7 +617,7 @@ class GamingStatusPublicPageView(HomeAssistantView):
 # ---------------------------------------------------------------------------
 
 PAGE_HTML = r"""<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="__THEME_MODE__">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -562,11 +637,16 @@ PAGE_HTML = r"""<!doctype html>
   --ha-card-border-radius:12px; --ha-card-box-shadow:none;
   color-scheme:light;
 }
-@media (prefers-color-scheme:dark){:root{
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --primary-text-color:#e1e1e1; --secondary-text-color:#9b9b9b;
   --primary-background-color:#111111; --secondary-background-color:#282828;
   --card-background-color:#1c1c1c; --divider-color:rgba(225,225,225,.12);
   color-scheme:dark}}
+:root[data-theme="dark"]{
+  --primary-text-color:#e1e1e1; --secondary-text-color:#9b9b9b;
+  --primary-background-color:#111111; --secondary-background-color:#282828;
+  --card-background-color:#1c1c1c; --divider-color:rgba(225,225,225,.12);
+  color-scheme:dark}
 *{box-sizing:border-box}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 body{margin:0;background:var(--primary-background-color);color:var(--primary-text-color);
@@ -618,9 +698,24 @@ if(!customElements.get("ha-icon")){
   });
 }
 
+// --- Theme -----------------------------------------------------------------
+const darkQuery=matchMedia("(prefers-color-scheme: dark)");
+let theme=null, themeProps=[], lastStates=null;
+function isDark(){const m=document.documentElement.dataset.theme;
+  return m==="dark"||(m!=="light"&&darkQuery.matches)}
+function applyTheme(){
+  const root=document.documentElement.style;
+  themeProps.forEach(p=>root.removeProperty(p)); themeProps=[];
+  if(!theme)return;
+  const vars={...theme.base,...(isDark()?theme.dark:theme.light)};
+  for(const[k,v]of Object.entries(vars)){root.setProperty(k,v);themeProps.push(k)}
+}
+darkQuery.addEventListener("change",()=>{applyTheme();
+  if(lastStates){const h=makeHass(lastStates);cards.forEach(c=>{c.hass=h})}});
+
 // --- Read-only hass stand-in ----------------------------------------------
 function makeHass(states){
-  const dark=matchMedia("(prefers-color-scheme: dark)").matches;
+  const dark=isDark();
   const lang=navigator.language||"en";
   const nope=()=>Promise.reject(new Error("Read-only public page"));
   return{states,language:lang,locale:{language:lang,number_format:"language",time_format:"language"},
@@ -665,6 +760,8 @@ async function refresh(){
     if(!r.ok){msg("This page isn’t enabled right now.");return}
     const d=await r.json(); next=d.refresh_seconds||60;
     document.title=d.title; document.getElementById("title").textContent=d.title;
+    document.documentElement.dataset.theme=d.theme_mode||"auto";
+    theme=d.theme||null; applyTheme(); lastStates=d.states;
     const on=Object.values(d.states).filter(s=>s.entity_id.endsWith("_master")&&
       !["offline","unknown","unavailable","source missing"].includes(String(s.state).toLowerCase())).length;
     document.getElementById("sub").textContent=on?`${on} online now`:"Nobody’s online right now";

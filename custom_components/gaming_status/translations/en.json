@@ -380,12 +380,20 @@
           "public_page_enabled": "Enable public page",
           "public_page_title": "Page title",
           "public_page_source_view": "Dashboard view to mirror",
+          "public_page_general_cards": "Default layout: general cards",
+          "public_page_player_cards": "Default layout: cards for each player",
+          "public_page_theme_mode": "Light or dark mode",
+          "public_page_theme": "Theme",
           "public_page_show_gamertags": "Show gamertags",
           "public_page_cards_url": "Cards script URL (optional)"
         },
         "data_description": {
           "public_page_enabled": "Anyone with the link can view the page. Your Home Assistant must be reachable from the internet for people outside your network to see it.",
           "public_page_source_view": "Design the page on any dashboard view using the cards' own editors, and the public page will show the Gaming Status cards from that view with the same settings. Other card types are skipped, as are cards pinned to a player who isn't public. Tip: use a dedicated dashboard hidden from the sidebar.",
+          "public_page_general_cards": "Only used with the built-in default layout. Shown once, covering every public player.",
+          "public_page_player_cards": "Only used with the built-in default layout. Shown grouped under each public player. Cards are skipped for a player who doesn't have the data they need, such as a game library.",
+          "public_page_theme_mode": "Auto follows each visitor's device setting. Light or Dark forces it for everyone.",
+          "public_page_theme": "An installed Home Assistant theme for the page. The default uses the mirrored view's own theme if it sets one, otherwise Home Assistant's default colors.",
           "public_page_show_gamertags": "Off by default. When off, gamertags are removed before any data leaves Home Assistant.",
           "public_page_cards_url": "Leave blank to use the Gaming Status Cards resource already installed in your dashboards. Falls back to a pinned public copy if none is found."
         }
