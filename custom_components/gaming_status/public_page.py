@@ -41,6 +41,7 @@ import json
 import logging
 import re
 import time
+from pathlib import Path
 from typing import Any
 
 from aiohttp import web
@@ -78,6 +79,10 @@ _LOGGER = logging.getLogger(__name__)
 
 PUBLIC_PAGE_URL = "/gaming_status/public"
 PUBLIC_JSON_URL = "/api/gaming_status/public.json"
+# Under the page's own path, so a proxy/tunnel rule allowing the page
+# allows its icon too.
+PUBLIC_ICON_URL = f"{PUBLIC_PAGE_URL}/icon.png"
+_ICON_PATH = Path(__file__).parent / "brand" / "icon.png"
 PLAYER_OPT_PUBLIC = "show_on_public_page"
 
 # Fallback when the cards aren't installed as a Lovelace resource (pinned to
@@ -173,6 +178,7 @@ def async_register_public_views(hass: HomeAssistant) -> None:
         return
     hass.http.register_view(GamingStatusPublicJsonView())
     hass.http.register_view(GamingStatusPublicPageView())
+    hass.http.register_view(GamingStatusPublicIconView())
     hass.data[_VIEWS_REGISTERED_KEY] = True
 
 
@@ -694,6 +700,7 @@ class GamingStatusPublicPageView(HomeAssistantView):
             return web.Response(status=404, text="Not found")
         return web.Response(
             text=PAGE_HTML.replace("__JSON_URL__", PUBLIC_JSON_URL)
+            .replace("__ICON_URL__", PUBLIC_ICON_URL)
             .replace("__MDI_CSS__", MDI_FONT_CSS)
             .replace("__THEME_MODE__", theme_mode(entry)),
             content_type="text/html",
@@ -702,6 +709,19 @@ class GamingStatusPublicPageView(HomeAssistantView):
                 "X-Robots-Tag": "noindex",
                 "Referrer-Policy": "no-referrer",
             },
+        )
+
+
+class GamingStatusPublicIconView(HomeAssistantView):
+    url = PUBLIC_ICON_URL
+    name = "gaming_status:public_icon"
+    requires_auth = False
+
+    async def get(self, request: web.Request) -> web.StreamResponse:
+        if not page_enabled(_loaded_entry(request.app["hass"])):
+            return web.Response(status=404, text="Not found")
+        return web.FileResponse(
+            _ICON_PATH, headers={"Cache-Control": "public, max-age=86400"}
         )
 
 
@@ -716,7 +736,7 @@ PAGE_HTML = r"""<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
 <title>Gaming Status</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎮</text></svg>">
+<link rel="icon" type="image/png" href="__ICON_URL__">
 <link rel="stylesheet" href="__MDI_CSS__">
 <style>
 /* Home Assistant's default theme variables, which the cards read. */
@@ -745,7 +765,11 @@ html{scroll-padding-top:env(safe-area-inset-top,0px)}
 body{margin:0;background:var(--primary-background-color);color:var(--primary-text-color);
   font-family:var(--primary-font-family);
   padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
-header{max-width:1280px;margin:0 auto;padding:24px 16px 8px}
+header{max-width:1280px;margin:0 auto;padding:24px 16px 8px;
+  display:flex;align-items:stretch;gap:12px}
+/* Stretched to the height of the title + subtitle block beside it. */
+header .icon{flex:none;display:flex}
+header .icon img{height:100%;width:auto;aspect-ratio:1;object-fit:contain}
 h1{font-size:28px;font-weight:400;margin:0}
 #sub{color:var(--secondary-text-color);margin:4px 0 0;font-size:14px}
 main{max-width:1280px;margin:0 auto;padding:8px 16px 32px;
@@ -761,7 +785,8 @@ footer{text-align:center;color:var(--secondary-text-color);font-size:12px;paddin
 </style>
 </head>
 <body>
-<header><h1 id="title">Gaming Status</h1><p id="sub">Loading…</p></header>
+<header><div class="icon"><img src="__ICON_URL__" alt=""></div>
+<div><h1 id="title">Gaming Status</h1><p id="sub">Loading…</p></div></header>
 <main id="cards" aria-live="polite"></main>
 <footer>Powered by Gaming Status for Home Assistant</footer>
 <script>
@@ -868,7 +893,7 @@ async function refresh(){
     theme=d.theme||null; applyTheme(); lastStates=d.states;
     const on=Object.values(d.states).filter(s=>s.entity_id.endsWith("_master")&&
       !["offline","unknown","unavailable","source missing"].includes(String(s.state).toLowerCase())).length;
-    sub.textContent=on?`${on} online now`:"Nobody’s online right now";
+    sub.textContent=`${on} Player${on===1?"":"s"} Online`;
     step="script";
     await loadScript(d.cards_url);
     step="render";
