@@ -377,11 +377,11 @@
         "title": "Public Page",
         "description": "A no-login page at {page_url} that uses the same cards as your Gaming Status Cards dashboards. Only players with 'Show on public page' turned on (Manage Players > Player Details) appear. Currently shown: {players}.",
         "data": {
-          "public_page_enabled": "Enable public page",
+          "public_page_enabled": "Enable Public Page",
           "public_page_title": "Page title",
           "public_page_source_view": "Dashboard view to mirror",
-          "public_page_general_cards": "Default layout: general cards",
-          "public_page_player_cards": "Default layout: cards for each player",
+          "public_page_general_cards": "Default layout: General cards",
+          "public_page_player_cards": "Default layout: Player cards",
           "public_page_hide_zero_achievements": "Exclude libraries with zero tracked achievements",
           "public_page_theme_mode": "Light or dark mode",
           "public_page_theme": "Theme",
@@ -390,7 +390,7 @@
         },
         "data_description": {
           "public_page_enabled": "Anyone with the link can view the page. Your Home Assistant must be reachable from the internet for people outside your network to see it.",
-          "public_page_source_view": "Design the page on any dashboard view using the cards' own editors, and the public page will show the Gaming Status cards from that view with the same settings. Other card types are skipped, as are cards pinned to a player who isn't public. Tip: use a dedicated dashboard hidden from the sidebar.",
+          "public_page_source_view": "Design the page on any dashboard view using the cards' own editors, and the public page will show the Gaming Status cards from that view with the same settings. Other card types are skipped, as are cards pinned to a player who isn't public. Tip: Use a dedicated dashboard hidden from the sidebar.",
           "public_page_general_cards": "Only used with the built-in default layout. Shown once, covering every public player, in the order listed here. To reorder, remove a card and add it back to move it to the end.",
           "public_page_player_cards": "Only used with the built-in default layout. Shown grouped under each public player. Cards are skipped for a player who doesn't have the data they need, such as a game library. Shown in the order listed here.",
           "public_page_hide_zero_achievements": "Only used with the built-in default layout. Game library cards leave out games with no achievements earned, and are skipped (or hide a platform's tab) when a player has none at all.",

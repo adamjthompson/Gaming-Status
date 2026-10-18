@@ -821,7 +821,7 @@ function makeHass(states){
 let cards=[], layoutKey="", scriptUrl=null;
 function loadScript(url){return new Promise((ok,fail)=>{
   if(scriptUrl===url)return ok(); const s=document.createElement("script");
-  s.type="module";s.src=url;s.onload=()=>{scriptUrl=url;ok()};s.onerror=()=>fail(new Error("cards script"));
+  s.type="module";s.src=url;s.onload=()=>{scriptUrl=url;ok()};s.onerror=()=>{s.remove();fail(new Error("cards script failed to load: "+url))};
   document.head.append(s)})}
 
 function msg(text){document.getElementById("cards").replaceChildren(
@@ -848,24 +848,43 @@ async function build(groups,hass){
   if(!made.length)msg("No cards to show yet.");
 }
 
+// Each step names what failed, so a visitor (or you, debugging a proxy or
+// tunnel) can tell a blocked data request from a blocked cards script.
 async function refresh(){
-  let next=60;
+  let next=60, step="data";
+  const sub=document.getElementById("sub");
   try{
-    const r=await fetch(JSON_URL,{cache:"no-store"});
-    if(!r.ok){msg("This page isn’t enabled right now.");return}
-    const d=await r.json(); next=d.refresh_seconds||60;
+    let r;
+    try{r=await fetch(JSON_URL,{cache:"no-store"})}
+    catch(e){step="network";throw e}
+    if(r.status===404){msg("This page isn’t enabled right now.");return}
+    if(!r.ok){step="status:"+r.status;throw new Error("HTTP "+r.status)}
+    let d;
+    try{d=await r.json()}catch(e){step="json";throw e}
+    next=d.refresh_seconds||60;
     document.title=d.title; document.getElementById("title").textContent=d.title;
     document.documentElement.dataset.theme=d.theme_mode||"auto";
     theme=d.theme||null; applyTheme(); lastStates=d.states;
     const on=Object.values(d.states).filter(s=>s.entity_id.endsWith("_master")&&
       !["offline","unknown","unavailable","source missing"].includes(String(s.state).toLowerCase())).length;
-    document.getElementById("sub").textContent=on?`${on} online now`:"Nobody’s online right now";
+    sub.textContent=on?`${on} online now`:"Nobody’s online right now";
+    step="script";
     await loadScript(d.cards_url);
+    step="render";
     const hass=makeHass(d.states); const key=JSON.stringify(d.layout);
     if(d.notice){layoutKey="";cards=[];msg(d.notice)}
     else if(key!==layoutKey){layoutKey=key;await build(d.layout,hass)}
     else cards.forEach(c=>{c.hass=hass});
-  }catch(e){document.getElementById("sub").textContent="Couldn’t reach the server. Retrying…";console.warn(e)}
+  }catch(e){
+    const text=step==="network"?"Couldn’t reach the server."
+      :step.startsWith("status:")?`The server returned an error (${step.slice(7)}).`
+      :step==="json"?"The server sent something other than page data (a proxy or security page?)."
+      :step==="script"?"Couldn’t load the cards script."
+      :step==="render"?"Couldn’t display the cards."
+      :"Couldn’t load page data.";
+    sub.textContent=text+" Retrying…";
+    console.warn("Gaming Status:",text,e);
+  }
   finally{setTimeout(refresh,next*1000)}
 }
 refresh();
