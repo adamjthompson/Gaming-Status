@@ -165,7 +165,7 @@ The page returns "Not found" until **Enable public page** is on *and* at least o
 * **Exclude libraries with zero tracked achievements:** *(Built-in default layout only)* On by default. Game library cards leave out games with no achievements earned, and are skipped (or hide a platform's tab) when a player has none at all.
 * **Light or dark mode:** **Auto** follows each visitor's device; **Light** or **Dark** forces it for everyone.
 * **Theme:** An installed Home Assistant theme for the page. The default uses the mirrored view's own theme if it sets one, otherwise Home Assistant's default colors.
-* **Show gamertags:** Off by default. When off, gamertags are removed before any data leaves Home Assistant.
+* **Show gamertags:** Off by default. When off, gamertags are removed before any data leaves Home Assistant. When on, the built-in layout's cards show them; on a mirrored view, also turn on **Show gamertags** in each card's editor.
 * **Cards script URL:** *(Optional)* Leave blank to use the Gaming Status Cards resource already installed in your dashboards; falls back to the latest public release if none is found.
 
 **What's never shared:** Credentials, account IDs, parental control data, and (unless enabled) gamertags are stripped from the page's data. The Game Management card is never shown, and the page can't call any services or change anything.
