@@ -624,10 +624,12 @@ def _build_layout(
             out.append(group)
     if entry.options.get(OPT_PUBLIC_PAGE_SHOW_GAMERTAGS, False):
         # The setting only lets gamertags into the snapshot; the cards
-        # that can show them each have their own opt-in switch too.
+        # that can show them each have their own opt-in switch too. Only
+        # the player list turns it on -- elsewhere they clutter the card.
         for group in out:
             for item in group:
-                item["config"] = {**item["config"], "show_gamertags": True}
+                if item["type"] == "gaming-status-card":
+                    item["config"] = {**item["config"], "show_gamertags": True}
     return out, None
 
 
