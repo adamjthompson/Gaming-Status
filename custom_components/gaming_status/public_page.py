@@ -37,12 +37,16 @@ run and look up the currently loaded entry on every request, returning
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import logging
 import re
+import secrets
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
@@ -154,13 +158,16 @@ _FORBIDDEN_CARD_TYPES = {"gaming-status-game-management-card"}
 
 # Attribute keys never sent publicly. Pattern match catches credential-ish,
 # account-id and parental-control fields, including any added later.
+# Checked at every nesting level, not just top-level attribute names.
 _DENY_ATTR_RE = re.compile(
     r"(token|npsso|oauth|password|secret|api_key|xuid|account|config_entry|"
-    r"discord_user|internal|blocked|limit|remaining|parental|snooze|"
+    r"discord_user|discord_data|user_id|steam_?id|online_id|"
+    r"internal|blocked|limit|remaining|parental|snooze|"
     r"rating_exceeded|source_entit|debug|backup)",
     re.IGNORECASE,
 )
-_GAMERTAG_RE = re.compile(r"gamertag", re.IGNORECASE)
+# Real account names: removed unless Show gamertags is on.
+_GAMERTAG_RE = re.compile(r"(gamertag|display_name|persona)", re.IGNORECASE)
 # Where the frontend integration keeps installed themes (themes: in
 # configuration.yaml), keyed by theme name.
 _FRONTEND_THEMES_KEY = "frontend_themes"
@@ -364,22 +371,35 @@ def _public_url_ok(value: str) -> bool:
     return value.startswith("/api/image_proxy/") and "token=" in value
 
 
-def _filter_attrs(attrs: dict, show_gamertags: bool):
+_DROP = object()
+
+
+def _filter_value(value, show_gamertags: bool):
+    """Filters nested dicts/lists the same way as top-level attributes, so
+    a sensitive field can't slip through inside another one."""
+    if isinstance(value, dict):
+        return _filter_attrs(value, show_gamertags)
+    if isinstance(value, (list, tuple)):
+        items = (_filter_value(v, show_gamertags) for v in value)
+        return [v for v in items if v is not _DROP]
+    if isinstance(value, str) and value.startswith("/") and not _public_url_ok(value):
+        # e.g. /api/camera_proxy/... needs a login; drop rather than hand
+        # the card a URL that renders as a broken image.
+        return _DROP
+    return value
+
+
+def _filter_attrs(attrs: dict, show_gamertags: bool) -> dict:
     out = {}
     for key, value in attrs.items():
-        if _DENY_ATTR_RE.search(key):
+        key_str = str(key)
+        if _DENY_ATTR_RE.search(key_str):
             continue
-        if not show_gamertags and _GAMERTAG_RE.search(key):
+        if not show_gamertags and _GAMERTAG_RE.search(key_str):
             continue
-        if (
-            isinstance(value, str)
-            and value.startswith("/")
-            and not _public_url_ok(value)
-        ):
-            # e.g. /api/camera_proxy/... needs a login; drop rather than
-            # hand the card a URL that renders as a broken image.
-            continue
-        out[key] = value
+        filtered = _filter_value(value, show_gamertags)
+        if filtered is not _DROP:
+            out[key] = filtered
     return out
 
 
@@ -456,11 +476,50 @@ def _platform_flags(hass, name: str) -> dict:
     }
 
 
+# Card options that list players (entity ids or player names). On a
+# mirrored view these are cut down to public players, so a private
+# player's name never appears in the page's data.
+_ENTITY_LIST_KEYS = ("selected_entities", "manual_entities", "entities")
+
+
+def _scrub_entity_lists(config: dict, allowed: set[str]) -> dict:
+    out = dict(config)
+    for key in _ENTITY_LIST_KEYS:
+        value = out.get(key)
+        if isinstance(value, str):
+            tokens = [t.strip() for t in re.split(r"[,\n]", value) if t.strip()]
+            out[key] = ", ".join(t for t in tokens if t.lower() in allowed)
+        elif isinstance(value, list):
+            out[key] = [
+                item
+                for item in value
+                if str(
+                    item.get("entity", "") if isinstance(item, dict) else item
+                ).lower()
+                in allowed
+            ]
+    return out
+
+
 def _build_layout(
-    hass, entry, names: list[str], masters: dict, mirrored: bool, view: dict | None
+    hass,
+    entry,
+    names: list[str],
+    masters: dict,
+    mirrored: bool,
+    view: dict | None,
+    states: dict | None = None,
 ):
     """Returns (groups, notice). Each group is a list of {type, config}."""
     public_masters = set(masters.values())
+    # Lower-cased entity ids, player names and friendly names of public
+    # players -- everything a card's player list may legitimately name.
+    allowed = {n.lower() for n in names}
+    for entity_id, st in (states or {}).items():
+        allowed.add(entity_id.lower())
+        friendly = (st.get("attributes") or {}).get("friendly_name")
+        if friendly:
+            allowed.add(str(friendly).lower())
 
     if mirrored:
         if view is None:
@@ -477,6 +536,7 @@ def _build_layout(
                 # ever resolve to them.
                 if target and target not in public_masters:
                     continue
+                config = _scrub_entity_lists(config, allowed)
                 kept.append({"type": card["type"], "config": config})
             if kept:
                 out.append(kept)
@@ -608,6 +668,7 @@ async def build_public_payload(hass: HomeAssistant) -> dict | None:
     states: dict[str, dict] = {}
     masters: dict[str, str] = {}
     online = 0
+    active_games: list[str] = []
     for name in names:
         master_id = resolve_master_entity_id(hass, name)
         for entity_id in _player_entity_ids(hass, name):
@@ -621,11 +682,19 @@ async def build_public_payload(hass: HomeAssistant) -> dict | None:
                 masters[name] = master_id
                 if (st.state or "").lower() not in _OFFLINE_STATES:
                     online += 1
+                    active_games.append(st.state)
 
     # Hub entities, recomputed over public players only.
     stamp = dt_util.utcnow().isoformat()
     for entity_id, value, attrs in (
-        (_HUB_ONLINE, str(online), {"friendly_name": "Players Online"}),
+        (
+            _HUB_ONLINE,
+            str(online),
+            {
+                "friendly_name": "Players Online",
+                "active_games": ", ".join(active_games) if active_games else "None",
+            },
+        ),
         (
             _HUB_ANYONE,
             "on" if online else "off",
@@ -635,10 +704,14 @@ async def build_public_payload(hass: HomeAssistant) -> dict | None:
         real = hass.states.get(entity_id)
         if real is None:
             continue
-        safe = _filter_attrs(dict(real.attributes), show_gamertags)
-        # Drop any per-player lists the hub may carry; they'd include
-        # private players.
-        safe = {k: v for k, v in safe.items() if not isinstance(v, (list, dict))}
+        # Only presentation attributes are copied from the real hub entity:
+        # anything else on it (e.g. its active_games, which names private
+        # players' games) covers every player, not just public ones.
+        safe = {
+            k: real.attributes[k]
+            for k in ("icon", "unit_of_measurement", "device_class")
+            if k in real.attributes
+        }
         states[entity_id] = {
             "entity_id": entity_id,
             "state": value,
@@ -650,7 +723,7 @@ async def build_public_payload(hass: HomeAssistant) -> dict | None:
     source = entry.options.get(OPT_PUBLIC_PAGE_SOURCE_VIEW) or ""
     mirrored = bool(source) and source != PUBLIC_PAGE_DEFAULT_LAYOUT
     view = await _load_view(hass, source) if mirrored else None
-    layout, notice = _build_layout(hass, entry, names, masters, mirrored, view)
+    layout, notice = _build_layout(hass, entry, names, masters, mirrored, view, states)
 
     theme_name = entry.options.get(OPT_PUBLIC_PAGE_THEME) or PUBLIC_PAGE_THEME_DEFAULT
     if theme_name == PUBLIC_PAGE_THEME_DEFAULT:
@@ -697,6 +770,46 @@ class GamingStatusPublicJsonView(HomeAssistantView):
         return resp
 
 
+# The cards' one inline image-fallback handler (onerror=...), allowed by
+# hash so it keeps working under the CSP. If the cards change it, only that
+# broken-image fallback stops working; nothing else depends on it.
+_CARDS_INLINE_HANDLERS = (
+    (
+        "this.style.display='none'; "
+        "this.previousElementSibling.style.removeProperty('display');"
+    ),
+)
+_HANDLER_HASHES = " ".join(
+    f"'sha256-{base64.b64encode(hashlib.sha256(h.encode()).digest()).decode()}'"
+    for h in _CARDS_INLINE_HANDLERS
+)
+
+
+def _content_security_policy(nonce: str, cards_url: str) -> str:
+    """Scripts only from this page (by nonce), Home Assistant, jsDelivr and
+    the cards script's own host. Images may come from anywhere (artwork
+    hosts vary); the page itself makes no requests except to HA."""
+    script_hosts = {"'self'", "https://cdn.jsdelivr.net"}
+    parts = urlsplit(cards_url)
+    if parts.scheme in ("http", "https") and parts.netloc:
+        script_hosts.add(f"{parts.scheme}://{parts.netloc}")
+    return "; ".join(
+        [
+            "default-src 'self'",
+            f"script-src 'nonce-{nonce}' 'unsafe-hashes' {_HANDLER_HASHES} "
+            + " ".join(sorted(script_hosts)),
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+            "font-src 'self' https://cdn.jsdelivr.net data:",
+            "img-src * data: blob:",
+            "connect-src 'self'",
+            "object-src 'none'",
+            "base-uri 'none'",
+            "form-action 'none'",
+            "frame-ancestors 'none'",
+        ]
+    )
+
+
 class GamingStatusPublicPageView(HomeAssistantView):
     url = PUBLIC_PAGE_URL
     name = "gaming_status:public_page"
@@ -707,8 +820,11 @@ class GamingStatusPublicPageView(HomeAssistantView):
         entry = _loaded_entry(hass)
         if not page_enabled(entry):
             return web.Response(status=404, text="Not found")
+        nonce = secrets.token_urlsafe(16)
+        csp = _content_security_policy(nonce, await _cards_script_url(hass, entry))
         return web.Response(
-            text=PAGE_HTML.replace("__JSON_URL__", PUBLIC_JSON_URL)
+            text=PAGE_HTML.replace("__NONCE__", nonce)
+            .replace("__JSON_URL__", PUBLIC_JSON_URL)
             .replace("__ICON_URL__", PUBLIC_ICON_URL)
             .replace("__MDI_CSS__", MDI_FONT_CSS)
             .replace("__THEME_MODE__", theme_mode(entry)),
@@ -717,6 +833,8 @@ class GamingStatusPublicPageView(HomeAssistantView):
                 "Cache-Control": "no-cache",
                 "X-Robots-Tag": "noindex",
                 "Referrer-Policy": "no-referrer",
+                "Content-Security-Policy": csp,
+                "X-Content-Type-Options": "nosniff",
             },
         )
 
@@ -799,7 +917,7 @@ footer{text-align:center;color:var(--secondary-text-color);font-size:12px;paddin
 <div><h1 id="title">Gaming Status</h1><p id="sub">Loading…</p></div></header>
 <main id="cards" aria-live="polite"></main>
 <footer>Powered by Gaming Status for Home Assistant</footer>
-<script>
+<script nonce="__NONCE__">
 const JSON_URL="__JSON_URL__", MDI_CSS="__MDI_CSS__";
 
 // --- Stand-ins for Home Assistant's own frontend elements -----------------
