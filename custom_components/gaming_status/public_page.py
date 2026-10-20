@@ -151,6 +151,8 @@ _GENERAL_CARD_CONFIG: dict[str, dict[str, Any]] = {
 }
 
 _LIBRARY_CARD = "gaming-status-library-card"
+# Cards that show gamertags when Show gamertags is on (default layout).
+_GAMERTAG_CARDS = {"gaming-status-card", "gaming-status-gamercard-card"}
 
 # Never allowed on a public page, even if it's on the mirrored view: it calls services
 # that edit/delete history.
@@ -625,10 +627,11 @@ def _build_layout(
     if entry.options.get(OPT_PUBLIC_PAGE_SHOW_GAMERTAGS, False):
         # The setting only lets gamertags into the snapshot; the cards
         # that can show them each have their own opt-in switch too. Only
-        # the player list turns it on -- elsewhere they clutter the card.
+        # the player list and Gamercards turn it on -- elsewhere they
+        # clutter the card.
         for group in out:
             for item in group:
-                if item["type"] == "gaming-status-card":
+                if item["type"] in _GAMERTAG_CARDS:
                     item["config"] = {**item["config"], "show_gamertags": True}
     return out, None
 

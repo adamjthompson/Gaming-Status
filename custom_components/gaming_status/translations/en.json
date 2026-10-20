@@ -396,7 +396,7 @@
           "public_page_hide_zero_achievements": "Only used with the built-in default layout. Game library cards leave out games with no achievements earned, and are skipped (or hide a platform's tab) when a player has none at all.",
           "public_page_theme_mode": "Auto follows each visitor's device setting. Light or Dark forces it for everyone.",
           "public_page_theme": "An installed Home Assistant theme for the page. The default uses the mirrored view's own theme if it sets one, otherwise Home Assistant's default colors.",
-          "public_page_show_gamertags": "Off by default. When off, gamertags are removed before any data leaves Home Assistant. When on, the built-in layout shows them in the player list; on a mirrored view, also turn on Show gamertags in each card's editor.",
+          "public_page_show_gamertags": "Off by default. When off, gamertags are removed before any data leaves Home Assistant. When on, the built-in layout shows them in the player list and Gamercards; on a mirrored view, also turn on Show gamertags in each card's editor.",
           "public_page_cards_url": "Leave blank to use the Gaming Status Cards resource already installed in your dashboards. Falls back to the latest public release if none is found."
         }
       }
