@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import html
 import json
 import logging
 import re
@@ -125,6 +126,11 @@ PUBLIC_CARD_CATALOG: dict[str, tuple[str, bool, str | None]] = {
         True,
         "library_complete",
     ),
+    "gaming-status-near-completion-card": (
+        "Near completion (per player)",
+        True,
+        "library_near",
+    ),
     "gaming-status-playstation-trophies-card": (
         "PlayStation trophies (per player)",
         True,
@@ -151,6 +157,11 @@ _GENERAL_CARD_CONFIG: dict[str, dict[str, Any]] = {
 }
 
 _LIBRARY_CARD = "gaming-status-library-card"
+# Extra config for per-player cards on the default layout (the near
+# completion card always shows as a list; its own default is 12 games).
+_PLAYER_CARD_CONFIG: dict[str, dict[str, Any]] = {
+    "gaming-status-near-completion-card": {"max_games": 5},
+}
 # Cards that show gamertags when Show gamertags is on (default layout).
 _GAMERTAG_CARDS = {"gaming-status-card", "gaming-status-gamercard-card"}
 
@@ -432,7 +443,7 @@ def _player_has(hass, name: str, requirement: str | None) -> bool:
     if requirement is None:
         return True
     slug = safe_owner_slug(name)
-    if requirement in ("library", "library_complete"):
+    if requirement in ("library", "library_complete", "library_near"):
         uid, guess = (
             f"gaming_status_{slug}_library_summary",
             f"sensor.gaming_status_{slug}_library_summary",
@@ -451,6 +462,12 @@ def _player_has(hass, name: str, requirement: str | None) -> bool:
         # The completion tracker lists only 100% games, so it'd be empty.
         return bool(st) and any(
             isinstance(g, dict) and (g.get("percent") or 0) >= 100
+            for g in st.attributes.get("games") or []
+        )
+    if requirement == "library_near":
+        # Started but unfinished games; without any, the card is empty.
+        return bool(st) and any(
+            isinstance(g, dict) and 0 < (g.get("percent") or 0) < 100
             for g in st.attributes.get("games") or []
         )
     return bool(st and st.attributes.get(attr))
@@ -621,7 +638,12 @@ def _build_layout(
                     }
                 )
             else:
-                group.append({"type": card_type, "config": base})
+                group.append(
+                    {
+                        "type": card_type,
+                        "config": {**base, **_PLAYER_CARD_CONFIG.get(card_type, {})},
+                    }
+                )
         if group:
             out.append(group)
     if entry.options.get(OPT_PUBLIC_PAGE_SHOW_GAMERTAGS, False):
@@ -827,8 +849,25 @@ class GamingStatusPublicPageView(HomeAssistantView):
             return web.Response(status=404, text="Not found")
         nonce = secrets.token_urlsafe(16)
         csp = _content_security_policy(nonce, await _cards_script_url(hass, entry))
+        # Link previews (Discord, iMessage, Slack...) read these server-side,
+        # so they're filled in here rather than by the page's script.
+        # request.url reflects the proxy's public host once trusted_proxies
+        # is set, so the preview image URL is reachable from outside.
+        payload = await build_public_payload(hass)
+        title = entry.options.get(OPT_PUBLIC_PAGE_TITLE) or DEFAULT_PUBLIC_PAGE_TITLE
+        online = int(
+            ((payload or {}).get("states", {}).get(_HUB_ONLINE) or {}).get("state") or 0
+        )
+        origin = str(request.url.origin())
         return web.Response(
             text=PAGE_HTML.replace("__NONCE__", nonce)
+            .replace("__PAGE_TITLE__", html.escape(title))
+            .replace(
+                "__DESCRIPTION__",
+                f"{online} Player{'' if online == 1 else 's'} Online",
+            )
+            .replace("__PAGE_URL__", html.escape(f"{origin}{PUBLIC_PAGE_URL}"))
+            .replace("__ICON_ABS_URL__", html.escape(f"{origin}{PUBLIC_ICON_URL}"))
             .replace("__JSON_URL__", PUBLIC_JSON_URL)
             .replace("__ICON_URL__", PUBLIC_ICON_URL)
             .replace("__MDI_CSS__", MDI_FONT_CSS)
@@ -867,7 +906,14 @@ PAGE_HTML = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
-<title>Gaming Status</title>
+<title>__PAGE_TITLE__</title>
+<meta name="description" content="__DESCRIPTION__">
+<meta property="og:type" content="website">
+<meta property="og:title" content="__PAGE_TITLE__">
+<meta property="og:description" content="__DESCRIPTION__">
+<meta property="og:url" content="__PAGE_URL__">
+<meta property="og:image" content="__ICON_ABS_URL__">
+<meta name="twitter:card" content="summary">
 <link rel="icon" type="image/png" href="__ICON_URL__">
 <link rel="stylesheet" href="__MDI_CSS__">
 <style>
@@ -919,9 +965,9 @@ footer{text-align:center;color:var(--secondary-text-color);font-size:12px;paddin
 </head>
 <body>
 <header><img class="icon" src="__ICON_URL__" alt="">
-<div><h1 id="title">Gaming Status</h1><p id="sub">Loading…</p></div></header>
+<div><h1 id="title">__PAGE_TITLE__</h1><p id="sub">Loading…</p></div></header>
 <main id="cards" aria-live="polite"></main>
-<footer>Powered by Gaming Status for Home Assistant</footer>
+<footer><span id="updated"></span>Powered by Gaming Status for Home Assistant</footer>
 <script nonce="__NONCE__">
 const JSON_URL="__JSON_URL__", MDI_CSS="__MDI_CSS__";
 
@@ -1027,6 +1073,9 @@ async function refresh(){
     const on=Object.values(d.states).filter(s=>s.entity_id.endsWith("_master")&&
       !["offline","unknown","unavailable","source missing"].includes(String(s.state).toLowerCase())).length;
     sub.textContent=`${on} Player${on===1?"":"s"} Online`;
+    const at=new Date(d.generated_at);
+    document.getElementById("updated").textContent=isNaN(at)?"":
+      `Updated ${at.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})} · `;
     step="script";
     await loadScript(d.cards_url);
     step="render";
