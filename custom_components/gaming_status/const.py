@@ -377,6 +377,12 @@ PSN_RATE_LIMIT_PER_SECOND = 250 / 900  # ~250/15min effective ceiling
 # hundreds of lookups in one pass.
 STEAMGRIDDB_RATE_LIMIT_CAPACITY = 5
 STEAMGRIDDB_RATE_LIMIT_PER_SECOND = 2
+# Block applied to the shared SteamGridDB limiter on a 429 that carries no
+# Retry-After header.
+STEAMGRIDDB_DEFAULT_RETRY_AFTER_SECONDS = 60
+# How long the Xbox art backfill (deferrable, unlike scans) sits out after
+# any SteamGridDB 429.
+STEAMGRIDDB_BACKFILL_COOLDOWN_SECONDS = 1800
 
 # ---------------------------------------------------------------------------
 # Public (no-login) status page -- see public_page.py. Which players appear

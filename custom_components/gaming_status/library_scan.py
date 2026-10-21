@@ -81,6 +81,8 @@ _TIER_KEYS = ("bronze", "silver", "gold", "platinum")
 # after this many seconds instead of repeating the full search+fetch on
 # every single scan (the previous behavior) or sticking forever.
 ART_NOT_FOUND_RECHECK_SECONDS = 86400  # 24 hours
+# hass.data key: [count] of library scans currently running, all players.
+_SCANS_RUNNING_KEY = "gaming_status_library_scans_running"
 
 # Console disambiguation for PSN titles that exist as separate entries per
 # console generation (e.g. a PS3 disc version and a separate PS4 remaster
@@ -362,6 +364,17 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         await self.async_refresh()
 
     async def _async_update_data(self):
+        # Counted hass-wide, not per coordinator: every player's scans and
+        # art backfills share one SteamGridDB limiter, so one player's
+        # backfill has to yield to ANY player's scan (see _backfill_art).
+        running = self.hass.data.setdefault(_SCANS_RUNNING_KEY, [0])
+        running[0] += 1
+        try:
+            return await self._async_scan_all_platforms()
+        finally:
+            running[0] -= 1
+
+    async def _async_scan_all_platforms(self):
         previous_platforms = (self.data or {}).get("platforms", {})
         raw_by_platform = {}
         if "steam" in self._platform_sources:
@@ -1341,10 +1354,32 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         limited SteamGridDB isn't hammered for the rest of the batch --
         those titles stay pending for the next tick. Returns how many
         titles' art actually changed."""
+        # Scans (Steam/PSN still resolve SteamGridDB art inline) and the
+        # current-game path get SteamGridDB first: this backlog can always
+        # wait a tick, and while it ran alongside a scan -- or straight
+        # back into a recent 429 -- a ~4000-title Xbox backfill left a
+        # user's Steam/PSN libraries with no artwork.
+        if self.hass.data.get(_SCANS_RUNNING_KEY, [0])[0]:
+            _LOGGER.debug(
+                "Gaming Status: SteamGridDB art backfill for %s skipped -- a library scan is running",
+                self._owner_name,
+            )
+            return 0
+        if utils.steamgriddb_recently_rate_limited(self.hass):
+            _LOGGER.debug(
+                "Gaming Status: SteamGridDB art backfill for %s skipped -- SteamGridDB rate-limited recently",
+                self._owner_name,
+            )
+            return 0
+
         games = self.data.get("platforms", {}).get("xbox", {}).get("games", [])
         pending = [g for g in games if self._art_needs_lookup(g.get("title"))]
         updated = 0
         for game in pending[:budget]:
+            # Re-checked per title: a pass takes ~75s at full budget, long
+            # enough for a scan to start partway through.
+            if self.hass.data.get(_SCANS_RUNNING_KEY, [0])[0]:
+                break
             art = await self._async_art_for(game["title"])
             if self._last_art_transient:
                 break

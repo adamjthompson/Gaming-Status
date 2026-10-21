@@ -87,6 +87,40 @@ def _warn_steamgriddb_key_problem_once(status):
         _KEY_PROBLEM_WARNED = True
 
 
+def _note_steamgriddb_error(hass, limiter, resp):
+    """Every non-200 SteamGridDB response goes through here. Besides the
+    one-shot warning, a 429 now backs off EVERY SteamGridDB caller at once
+    -- the current-game path, Steam/PSN library scans and the Xbox art
+    backfill all share this one limiter -- the same notify_rate_limited
+    handling steam_client/psn_client already give their own limiters.
+    Without it, a ~4000-title Xbox art backfill kept firing into an
+    active 429 and starved other players' Steam/PSN scans of artwork."""
+    from .const import STEAMGRIDDB_DEFAULT_RETRY_AFTER_SECONDS
+
+    _warn_steamgriddb_key_problem_once(resp.status)
+    if resp.status != 429:
+        return
+    try:
+        retry_after = float(resp.headers.get("Retry-After") or 0)
+    except ValueError:
+        retry_after = 0
+    limiter.notify_rate_limited(retry_after or STEAMGRIDDB_DEFAULT_RETRY_AFTER_SECONDS)
+    hass.data["gaming_status_sgdb_last_429"] = time.monotonic()
+
+
+def steamgriddb_recently_rate_limited(hass):
+    """True within STEAMGRIDDB_BACKFILL_COOLDOWN_SECONDS of the last 429 --
+    lets the (deferrable) Xbox art backfill sit out well past the server's
+    own Retry-After, leaving the recovered budget to scans and the
+    current-game path first."""
+    from .const import STEAMGRIDDB_BACKFILL_COOLDOWN_SECONDS
+
+    last = hass.data.get("gaming_status_sgdb_last_429")
+    return last is not None and (
+        time.monotonic() - last < STEAMGRIDDB_BACKFILL_COOLDOWN_SECONDS
+    )
+
+
 # A "SteamGridDB has no art for this title" result is cached too (like any
 # other result), but isn't trusted forever -- SGDB's catalog grows over
 # time, so it's re-checked after ASSET_NOT_FOUND_RECHECK_SECONDS instead of
@@ -513,7 +547,7 @@ async def fetch_game_assets(hass, game_name):
             await limiter.async_acquire(timeout=RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS)
             async with session.get(search_url, headers=headers, timeout=10) as resp:
                 if resp.status != 200:
-                    _warn_steamgriddb_key_problem_once(resp.status)
+                    _note_steamgriddb_error(hass, limiter, resp)
                     return _update_cache(cache_key, fetched_assets)
                 search_data = await resp.json()
 
@@ -535,7 +569,7 @@ async def fetch_game_assets(hass, game_name):
                 await limiter.async_acquire(timeout=RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS)
                 async with session.get(endpoint, headers=headers, timeout=10) as resp:
                     if resp.status != 200:
-                        _warn_steamgriddb_key_problem_once(resp.status)
+                        _note_steamgriddb_error(hass, limiter, resp)
                     if resp.status == 200:
                         asset_data = await resp.json()
                         if asset_data.get("data"):
@@ -697,7 +731,7 @@ async def fetch_game_grid_urls_remote(hass, game_name):
             timeout=10,
         ) as resp:
             if resp.status != 200:
-                _warn_steamgriddb_key_problem_once(resp.status)
+                _note_steamgriddb_error(hass, limiter, resp)
                 return assets, True
             search_data = await resp.json()
         if not search_data.get("data"):
@@ -725,7 +759,7 @@ async def fetch_game_grid_urls_remote(hass, game_name):
             await limiter.async_acquire(timeout=RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS)
             async with session.get(endpoint, headers=headers, timeout=10) as resp:
                 if resp.status != 200:
-                    _warn_steamgriddb_key_problem_once(resp.status)
+                    _note_steamgriddb_error(hass, limiter, resp)
                     transient = True
                     continue
                 asset_data = await resp.json()
