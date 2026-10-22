@@ -76,13 +76,24 @@ def _warn_steamgriddb_key_problem_once(status):
     """A 401/403/429 from SteamGridDB otherwise looks identical to "no art
     for this title" -- warn once (same one-shot shape as
     _MISSING_KEY_WARNED above) so a revoked/rate-limited key doesn't look
-    like a silent, permanent lack of artwork."""
+    like a silent, permanent lack of artwork. 401/403 and 429 are worded
+    separately: the old shared "invalid, revoked, or rate-limited" message
+    sent a user with a bad key chasing rate limits."""
     global _KEY_PROBLEM_WARNED
-    if status in (401, 403, 429) and not _KEY_PROBLEM_WARNED:
+    if _KEY_PROBLEM_WARNED:
+        return
+    if status in (401, 403):
         _LOGGER.warning(
-            "[Gaming Status] SteamGridDB returned HTTP %s -- the configured "
-            "API key may be invalid, revoked, or rate-limited.",
+            "[Gaming Status] SteamGridDB rejected the configured API key (HTTP %s) "
+            "-- artwork lookups are paused until the key is updated in Gaming "
+            "Status's Advanced Settings.",
             status,
+        )
+        _KEY_PROBLEM_WARNED = True
+    elif status == 429:
+        _LOGGER.warning(
+            "[Gaming Status] SteamGridDB is rate-limiting requests (HTTP 429) -- "
+            "artwork lookups will back off and retry automatically."
         )
         _KEY_PROBLEM_WARNED = True
 
@@ -98,6 +109,9 @@ def _note_steamgriddb_error(hass, limiter, resp):
     from .const import STEAMGRIDDB_DEFAULT_RETRY_AFTER_SECONDS
 
     _warn_steamgriddb_key_problem_once(resp.status)
+    if resp.status in (401, 403):
+        _reject_steamgriddb_key(hass, resp.status)
+        return
     if resp.status != 429:
         return
     try:
@@ -106,6 +120,60 @@ def _note_steamgriddb_error(hass, limiter, resp):
         retry_after = 0
     limiter.notify_rate_limited(retry_after or STEAMGRIDDB_DEFAULT_RETRY_AFTER_SECONDS)
     hass.data["gaming_status_sgdb_last_429"] = time.monotonic()
+
+
+# The exact key string SteamGridDB last answered 401/403 for. Every call
+# with that key will fail identically, so SteamGridDB isn't called again
+# until the key changes (Advanced Settings save -> entry reload ->
+# set_steamgriddb_api_key) or HA restarts. Kept as the key itself rather
+# than a bool so a corrected key resumes immediately with no extra reset.
+_REJECTED_STEAMGRIDDB_KEY = None
+_STEAMGRIDDB_KEY_ISSUE_ID = "steamgriddb_key_rejected"
+
+
+def steamgriddb_key_usable():
+    """True if a SteamGridDB key is configured and hasn't been rejected."""
+    return bool(STEAMGRIDDB_API_KEY) and (
+        STEAMGRIDDB_API_KEY != _REJECTED_STEAMGRIDDB_KEY
+    )
+
+
+def _reject_steamgriddb_key(hass, status):
+    """Stops SteamGridDB calls for the current key and raises a Repairs
+    issue -- a once-per-restart log line alone left a user with a bad key
+    and no Steam/PlayStation artwork, with nothing visible in the UI."""
+    from homeassistant.helpers import issue_registry as ir
+
+    from .const import DOMAIN
+
+    global _REJECTED_STEAMGRIDDB_KEY
+    if _REJECTED_STEAMGRIDDB_KEY == STEAMGRIDDB_API_KEY:
+        return
+    _REJECTED_STEAMGRIDDB_KEY = STEAMGRIDDB_API_KEY
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        _STEAMGRIDDB_KEY_ISSUE_ID,
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key=_STEAMGRIDDB_KEY_ISSUE_ID,
+        translation_placeholders={"status": str(status)},
+        learn_more_url="https://www.steamgriddb.com/profile/preferences/api",
+    )
+
+
+def set_steamgriddb_api_key(hass, key):
+    """Applies the configured key (stripped -- a pasted trailing space is
+    an easy way to get a 401) and clears the Repairs issue once the key no
+    longer matches the rejected one."""
+    from homeassistant.helpers import issue_registry as ir
+
+    from .const import DOMAIN
+
+    global STEAMGRIDDB_API_KEY
+    STEAMGRIDDB_API_KEY = (key or "").strip()
+    if STEAMGRIDDB_API_KEY != _REJECTED_STEAMGRIDDB_KEY:
+        ir.async_delete_issue(hass, DOMAIN, _STEAMGRIDDB_KEY_ISSUE_ID)
 
 
 def steamgriddb_recently_rate_limited(hass):
@@ -521,6 +589,11 @@ async def fetch_game_assets(hass, game_name):
         if all(assets.values()):
             return _update_cache(cache_key, assets)
 
+        if STEAMGRIDDB_API_KEY and not steamgriddb_key_usable():
+            # Rejected key -- not "not found", so nothing is cached as
+            # artless; lookups resume as soon as the key is fixed.
+            return _update_cache(cache_key, assets, cache_as_not_found=False)
+
         if not STEAMGRIDDB_API_KEY:
             if not _MISSING_KEY_WARNED:
                 _LOGGER.warning(
@@ -715,6 +788,10 @@ async def fetch_game_grid_urls_remote(hass, game_name):
     # entirely -- same short-circuit fetch_game_assets already applies.
     if all(assets.values()) or not STEAMGRIDDB_API_KEY:
         return assets, transient
+    if not steamgriddb_key_usable():
+        # Rejected key: transient, so the library caches nothing as
+        # artless and every title is retried once the key is fixed.
+        return assets, True
 
     try:
         from .const import RATE_LIMIT_ACQUIRE_TIMEOUT_SECONDS

@@ -6146,7 +6146,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     raw_cleanups = _load_opt_json(opts, OPT_TITLE_CLEANUPS, [])
     utils.TITLE_CLEANUPS = raw_cleanups
     utils.compile_title_cleanups()
-    utils.STEAMGRIDDB_API_KEY = config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, "")
+    utils.set_steamgriddb_api_key(
+        hass, config_entry.data.get(CONF_STEAMGRIDDB_API_KEY, "")
+    )
     utils.USE_LOCAL_CACHE = opts.get(OPT_USE_CACHE, DEFAULT_USE_CACHE)
     utils.ENABLE_NATIVE_RATINGS = opts.get(
         OPT_ENABLE_NATIVE_RATINGS, DEFAULT_ENABLE_NATIVE_RATINGS
