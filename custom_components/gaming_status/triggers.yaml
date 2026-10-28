@@ -1,8 +1,11 @@
+# Limits the target picker to Gaming Status's own sensors and player devices.
 .session_common: &session_common
   target:
     entity:
       - integration: gaming_status
         domain: sensor
+    device:
+      - integration: gaming_status
 
 session_started: *session_common
 session_ended: *session_common
