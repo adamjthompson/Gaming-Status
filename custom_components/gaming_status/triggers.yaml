@@ -1,0 +1,8 @@
+.session_common: &session_common
+  target:
+    entity:
+      - integration: gaming_status
+        domain: sensor
+
+session_started: *session_common
+session_ended: *session_common

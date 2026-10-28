@@ -1,0 +1,10 @@
+{
+  "triggers": {
+    "session_started": {
+      "trigger": "mdi:controller"
+    },
+    "session_ended": {
+      "trigger": "mdi:controller-off"
+    }
+  }
+}

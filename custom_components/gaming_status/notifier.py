@@ -593,7 +593,14 @@ class GamingNotifier:
         return refreshed_state
 
     def _fire_session_event(
-        self, event_type, player, entity_id, state_obj, game, duration_minutes=None
+        self,
+        event_type,
+        player,
+        entity_id,
+        state_obj,
+        game,
+        duration_minutes=None,
+        game_switch=False,
     ) -> None:
         """Fires gaming_status_session_started/_ended on the HA event bus --
         clean automation triggers that already have this handler's flicker,
@@ -612,6 +619,11 @@ class GamingNotifier:
             "entity_id": entity_id,
             "device_id": device.id if device else None,
             "game_cover_art": state_obj.attributes.get("game_cover_art"),
+            # None when color extraction is off (or hasn't run for this game).
+            "game_color": state_obj.attributes.get("game_dominant_color"),
+            # True when this start/end is half of a switch from one game to
+            # another, so automations can react to brand-new sessions only.
+            "game_switch": game_switch,
         }
         if event_type == EVENT_SESSION_ENDED:
             data["duration_minutes"] = duration_minutes
@@ -777,10 +789,16 @@ class GamingNotifier:
                 old_state,
                 old_game,
                 total_minutes,
+                game_switch=True,
             )
         if is_start or is_switch:
             self._fire_session_event(
-                EVENT_SESSION_STARTED, target_player, entity_id, new_state, new_game
+                EVENT_SESSION_STARTED,
+                target_player,
+                entity_id,
+                new_state,
+                new_game,
+                game_switch=is_switch,
             )
 
         if not self._enable_notifications:

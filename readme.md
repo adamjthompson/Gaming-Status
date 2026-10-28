@@ -522,24 +522,38 @@ Gaming Status fires these events on the Home Assistant event bus, for use as aut
 
 | Event | When | Data |
 | --- | --- | --- |
-| `gaming_status_session_started` | A player starts a game, or switches to a different one | `player`, `game`, `platform`, `entity_id` (the master sensor), `device_id`, `game_cover_art` |
+| `gaming_status_session_started` | A player starts a game, or switches to a different one | `player`, `game`, `platform`, `entity_id` (the master sensor), `device_id`, `game_cover_art`, `game_color`, `game_switch` |
 | `gaming_status_session_ended` | A player stops a game, or switches to a different one | The same fields, plus `duration_minutes` |
 
-Each player's device also has **Started playing a game** and **Stopped playing a game** device triggers, so you can pick them in the automation editor without writing an event trigger. For example, to dim the lights when anyone starts *Elden Ring*:
+* **`game_switch`:** `true` when the event is part of a switch from one game to another (a switch fires **Stopped playing** for the old game, then **Started playing** for the new one), `false` for a brand-new session or a player going offline. To react only to new sessions, add a condition such as `{{ not trigger.event.data.game_switch }}` (event trigger) or `{{ not trigger.game_switch }}` (Started playing trigger). A switch within 90 seconds of starting a game (e.g. a launcher opening the real game) fires neither event.
+* **`game_color`:** The game's dominant color as a hex code (e.g. `#3c3c5a`), handy for setting light colors. Only filled in when **Enable Game Color Extraction** is turned on in Global Settings; otherwise it's empty.
+
+In the automation editor's **Add trigger** dialog, pick a player under **By target** (their device is under **Unassigned → Devices** unless you've given it an area) to find **Started playing** and **Stopped playing**. They're also listed under **By type → Gaming Status**. Targeting a player's device, any of their Gaming Status sensors, or an area or label they're in all work. Each player's device also has classic **Started playing a game** / **Stopped playing a game** device triggers. For example, to set a light to the game's color when Adam starts playing:
 
 ```yaml
+alias: Game color lighting
 triggers:
   - trigger: event
     event_type: gaming_status_session_started
     event_data:
-      game: ELDEN RING
+      player: Adam
+conditions:
+  # Skip games with no extracted color (or Enable Game Color Extraction off).
+  - condition: template
+    value_template: "{{ trigger.event.data.game_color is string }}"
 actions:
   - action: light.turn_on
     target:
-      entity_id: light.living_room
+      entity_id: light.game_room
     data:
-      brightness_pct: 30
+      brightness_pct: 80
+      rgb_color: >
+        {% set c = trigger.event.data.game_color.lstrip('#') %}
+        {{ [c[0:2] | int(base=16), c[2:4] | int(base=16), c[4:6] | int(base=16)] }}
+mode: restart
 ```
+
+Remove the `event_data` lines to react to every player. To only react to brand-new sessions, not switching from one game to another, add a second condition: `{{ not trigger.event.data.game_switch }}`. To put the light back afterwards, use a second automation on `gaming_status_session_ended` with the condition `{{ not trigger.event.data.game_switch }}`, so it only runs when the player stops playing and not between games.
 
 The rename and delete services can also be triggered from a dashboard using the [Game Management card](https://github.com/adamjthompson/Gaming-Status-Cards#8-gaming-status---game-management), which provides player/platform/game dropdowns populated from real data instead of requiring you to type exact names.
 

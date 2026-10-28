@@ -430,5 +430,15 @@
       "session_started": "Started playing a game",
       "session_ended": "Stopped playing a game"
     }
+  },
+  "triggers": {
+    "session_started": {
+      "name": "Started playing",
+      "description": "Triggers when a player starts a game or switches to a different one. Launcher hand-offs and a game moving between platforms don't trigger it."
+    },
+    "session_ended": {
+      "name": "Stopped playing",
+      "description": "Triggers when a player stops a game or switches to a different one. Includes how long they played."
+    }
   }
 }
