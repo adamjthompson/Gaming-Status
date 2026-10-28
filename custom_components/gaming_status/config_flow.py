@@ -2505,7 +2505,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             OPT_PUBLIC_PAGE_ENABLED,
             OPT_PUBLIC_PAGE_GENERAL_CARDS,
             OPT_PUBLIC_PAGE_HIDE_ZERO_ACHIEVEMENTS,
+            OPT_PUBLIC_PAGE_KEY,
             OPT_PUBLIC_PAGE_PLAYER_CARDS,
+            OPT_PUBLIC_PAGE_REGENERATE_KEY,
+            OPT_PUBLIC_PAGE_REQUIRE_KEY,
             OPT_PUBLIC_PAGE_SHOW_GAMERTAGS,
             OPT_PUBLIC_PAGE_SOURCE_VIEW,
             OPT_PUBLIC_PAGE_THEME,
@@ -2520,6 +2523,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             async_list_dashboard_views,
             installed_theme_names,
             public_players,
+            with_key,
         )
 
         if user_input is not None:
@@ -2554,6 +2558,15 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 OPT_PUBLIC_PAGE_HIDE_ZERO_ACHIEVEMENTS,
                 DEFAULT_PUBLIC_PAGE_HIDE_ZERO_ACHIEVEMENTS,
             )
+            self._options[OPT_PUBLIC_PAGE_REQUIRE_KEY] = user_input.get(
+                OPT_PUBLIC_PAGE_REQUIRE_KEY, False
+            )
+            if user_input.get(OPT_PUBLIC_PAGE_REGENERATE_KEY) or not self._options.get(
+                OPT_PUBLIC_PAGE_KEY
+            ):
+                import secrets
+
+                self._options[OPT_PUBLIC_PAGE_KEY] = secrets.token_urlsafe(16)
             return await self._update_and_return()
 
         views = await async_list_dashboard_views(self.hass)
@@ -2608,12 +2621,18 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             page_url = f"{get_url(self.hass)}{PUBLIC_PAGE_URL}"
         except NoURLAvailableError:
             page_url = PUBLIC_PAGE_URL
+        page_url = with_key(page_url, self._config_entry)
 
         schema = {
             vol.Optional(
                 OPT_PUBLIC_PAGE_ENABLED,
                 default=self._options.get(OPT_PUBLIC_PAGE_ENABLED, False),
             ): bool,
+            vol.Optional(
+                OPT_PUBLIC_PAGE_REQUIRE_KEY,
+                default=self._options.get(OPT_PUBLIC_PAGE_REQUIRE_KEY, False),
+            ): bool,
+            vol.Optional(OPT_PUBLIC_PAGE_REGENERATE_KEY, default=False): bool,
             vol.Optional(
                 OPT_PUBLIC_PAGE_TITLE,
                 default=self._options.get(

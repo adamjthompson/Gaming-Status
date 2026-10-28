@@ -6,12 +6,12 @@
   "config_flow": true,
   "dependencies": ["http"],
   "documentation": "https://github.com/adamjthompson/Gaming-Status",
-  "iot_class": "local_push",
+  "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/adamjthompson/Gaming-Status/issues",
   "requirements": [
     "python-dateutil>=2.8.2",
     "nextcord>=3.1,<4.0",
     "python-xbox>=0.2.0"
   ],
-  "version": "2026.10.8"
+  "version": "2026.10.9"
 }

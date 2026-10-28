@@ -21,6 +21,8 @@ from homeassistant.util import dt as dt_util
 from .const import (
     DEFAULT_SAME_GAME_PREFIX_WORDS,
     DOMAIN,
+    EVENT_SESSION_ENDED,
+    EVENT_SESSION_STARTED,
     OPT_DISCORD_COLORS,
     OPT_ENDPOINTS,
     OPT_GLOBAL_EXCLUSIONS,
@@ -590,10 +592,32 @@ class GamingNotifier:
                 return None  # The game was closed instantly, abort notification
         return refreshed_state
 
-    async def _handle_state_change(self, event) -> None:
-        if not self._enable_notifications:
-            return
+    def _fire_session_event(
+        self, event_type, player, entity_id, state_obj, game, duration_minutes=None
+    ) -> None:
+        """Fires gaming_status_session_started/_ended on the HA event bus --
+        clean automation triggers that already have this handler's flicker,
+        launcher-cooldown and cross-platform handoff filtering applied,
+        unlike a raw state trigger on the master sensor. Fired whether or
+        not notifications are enabled."""
+        from homeassistant.helpers import device_registry as dr
 
+        device = dr.async_get(self.hass).async_get_device(
+            identifiers={(DOMAIN, safe_owner_slug(player))}
+        )
+        data = {
+            "player": player,
+            "game": game,
+            "platform": state_obj.attributes.get("active_platform"),
+            "entity_id": entity_id,
+            "device_id": device.id if device else None,
+            "game_cover_art": state_obj.attributes.get("game_cover_art"),
+        }
+        if event_type == EVENT_SESSION_ENDED:
+            data["duration_minutes"] = duration_minutes
+        self.hass.bus.async_fire(event_type, data)
+
+    async def _handle_state_change(self, event) -> None:
         if self._startup_time and dt_util.now() - self._startup_time < timedelta(
             seconds=30
         ):
@@ -705,6 +729,7 @@ class GamingNotifier:
         end_dests = user_config.get("notify_end_destinations", [])
 
         duration_str = None
+        total_minutes = None
         if is_switch or is_end:
             start_time_str = old_state.attributes.get("play_start_time")
             if start_time_str:
@@ -741,8 +766,40 @@ class GamingNotifier:
                         duration_str = (
                             f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m"
                         )
-                except Exception:
+                except (ValueError, TypeError, AttributeError):
                     pass
+
+        if is_switch:
+            self._fire_session_event(
+                EVENT_SESSION_ENDED,
+                target_player,
+                entity_id,
+                old_state,
+                old_game,
+                total_minutes,
+            )
+        if is_start or is_switch:
+            self._fire_session_event(
+                EVENT_SESSION_STARTED, target_player, entity_id, new_state, new_game
+            )
+
+        if not self._enable_notifications:
+            if is_end:
+                # Still held for the handoff window so the ended event is
+                # skipped for a same-game platform handoff.
+                self._recent_end[target_player] = {"game": old_clean, "at": now}
+                self._pending_end_tasks[target_player] = self.hass.async_create_task(
+                    self._send_delayed_end(
+                        target_player,
+                        entity_id,
+                        old_state,
+                        old_game,
+                        duration_str,
+                        total_minutes,
+                        [],
+                    )
+                )
+            return
 
         if is_start or is_switch:
             if is_switch:
@@ -784,13 +841,26 @@ class GamingNotifier:
             self._recent_end[target_player] = {"game": old_clean, "at": now}
             task = self.hass.async_create_task(
                 self._send_delayed_end(
-                    target_player, old_state, old_game, duration_str, end_dests
+                    target_player,
+                    entity_id,
+                    old_state,
+                    old_game,
+                    duration_str,
+                    total_minutes,
+                    end_dests,
                 )
             )
             self._pending_end_tasks[target_player] = task
 
     async def _send_delayed_end(
-        self, target_player, old_state, old_game, duration_str, end_dests
+        self,
+        target_player,
+        entity_id,
+        old_state,
+        old_game,
+        duration_str,
+        total_minutes,
+        end_dests,
     ):
         try:
             await asyncio.sleep(SAME_GAME_HANDOFF_WINDOW_SECONDS)
@@ -798,6 +868,17 @@ class GamingNotifier:
             return
         self._pending_end_tasks.pop(target_player, None)
         self._recent_end.pop(target_player, None)
+
+        self._fire_session_event(
+            EVENT_SESSION_ENDED,
+            target_player,
+            entity_id,
+            old_state,
+            old_game,
+            total_minutes,
+        )
+        if not end_dests:
+            return
 
         msg = (
             f"{target_player} played for {duration_str}"

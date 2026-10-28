@@ -852,7 +852,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 continue
             try:
                 d = parser.parse(date_str).date()
-            except Exception:
+            except (ValueError, OverflowError, TypeError):
                 d = None
             if d is not None and start_inclusive <= d < end_exclusive:
                 for game, secs in day_data.get("game_breakdown", {}).items():
@@ -879,7 +879,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     archived_week_str = parser.parse(self._last_reset_date).strftime(
                         "%Y-%U"
                     )
-                except Exception:
+                except (ValueError, OverflowError, TypeError):
                     archived_week_str = current_week_str
                 self._play_history[self._last_reset_date] = {
                     "total_seconds": self._daily_play_time,
@@ -896,7 +896,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     d = parser.parse(date_str).date()
                     if d < cutoff_date:
                         keys_to_remove.append(date_str)
-                except Exception:
+                except (ValueError, OverflowError, TypeError):
                     # Not a parseable date -- doesn't belong in a date-keyed
                     # history dict either way, so prune it rather than let it
                     # sit forever and inflate the rolling stats.
@@ -2122,7 +2122,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 continue
             try:
                 day_date = parser.parse(date_str).date()
-            except Exception:
+            except (ValueError, OverflowError, TypeError):
                 day_date = None
             in_cal_week = day_date is not None and day_date >= week_start
             in_rolling = (
@@ -3454,7 +3454,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     self._weekly_play_time_last_week = int(
                         float(attrs.get("weekly_play_time_last_week") or 0)
                     )
-                except Exception:
+                except (ValueError, TypeError):
                     self._daily_play_time = 0
                     self._weekly_play_time = 0
             if attrs.get("current_game") and attrs.get("play_start_time"):
@@ -5206,7 +5206,7 @@ class MasterGamingSensor(RestoreSensor):
                         most_recent_ts = ts
                         most_recent_sensor = platform_state
                         most_recent_key = p_key
-                except Exception:
+                except (ValueError, OverflowError, TypeError):
                     pass
 
             state_value = platform_state.state
@@ -5244,7 +5244,7 @@ class MasterGamingSensor(RestoreSensor):
             try:
                 if parser.parse(_date_str).date() >= rolling_cutoff:
                     rolling_secs += sum(int(v) for v in _day_data.values())
-            except Exception:
+            except (ValueError, OverflowError, TypeError, AttributeError):
                 pass
         total_rolling_weekly_hours = round(rolling_secs / 3600, 2)
 
@@ -5873,7 +5873,7 @@ class PCGamingSensor(RestoreSensor):
                         if most_recent_ts is None or ts > most_recent_ts:
                             most_recent_ts = ts
                             most_recent_state = state
-                    except Exception:
+                    except (ValueError, OverflowError, TypeError):
                         pass
 
             # Set active state (smart conflict resolution)

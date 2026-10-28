@@ -378,6 +378,8 @@
         "description": "A no-login page at {page_url} that uses the same cards as your Gaming Status Cards dashboards. Only players with 'Show on public page' turned on (Manage Players > Player Details) appear. Currently shown: {players}.",
         "data": {
           "public_page_enabled": "Enable Public Page",
+          "public_page_require_key": "Require private link",
+          "public_page_regenerate_key": "Regenerate private link key",
           "public_page_title": "Page title",
           "public_page_source_view": "Dashboard view to mirror",
           "public_page_general_cards": "Default layout: General cards",
@@ -390,6 +392,8 @@
         },
         "data_description": {
           "public_page_enabled": "Anyone with the link can view the page. Your Home Assistant must be reachable from the internet for people outside your network to see it.",
+          "public_page_require_key": "Adds a secret key to the page link, so only people you give the link to can open it. Anyone visiting the plain address gets a 'Not found' page. Off by default so links you've already shared keep working.",
+          "public_page_regenerate_key": "Creates a new key on save. Every link shared with the old key stops working, so share the new link shown at the top of this page.",
           "public_page_source_view": "Design the page on any dashboard view using the cards' own editors, and the public page will show the Gaming Status cards from that view with the same settings. Other card types are skipped, as are cards pinned to a player who isn't public. Tip: Use a dedicated dashboard hidden from the sidebar.",
           "public_page_general_cards": "Only used with the built-in default layout. Shown once, covering every public player, in the order listed here. To reorder, remove a card and add it back to move it to the end.",
           "public_page_player_cards": "Only used with the built-in default layout. Shown grouped under each public player. Cards are skipped for a player who doesn't have the data they need, such as a game library. Shown in the order listed here.",
@@ -414,6 +418,16 @@
     "steamgriddb_key_rejected": {
       "title": "SteamGridDB API key rejected",
       "description": "SteamGridDB rejected the configured API key (HTTP {status}), so Gaming Status has paused all artwork lookups. Games already showing artwork keep it, but new games and library titles will show none. Copy your key from SteamGridDB (Preferences → API), paste it into Gaming Status → Configure → Advanced Settings with no extra spaces, and save. Artwork lookups resume as soon as the new key is saved."
+    },
+    "psn_npsso_expired": {
+      "title": "PlayStation NPSSO cookie expired",
+      "description": "PlayStation Network rejected the stored NPSSO cookie, so PlayStation trophies, ratings and library scans have stopped updating. Sign in at playstation.com, open the Learn More link to copy a fresh NPSSO value, then paste it into the official PlayStation Network integration (Reconfigure) or into the player's NPSSO override under Gaming Status → Configure. This issue clears automatically once PSN accepts the new cookie."
+    }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "session_started": "Started playing a game",
+      "session_ended": "Stopped playing a game"
     }
   }
 }

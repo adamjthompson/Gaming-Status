@@ -68,7 +68,9 @@ from .const import (
     OPT_PUBLIC_PAGE_ENABLED,
     OPT_PUBLIC_PAGE_GENERAL_CARDS,
     OPT_PUBLIC_PAGE_HIDE_ZERO_ACHIEVEMENTS,
+    OPT_PUBLIC_PAGE_KEY,
     OPT_PUBLIC_PAGE_PLAYER_CARDS,
+    OPT_PUBLIC_PAGE_REQUIRE_KEY,
     OPT_PUBLIC_PAGE_SHOW_GAMERTAGS,
     OPT_PUBLIC_PAGE_SOURCE_VIEW,
     OPT_PUBLIC_PAGE_THEME,
@@ -247,6 +249,51 @@ def page_enabled(entry) -> bool:
     return bool(entry and entry.options.get(OPT_PUBLIC_PAGE_ENABLED)) and bool(
         public_players(entry)
     )
+
+
+def page_key(entry) -> str:
+    """The private-link key, or "" when the page doesn't require one."""
+    if not entry.options.get(OPT_PUBLIC_PAGE_REQUIRE_KEY):
+        return ""
+    return entry.options.get(OPT_PUBLIC_PAGE_KEY) or ""
+
+
+def with_key(url: str, entry) -> str:
+    key = page_key(entry)
+    return f"{url}?key={key}" if key else url
+
+
+# Per-IP request cap across the public views. The payload itself is cached
+# (CACHE_SECONDS), so this only bounds a client hammering the endpoints --
+# a visitor's page polls every ~30s, so a shared IP (tunnel, proxy without
+# trusted_proxies) still fits dozens of visitors.
+_RATE_LIMIT_KEY = "gaming_status_public_rate"
+_RATE_LIMIT_WINDOW_SECONDS = 60
+_RATE_LIMIT_MAX_REQUESTS = 120
+
+
+def _rate_limited(hass: HomeAssistant, request: web.Request) -> bool:
+    now = time.monotonic()
+    hits = hass.data.setdefault(_RATE_LIMIT_KEY, {})
+    if len(hits) > 1000:
+        # Drop idle clients so the table can't grow without bound.
+        for ip in [ip for ip, (start, _) in hits.items() if now - start > 60]:
+            del hits[ip]
+    ip = request.remote or ""
+    start, count = hits.get(ip, (now, 0))
+    if now - start > _RATE_LIMIT_WINDOW_SECONDS:
+        start, count = now, 0
+    hits[ip] = (start, count + 1)
+    return count + 1 > _RATE_LIMIT_MAX_REQUESTS
+
+
+def _request_allowed(request: web.Request, entry) -> bool:
+    """Page enabled and, when a private link is required, the right key.
+    Every failure is the same 404 so the page's existence isn't confirmed."""
+    if not page_enabled(entry):
+        return False
+    key = page_key(entry)
+    return not key or secrets.compare_digest(request.query.get("key", ""), key)
 
 
 def theme_mode(entry) -> str:
@@ -783,6 +830,10 @@ class GamingStatusPublicJsonView(HomeAssistantView):
 
     async def get(self, request: web.Request) -> web.Response:
         hass = request.app["hass"]
+        if _rate_limited(hass, request):
+            return web.Response(status=429, text="Too many requests")
+        if not _request_allowed(request, _loaded_entry(hass)):
+            return web.json_response({"error": "not_enabled"}, status=404)
         payload = await build_public_payload(hass)
         if payload is None:
             return web.json_response({"error": "not_enabled"}, status=404)
@@ -844,8 +895,10 @@ class GamingStatusPublicPageView(HomeAssistantView):
 
     async def get(self, request: web.Request) -> web.Response:
         hass = request.app["hass"]
+        if _rate_limited(hass, request):
+            return web.Response(status=429, text="Too many requests")
         entry = _loaded_entry(hass)
-        if not page_enabled(entry):
+        if not _request_allowed(request, entry):
             return web.Response(status=404, text="Not found")
         nonce = secrets.token_urlsafe(16)
         csp = _content_security_policy(nonce, await _cards_script_url(hass, entry))
@@ -866,10 +919,16 @@ class GamingStatusPublicPageView(HomeAssistantView):
                 "__DESCRIPTION__",
                 f"{online} Player{'' if online == 1 else 's'} Online",
             )
-            .replace("__PAGE_URL__", html.escape(f"{origin}{PUBLIC_PAGE_URL}"))
-            .replace("__ICON_ABS_URL__", html.escape(f"{origin}{PUBLIC_ICON_URL}"))
-            .replace("__JSON_URL__", PUBLIC_JSON_URL)
-            .replace("__ICON_URL__", PUBLIC_ICON_URL)
+            .replace(
+                "__PAGE_URL__",
+                html.escape(with_key(f"{origin}{PUBLIC_PAGE_URL}", entry)),
+            )
+            .replace(
+                "__ICON_ABS_URL__",
+                html.escape(with_key(f"{origin}{PUBLIC_ICON_URL}", entry)),
+            )
+            .replace("__JSON_URL__", html.escape(with_key(PUBLIC_JSON_URL, entry)))
+            .replace("__ICON_URL__", html.escape(with_key(PUBLIC_ICON_URL, entry)))
             .replace("__MDI_CSS__", MDI_FONT_CSS)
             .replace("__THEME_MODE__", theme_mode(entry)),
             content_type="text/html",
@@ -889,7 +948,10 @@ class GamingStatusPublicIconView(HomeAssistantView):
     requires_auth = False
 
     async def get(self, request: web.Request) -> web.StreamResponse:
-        if not page_enabled(_loaded_entry(request.app["hass"])):
+        hass = request.app["hass"]
+        if _rate_limited(hass, request):
+            return web.Response(status=429, text="Too many requests")
+        if not _request_allowed(request, _loaded_entry(hass)):
             return web.Response(status=404, text="Not found")
         return web.FileResponse(
             _ICON_PATH, headers={"Cache-Control": "public, max-age=86400"}

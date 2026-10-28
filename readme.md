@@ -159,6 +159,8 @@ An optional page that anyone with the link can view **without logging in**, at `
 
 The page returns "Not found" until **Enable public page** is on *and* at least one player has **Show on public page** checked (Manage Players → Player Details). Only those players appear, and the page's "players online" counts include only them.
 * **Enable public page:** Serves the page. Your Home Assistant must be reachable from the internet for people outside your network to see it (see [Sharing the page outside your network](#sharing-the-page-outside-your-network)).
+* **Require private link:** Off by default. When on, the page's link gets a secret `?key=...` added, and anyone opening the plain address gets "Not found". Share the full link shown at the top of the settings screen.
+* **Regenerate private link key:** Creates a new key on save. Every link shared with the old key stops working.
 * **Page title:** Shown as the page heading and browser tab title. Default: Gaming Status.
 * **Dashboard view to mirror:** Design the page on any dashboard view with the cards' own editors, and the public page shows the Gaming Status cards from that view with the same settings and grouping (sections and stacks stay together). Other card types are skipped, as are cards pinned to a player who isn't public. A dedicated dashboard hidden from the sidebar works well. Leave it on **Built-in default layout** to have the page laid out automatically instead.
 * **Default layout: general cards / cards for each player:** *(Built-in default layout only)* Which cards to show once for everyone (e.g. player list, slideshow, leaderboard, weekly stats) and which to show grouped under each public player (e.g. Gamercard, game library, 100% completed games, near completion). Cards appear in the order listed; to reorder, remove a card and add it back to move it to the end. A per-player card is skipped for a player who doesn't have the data it needs, and the Gamercard is shown once per platform the player has a library on.
@@ -168,7 +170,7 @@ The page returns "Not found" until **Enable public page** is on *and* at least o
 * **Show gamertags:** Off by default. When off, gamertags are removed before any data leaves Home Assistant. When on, the built-in layout shows them in the player list and Gamercards; on a mirrored view, also turn on **Show gamertags** in each card's editor.
 * **Cards script URL:** *(Optional)* Leave blank to use the Gaming Status Cards resource already installed in your dashboards; falls back to the latest public release if none is found.
 
-**What's never shared:** Credentials, account IDs, parental control data, and (unless enabled) gamertags are stripped from the page's data. The Game Management card is never shown, and the page can't call any services or change anything.
+**What's never shared:** Credentials, account IDs, parental control data, and (unless enabled) gamertags are stripped from the page's data. The Game Management card is never shown, and the page can't call any services or change anything. Each visitor's address is limited to 120 requests a minute, which is well above what an open page uses.
 
 ##### Sharing the page outside your network
 If you put the page behind a reverse proxy or tunnel (e.g. Cloudflare Tunnel) and only want to expose the page rather than all of Home Assistant, allow these paths:
@@ -514,6 +516,30 @@ Moves one recorded session to another player (and/or platform), correcting total
 | `start_time` | Yes | The session's exact `start_time`, as shown in the source sensor's `recent_sessions` |
 | `to_player` | Yes | The player to move the session to |
 | `to_platform` | Yes | Exactly one platform on `to_player` to move it onto |
+
+### Events
+Gaming Status fires these events on the Home Assistant event bus, for use as automation triggers. They use the same filtering as notifications, so launcher-to-game switches and a game moving from one platform to another don't fire extra events. They fire whether or not notifications are turned on.
+
+| Event | When | Data |
+| --- | --- | --- |
+| `gaming_status_session_started` | A player starts a game, or switches to a different one | `player`, `game`, `platform`, `entity_id` (the master sensor), `device_id`, `game_cover_art` |
+| `gaming_status_session_ended` | A player stops a game, or switches to a different one | The same fields, plus `duration_minutes` |
+
+Each player's device also has **Started playing a game** and **Stopped playing a game** device triggers, so you can pick them in the automation editor without writing an event trigger. For example, to dim the lights when anyone starts *Elden Ring*:
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: gaming_status_session_started
+    event_data:
+      game: ELDEN RING
+actions:
+  - action: light.turn_on
+    target:
+      entity_id: light.living_room
+    data:
+      brightness_pct: 30
+```
 
 The rename and delete services can also be triggered from a dashboard using the [Game Management card](https://github.com/adamjthompson/Gaming-Status-Cards#8-gaming-status---game-management), which provides player/platform/game dropdowns populated from real data instead of requiring you to type exact names.
 

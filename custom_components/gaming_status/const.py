@@ -5,6 +5,11 @@ CONF_STEAMGRIDDB_API_KEY = "steamgriddb_api_key"
 CONF_DISCORD_TOKEN = "discord_bot_token"
 CONF_DISCORD_SERVER = "discord_server_id"
 
+# Bus events fired by notifier.py when a session starts/ends (see
+# device_trigger.py for the matching automation-UI triggers).
+EVENT_SESSION_STARTED = f"{DOMAIN}_session_started"
+EVENT_SESSION_ENDED = f"{DOMAIN}_session_ended"
+
 # --- Default values ---
 DEFAULT_RESET_HISTORY = False
 DEFAULT_GRACE_PERIOD_SECONDS = 300
@@ -423,3 +428,9 @@ PUBLIC_PAGE_THEME_MODES = ("auto", "light", "dark")
 # view's own theme if it sets one, else Home Assistant's default colors.
 OPT_PUBLIC_PAGE_THEME = "public_page_theme"
 PUBLIC_PAGE_THEME_DEFAULT = "__default__"
+# Opt-in private link: every public URL then needs ?key=<OPT_PUBLIC_PAGE_KEY>
+# (404 otherwise). Off by default so links already shared keep working;
+# regenerating the key revokes every link handed out with the old one.
+OPT_PUBLIC_PAGE_REQUIRE_KEY = "public_page_require_key"
+OPT_PUBLIC_PAGE_KEY = "public_page_key"
+OPT_PUBLIC_PAGE_REGENERATE_KEY = "public_page_regenerate_key"

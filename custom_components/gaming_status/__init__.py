@@ -194,7 +194,7 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry):
             try:
                 with open(file_path, encoding="utf-8") as f:
                     return json.load(f)
-            except Exception:
+            except (OSError, ValueError):
                 return {}
 
         old_data = await hass.async_add_executor_job(read_legacy_file)
@@ -275,6 +275,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Player Details; 404s otherwise). Registered once per HA run.
     async_register_public_views(hass)
     async_invalidate_public_cache(hass)
+
+    # An expired-NPSSO Repairs issue is keyed to the old cookie, which a
+    # replaced NPSSO never touches again -- drop them here (a reload follows
+    # any options save) and let the next PSN call re-raise one still dead.
+    from homeassistant.helpers import issue_registry as ir
+
+    for domain, issue_id in list(ir.async_get(hass).issues):
+        if domain == DOMAIN and issue_id.startswith("psn_npsso_expired_"):
+            ir.async_delete_issue(hass, DOMAIN, issue_id)
 
     # --- Stale Entity Registry Cleanup ---
     from homeassistant.helpers import entity_registry as er

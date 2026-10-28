@@ -284,7 +284,7 @@ async def is_raspberry_pi(hass) -> bool:
             try:
                 with Path("/sys/firmware/devicetree/base/model").open() as f:
                     return "Raspberry Pi" in f.read()
-            except Exception:
+            except OSError:
                 return False
 
         _IS_RASPBERRY_PI = await hass.async_add_executor_job(_check_is_pi)
@@ -1212,9 +1212,39 @@ def _get_psn_client(hass, npsso: str):
     clients = hass.data.setdefault("gaming_status_psn_clients", {})
     if npsso not in clients:
         clients[npsso] = PsnClient(
-            async_get_clientsession(hass), npsso, _get_rate_limiter(hass, "psn")
+            async_get_clientsession(hass),
+            npsso,
+            _get_rate_limiter(hass, "psn"),
+            on_reauth_state=lambda expired: _set_psn_reauth_issue(hass, npsso, expired),
         )
     return clients[npsso]
+
+
+def _set_psn_reauth_issue(hass, npsso, expired):
+    """Raises (or clears) a Repairs issue for an expired NPSSO cookie --
+    without it the only sign was a log warning while trophies, ratings and
+    the PlayStation library silently stopped updating. One issue per NPSSO
+    (keyed by a short hash, never the cookie itself) so a working override
+    on one player can't clear the issue for another player's dead cookie."""
+    import hashlib
+
+    from homeassistant.helpers import issue_registry as ir
+
+    from .const import DOMAIN
+
+    issue_id = f"psn_npsso_expired_{hashlib.sha256(npsso.encode()).hexdigest()[:8]}"
+    if not expired:
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
+        return
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        issue_id,
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="psn_npsso_expired",
+        learn_more_url="https://ca.account.sony.com/api/v1/ssocookie",
+    )
 
 
 _STEAM_ESRB_AGE_FLOOR = {"e": 0, "e10": 10, "e10+": 10, "t": 13, "m": 17, "ao": 18}
@@ -1884,11 +1914,11 @@ def _get_gamertag_from_entity(source_entity_id, platform):
                 return object_id.split("_online_status")[0]
             if "_onlinestatus" in object_id:
                 return object_id.split("_onlinestatus")[0]
-    except Exception:
+    except (IndexError, AttributeError):
         pass
     try:
         return source_entity_id.split(".")[1]
-    except Exception:
+    except (IndexError, AttributeError):
         return "unknown"
 
 

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from urllib.parse import parse_qsl, urlparse
 
 import aiohttp
@@ -72,11 +73,19 @@ _MAX_TROPHY_TITLE_PAGES = 20
 
 class PsnClient:
     def __init__(
-        self, session: aiohttp.ClientSession, npsso: str, rate_limiter: RateLimiter
+        self,
+        session: aiohttp.ClientSession,
+        npsso: str,
+        rate_limiter: RateLimiter,
+        on_reauth_state: Callable[[bool], None] | None = None,
     ) -> None:
         self._session = session
         self._npsso = npsso
         self._rate_limiter = rate_limiter
+        # Called with True when the NPSSO itself has expired (ReauthRequired)
+        # and False once a session is established again -- utils.py uses it
+        # to raise/clear a Repairs issue.
+        self._on_reauth_state = on_reauth_state
         self._access_token: str | None = None
         self._access_token_expires_at: float = 0.0
         self._refresh_token: str | None = None
@@ -247,8 +256,15 @@ class PsnClient:
                     "PSN refresh_token grant failed -- falling back to a fresh NPSSO-based session"
                 )
 
-        code = await self._async_get_authorization_code()
+        try:
+            code = await self._async_get_authorization_code()
+        except ReauthRequiredError:
+            if self._on_reauth_state:
+                self._on_reauth_state(True)
+            raise
         await self._async_exchange_code_for_tokens(code)
+        if self._on_reauth_state:
+            self._on_reauth_state(False)
 
     async def _authenticated_request(
         self, method: str, url: str, **kwargs
