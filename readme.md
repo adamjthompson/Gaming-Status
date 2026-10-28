@@ -553,6 +553,8 @@ actions:
 mode: restart
 ```
 
+Remove the `event_data` lines to react to every player. To only react to brand-new sessions, not switching from one game to another, add a second condition: `{{ not trigger.event.data.game_switch }}`. To put the light back afterwards, use a second automation on `gaming_status_session_ended` with the condition `{{ not trigger.event.data.game_switch }}`, so it only runs when the player stops playing and not between games.
+
 The same automation using the **Started playing** trigger (what the automation editor writes when you pick it under **Add trigger**). Its data is under `trigger.` directly, rather than `trigger.event.data.`:
 
 ```yaml
@@ -579,7 +581,67 @@ mode: restart
 
 The target picks **which player(s)** the trigger watches, not which sensor. Any of a player's Gaming Status sensors works: picking their Library or Steam sensor triggers exactly the same as picking their master sensor, because the trigger looks up the player that sensor belongs to. The master sensor (*Name* Gaming Status) is the clearest choice. You can also target a player's device (`device_id:`), or an area or label (`area_id:` / `label_id:`) to cover several players at once. Use `gaming_status.session_ended` for **Stopped playing**.
 
-Remove the `event_data` lines to react to every player. To only react to brand-new sessions, not switching from one game to another, add a second condition: `{{ not trigger.event.data.game_switch }}`. To put the light back afterwards, use a second automation on `gaming_status_session_ended` with the condition `{{ not trigger.event.data.game_switch }}`, so it only runs when the player stops playing and not between games.
+A single automation that turns a gaming setup on when a player starts playing, keeps the light matched to whatever game they're playing, and turns everything off when they stop:
+
+```yaml
+alias: Gaming setup
+triggers:
+  - trigger: gaming_status.session_started
+    target:
+      entity_id: sensor.gaming_status_adam_master
+    options: {}
+    id: started
+  - trigger: gaming_status.session_ended
+    target:
+      entity_id: sensor.gaming_status_adam_master
+    options: {}
+    id: ended
+actions:
+  - choose:
+      # Stopped playing entirely. Switching games also fires "ended" (with
+      # game_switch: true) right before the next "started" -- skip those,
+      # or every game switch would turn everything off and back on.
+      - conditions:
+          - condition: trigger
+            id: ended
+          - condition: template
+            value_template: "{{ not trigger.game_switch }}"
+        sequence:
+          - action: switch.turn_off
+            target:
+              entity_id: switch.gaming_pc_power
+          - action: light.turn_off
+            target:
+              entity_id: light.game_room
+
+      # Started a new session, or switched to another game: match the
+      # light to the game's color (white if it has no color).
+      - conditions:
+          - condition: trigger
+            id: started
+        sequence:
+          - action: switch.turn_on
+            target:
+              entity_id: switch.gaming_pc_power
+          - action: light.turn_on
+            target:
+              entity_id: light.game_room
+            data:
+              brightness_pct: 80
+              rgb_color: >
+                {% set c = (trigger.game_color or '') | replace('#', '') %}
+                {% if c | length == 6 %}
+                  {{ [c[0:2] | int(base=16), c[2:4] | int(base=16), c[4:6] | int(base=16)] }}
+                {% else %}
+                  {{ [255, 255, 255] }}
+                {% endif %}
+# A game switch fires "ended" and "started" back to back. "queued" runs
+# both; "single" would drop the second one, so the new game's color would
+# never be applied.
+mode: queued
+```
+
+The **Started playing** trigger waits up to about 15 seconds for a new game's artwork and color, so the color is almost always included. If a game's color is extracted after that, the light stays white until the next game starts.
 
 The rename and delete services can also be triggered from a dashboard using the [Game Management card](https://github.com/adamjthompson/Gaming-Status-Cards#8-gaming-status---game-management), which provides player/platform/game dropdowns populated from real data instead of requiring you to type exact names.
 
