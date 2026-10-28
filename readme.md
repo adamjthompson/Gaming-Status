@@ -528,7 +528,7 @@ Gaming Status fires these events on the Home Assistant event bus, for use as aut
 * **`game_switch`:** `true` when the event is part of a switch from one game to another (a switch fires **Stopped playing** for the old game, then **Started playing** for the new one), `false` for a brand-new session or a player going offline. To react only to new sessions, add a condition such as `{{ not trigger.event.data.game_switch }}` (event trigger) or `{{ not trigger.game_switch }}` (Started playing trigger). A switch within 90 seconds of starting a game (e.g. a launcher opening the real game) fires neither event.
 * **`game_color`:** The game's dominant color as a hex code (e.g. `#3c3c5a`), handy for setting light colors. Only filled in when **Enable Game Color Extraction** is turned on in Global Settings; otherwise it's empty.
 
-In the automation editor's **Add trigger** dialog, pick a player under **By target** (their device is under **Unassigned → Devices** unless you've given it an area) to find **Started playing** and **Stopped playing**. They're also listed under **By type → Gaming Status**. Targeting a player's device, any of their Gaming Status sensors, or an area or label they're in all work. Each player's device also has classic **Started playing a game** / **Stopped playing a game** device triggers. For example, to set a light to the game's color when Adam starts playing:
+In the automation editor's **Add trigger** dialog, pick a player under **By target** (their device is under **Unassigned → Devices** unless you've given it an area) to find **Started playing** and **Stopped playing**. They're also listed under **By type → Gaming Status**. The target only chooses the player: any of their Gaming Status sensors, their device, or an area or label they're in all work the same way. Each player's device also has classic **Started playing a game** / **Stopped playing a game** device triggers. For example, to set a light to the game's color when Adam starts playing:
 
 ```yaml
 alias: Game color lighting
@@ -577,7 +577,7 @@ actions:
 mode: restart
 ```
 
-The target can be a player's master sensor (as above), any of their other Gaming Status sensors, their device (`device_id:`), or an area or label (`area_id:` / `label_id:`) to cover several players at once. Use `gaming_status.session_ended` for **Stopped playing**.
+The target picks **which player(s)** the trigger watches, not which sensor. Any of a player's Gaming Status sensors works: picking their Library or Steam sensor triggers exactly the same as picking their master sensor, because the trigger looks up the player that sensor belongs to. The master sensor (*Name* Gaming Status) is the clearest choice. You can also target a player's device (`device_id:`), or an area or label (`area_id:` / `label_id:`) to cover several players at once. Use `gaming_status.session_ended` for **Stopped playing**.
 
 Remove the `event_data` lines to react to every player. To only react to brand-new sessions, not switching from one game to another, add a second condition: `{{ not trigger.event.data.game_switch }}`. To put the light back afterwards, use a second automation on `gaming_status_session_ended` with the condition `{{ not trigger.event.data.game_switch }}`, so it only runs when the player stops playing and not between games.
 
