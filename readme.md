@@ -553,6 +553,32 @@ actions:
 mode: restart
 ```
 
+The same automation using the **Started playing** trigger (what the automation editor writes when you pick it under **Add trigger**). Its data is under `trigger.` directly, rather than `trigger.event.data.`:
+
+```yaml
+alias: Game color lighting
+triggers:
+  - trigger: gaming_status.session_started
+    target:
+      entity_id: sensor.gaming_status_adam_master
+    options: {}
+conditions:
+  - condition: template
+    value_template: "{{ trigger.game_color is string }}"
+actions:
+  - action: light.turn_on
+    target:
+      entity_id: light.game_room
+    data:
+      brightness_pct: 80
+      rgb_color: >
+        {% set c = trigger.game_color.lstrip('#') %}
+        {{ [c[0:2] | int(base=16), c[2:4] | int(base=16), c[4:6] | int(base=16)] }}
+mode: restart
+```
+
+The target can be a player's master sensor (as above), any of their other Gaming Status sensors, their device (`device_id:`), or an area or label (`area_id:` / `label_id:`) to cover several players at once. Use `gaming_status.session_ended` for **Stopped playing**.
+
 Remove the `event_data` lines to react to every player. To only react to brand-new sessions, not switching from one game to another, add a second condition: `{{ not trigger.event.data.game_switch }}`. To put the light back afterwards, use a second automation on `gaming_status_session_ended` with the condition `{{ not trigger.event.data.game_switch }}`, so it only runs when the player stops playing and not between games.
 
 The rename and delete services can also be triggered from a dashboard using the [Game Management card](https://github.com/adamjthompson/Gaming-Status-Cards#8-gaming-status---game-management), which provides player/platform/game dropdowns populated from real data instead of requiring you to type exact names.
