@@ -23,6 +23,7 @@ from .const import (
     DOMAIN,
     EVENT_SESSION_ENDED,
     EVENT_SESSION_STARTED,
+    EVENT_SESSION_SWITCHED,
     OPT_DISCORD_COLORS,
     OPT_ENDPOINTS,
     OPT_GLOBAL_EXCLUSIONS,
@@ -600,10 +601,12 @@ class GamingNotifier:
         state_obj,
         game,
         duration_minutes=None,
-        game_switch=False,
+        previous_game=None,
     ) -> None:
-        """Fires gaming_status_session_started/_ended on the HA event bus --
-        clean automation triggers that already have this handler's flicker,
+        """Fires gaming_status_session_started/_switched/_ended on the HA
+        event bus, one event per change (a game switch is a single
+        "switched" event, not an ended+started pair) -- clean automation
+        triggers that already have this handler's flicker,
         launcher-cooldown and cross-platform handoff filtering applied,
         unlike a raw state trigger on the master sensor. Fired whether or
         not notifications are enabled."""
@@ -621,11 +624,11 @@ class GamingNotifier:
             "game_cover_art": state_obj.attributes.get("game_cover_art"),
             # None when color extraction is off (or hasn't run for this game).
             "game_color": state_obj.attributes.get("game_dominant_color"),
-            # True when this start/end is half of a switch from one game to
-            # another, so automations can react to brand-new sessions only.
-            "game_switch": game_switch,
         }
-        if event_type == EVENT_SESSION_ENDED:
+        if event_type == EVENT_SESSION_SWITCHED:
+            data["previous_game"] = previous_game
+        if event_type in (EVENT_SESSION_ENDED, EVENT_SESSION_SWITCHED):
+            # For a switch, how long the previous game was played.
             data["duration_minutes"] = duration_minutes
         self.hass.bus.async_fire(event_type, data)
 
@@ -783,22 +786,17 @@ class GamingNotifier:
 
         if is_switch:
             self._fire_session_event(
-                EVENT_SESSION_ENDED,
-                target_player,
-                entity_id,
-                old_state,
-                old_game,
-                total_minutes,
-                game_switch=True,
-            )
-        if is_start or is_switch:
-            self._fire_session_event(
-                EVENT_SESSION_STARTED,
+                EVENT_SESSION_SWITCHED,
                 target_player,
                 entity_id,
                 new_state,
                 new_game,
-                game_switch=is_switch,
+                total_minutes,
+                previous_game=old_game,
+            )
+        elif is_start:
+            self._fire_session_event(
+                EVENT_SESSION_STARTED, target_player, entity_id, new_state, new_game
             )
 
         if not self._enable_notifications:

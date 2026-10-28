@@ -3,6 +3,9 @@
     "session_started": {
       "trigger": "mdi:controller"
     },
+    "session_switched": {
+      "trigger": "mdi:swap-horizontal"
+    },
     "session_ended": {
       "trigger": "mdi:controller-off"
     }

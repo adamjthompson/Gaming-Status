@@ -428,17 +428,22 @@
   "device_automation": {
     "trigger_type": {
       "session_started": "Started playing a game",
+      "session_switched": "Switched games",
       "session_ended": "Stopped playing a game"
     }
   },
   "triggers": {
     "session_started": {
       "name": "Started playing",
-      "description": "Triggers when a player starts or switches games."
+      "description": "Triggers when a player starts a new gaming session."
+    },
+    "session_switched": {
+      "name": "Switched games",
+      "description": "Triggers when a player switches to a different game."
     },
     "session_ended": {
       "name": "Stopped playing",
-      "description": "Triggers when a player stops or switches games."
+      "description": "Triggers when a player stops playing."
     }
   }
 }

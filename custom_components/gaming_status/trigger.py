@@ -1,9 +1,10 @@
-"""Target-based triggers ("Started playing" / "Stopped playing") for Home
+"""Target-based triggers ("Started playing" / "Switched games" / "Stopped
+playing") for Home
 Assistant's newer automation trigger picker, which lists integration
 trigger platforms rather than classic device triggers (device_trigger.py
 still covers the older Device trigger flow).
 
-Both fire off the same filtered session events notifier.py puts on the bus,
+All three fire off the same filtered session events notifier.py puts on the bus,
 so they skip launcher hand-offs and cross-platform restarts exactly like
 notifications do. A target matches a session when it references the
 player's device, or any entity on it (master, Steam, Xbox, ...).
@@ -29,7 +30,7 @@ from homeassistant.helpers.trigger import (
 )
 from homeassistant.helpers.typing import ConfigType
 
-from .const import EVENT_SESSION_ENDED, EVENT_SESSION_STARTED
+from .const import EVENT_SESSION_ENDED, EVENT_SESSION_STARTED, EVENT_SESSION_SWITCHED
 
 
 class _SessionTrigger(Trigger):
@@ -83,12 +84,17 @@ class SessionStartedTrigger(_SessionTrigger):
     _event_type = EVENT_SESSION_STARTED
 
 
+class SessionSwitchedTrigger(_SessionTrigger):
+    _event_type = EVENT_SESSION_SWITCHED
+
+
 class SessionEndedTrigger(_SessionTrigger):
     _event_type = EVENT_SESSION_ENDED
 
 
 TRIGGERS: dict[str, type[Trigger]] = {
     "session_started": SessionStartedTrigger,
+    "session_switched": SessionSwitchedTrigger,
     "session_ended": SessionEndedTrigger,
 }
 

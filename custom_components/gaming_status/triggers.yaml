@@ -8,4 +8,5 @@
       - integration: gaming_status
 
 session_started: *session_common
+session_switched: *session_common
 session_ended: *session_common

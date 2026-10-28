@@ -518,44 +518,26 @@ Moves one recorded session to another player (and/or platform), correcting total
 | `to_platform` | Yes | Exactly one platform on `to_player` to move it onto |
 
 ### Events
-Gaming Status fires these events on the Home Assistant event bus, for use as automation triggers. They use the same filtering as notifications, so launcher-to-game switches and a game moving from one platform to another don't fire extra events. They fire whether or not notifications are turned on.
+Gaming Status fires these events on the Home Assistant event bus, for use as automation triggers. They use the same filtering as notifications, so a launcher handing off to the real game, or a game moving from one platform to another, doesn't fire extra events. They fire whether or not notifications are turned on.
 
 | Event | When | Data |
 | --- | --- | --- |
-| `gaming_status_session_started` | A player starts a game, or switches to a different one | `player`, `game`, `platform`, `entity_id` (the master sensor), `device_id`, `game_cover_art`, `game_color`, `game_switch` |
-| `gaming_status_session_ended` | A player stops a game, or switches to a different one | The same fields, plus `duration_minutes` |
+| `gaming_status_session_started` | A player starts a new gaming session | `player`, `game`, `platform`, `entity_id` (the master sensor), `device_id`, `game_cover_art`, `game_color` |
+| `gaming_status_session_switched` | A player switches from one game to another | The same fields for the new game, plus `previous_game` and `duration_minutes` (how long the previous game was played) |
+| `gaming_status_session_ended` | A player stops playing | The same fields for the game that ended, plus `duration_minutes` |
 
-* **`game_switch`:** `true` when the event is part of a switch from one game to another (a switch fires **Stopped playing** for the old game, then **Started playing** for the new one), `false` for a brand-new session or a player going offline. To react only to new sessions, add a condition such as `{{ not trigger.event.data.game_switch }}` (event trigger) or `{{ not trigger.game_switch }}` (Started playing trigger). A switch within 90 seconds of starting a game (e.g. a launcher opening the real game) fires neither event.
-* **`game_color`:** The game's dominant color as a hex code (e.g. `#3c3c5a`), handy for setting light colors. Only filled in when **Enable Game Color Extraction** is turned on in Global Settings; otherwise it's empty.
+* **`game_color`:** The game's dominant color as a hex code (e.g. `#3c3c5a`), handy for setting light colors. Only filled in when **Enable Game Color Extraction** is turned on in Global Settings; otherwise it's empty. Gaming Status waits up to about 15 seconds after a game starts for its artwork and color, so they're almost always included.
+* A switch within 90 seconds of starting a game (e.g. a launcher opening the real game) fires nothing; the earlier **Started playing** stands.
 
-In the automation editor's **Add trigger** dialog, pick a player under **By target** (their device is under **Unassigned → Devices** unless you've given it an area) to find **Started playing** and **Stopped playing**. They're also listed under **By type → Gaming Status**. The target only chooses the player: any of their Gaming Status sensors, their device, or an area or label they're in all work the same way. Each player's device also has classic **Started playing a game** / **Stopped playing a game** device triggers. For example, to set a light to the game's color when Adam starts playing:
+#### Triggers
+In the automation editor's **Add trigger** dialog, the three events are available as **Started playing**, **Switched games** and **Stopped playing**. Find them under **By type → Gaming Status**, or under **By target** by picking a player (their device is under **Unassigned → Devices** unless you've given it an area). Each player's device also has matching classic device triggers.
 
-```yaml
-alias: Game color lighting
-triggers:
-  - trigger: event
-    event_type: gaming_status_session_started
-    event_data:
-      player: Adam
-conditions:
-  # Skip games with no extracted color (or Enable Game Color Extraction off).
-  - condition: template
-    value_template: "{{ trigger.event.data.game_color is string }}"
-actions:
-  - action: light.turn_on
-    target:
-      entity_id: light.game_room
-    data:
-      brightness_pct: 80
-      rgb_color: >
-        {% set c = trigger.event.data.game_color.lstrip('#') %}
-        {{ [c[0:2] | int(base=16), c[2:4] | int(base=16), c[4:6] | int(base=16)] }}
-mode: restart
-```
+The target picks **which player(s)** the trigger watches, not which sensor. Any of a player's Gaming Status sensors works: picking their Library or Steam sensor triggers exactly the same as picking their master sensor, because the trigger looks up the player that sensor belongs to. The master sensor (*Name* Gaming Status) is the clearest choice. You can also target a player's device (`device_id:`), or an area or label (`area_id:` / `label_id:`) to cover several players at once.
 
-Remove the `event_data` lines to react to every player. To only react to brand-new sessions, not switching from one game to another, add a second condition: `{{ not trigger.event.data.game_switch }}`. To put the light back afterwards, use a second automation on `gaming_status_session_ended` with the condition `{{ not trigger.event.data.game_switch }}`, so it only runs when the player stops playing and not between games.
+With these triggers, the event data is directly under `trigger.` (e.g. `trigger.game_color`). With a raw event trigger, it's under `trigger.event.data.`.
 
-The same automation using the **Started playing** trigger (what the automation editor writes when you pick it under **Add trigger**). Its data is under `trigger.` directly, rather than `trigger.event.data.`:
+#### Example: light matches the game's color
+Sets a light to the game's color whenever Adam starts playing or switches games:
 
 ```yaml
 alias: Game color lighting
@@ -564,7 +546,12 @@ triggers:
     target:
       entity_id: sensor.gaming_status_adam_master
     options: {}
+  - trigger: gaming_status.session_switched
+    target:
+      entity_id: sensor.gaming_status_adam_master
+    options: {}
 conditions:
+  # Skip games with no extracted color (or Enable Game Color Extraction off).
   - condition: template
     value_template: "{{ trigger.game_color is string }}"
 actions:
@@ -579,9 +566,39 @@ actions:
 mode: restart
 ```
 
-The target picks **which player(s)** the trigger watches, not which sensor. Any of a player's Gaming Status sensors works: picking their Library or Steam sensor triggers exactly the same as picking their master sensor, because the trigger looks up the player that sensor belongs to. The master sensor (*Name* Gaming Status) is the clearest choice. You can also target a player's device (`device_id:`), or an area or label (`area_id:` / `label_id:`) to cover several players at once. Use `gaming_status.session_ended` for **Stopped playing**.
+#### Example: the same thing with an event trigger
+Useful in YAML packages or when you'd rather match on event data, such as a specific player or game:
 
-A single automation that turns a gaming setup on when a player starts playing, keeps the light matched to whatever game they're playing, and turns everything off when they stop:
+```yaml
+alias: Game color lighting (event)
+triggers:
+  - trigger: event
+    event_type: gaming_status_session_started
+    event_data:
+      player: Adam
+  - trigger: event
+    event_type: gaming_status_session_switched
+    event_data:
+      player: Adam
+conditions:
+  - condition: template
+    value_template: "{{ trigger.event.data.game_color is string }}"
+actions:
+  - action: light.turn_on
+    target:
+      entity_id: light.game_room
+    data:
+      brightness_pct: 80
+      rgb_color: >
+        {% set c = trigger.event.data.game_color.lstrip('#') %}
+        {{ [c[0:2] | int(base=16), c[2:4] | int(base=16), c[4:6] | int(base=16)] }}
+mode: restart
+```
+
+Remove the `event_data` lines to react to every player.
+
+#### Example: a whole gaming setup
+Turns a gaming setup on when Adam starts playing, keeps the light matched to whatever game he's playing, and turns everything off when he stops:
 
 ```yaml
 alias: Gaming setup
@@ -591,31 +608,27 @@ triggers:
       entity_id: sensor.gaming_status_adam_master
     options: {}
     id: started
+  - trigger: gaming_status.session_switched
+    target:
+      entity_id: sensor.gaming_status_adam_master
+    options: {}
+    id: switched
   - trigger: gaming_status.session_ended
     target:
       entity_id: sensor.gaming_status_adam_master
     options: {}
     id: ended
+variables:
+  # The game's color as [r, g, b], or white if it has none.
+  rgb: >
+    {% set c = (trigger.game_color or '') | replace('#', '') %}
+    {% if c | length == 6 %}
+      {{ [c[0:2] | int(base=16), c[2:4] | int(base=16), c[4:6] | int(base=16)] }}
+    {% else %}
+      {{ [255, 255, 255] }}
+    {% endif %}
 actions:
   - choose:
-      # Stopped playing entirely. Switching games also fires "ended" (with
-      # game_switch: true) right before the next "started" -- skip those,
-      # or every game switch would turn everything off and back on.
-      - conditions:
-          - condition: trigger
-            id: ended
-          - condition: template
-            value_template: "{{ not trigger.game_switch }}"
-        sequence:
-          - action: switch.turn_off
-            target:
-              entity_id: switch.gaming_pc_power
-          - action: light.turn_off
-            target:
-              entity_id: light.game_room
-
-      # Started a new session, or switched to another game: match the
-      # light to the game's color (white if it has no color).
       - conditions:
           - condition: trigger
             id: started
@@ -628,20 +641,28 @@ actions:
               entity_id: light.game_room
             data:
               brightness_pct: 80
-              rgb_color: >
-                {% set c = (trigger.game_color or '') | replace('#', '') %}
-                {% if c | length == 6 %}
-                  {{ [c[0:2] | int(base=16), c[2:4] | int(base=16), c[4:6] | int(base=16)] }}
-                {% else %}
-                  {{ [255, 255, 255] }}
-                {% endif %}
-# A game switch fires "ended" and "started" back to back. "queued" runs
-# both; "single" would drop the second one, so the new game's color would
-# never be applied.
-mode: queued
+              rgb_color: "{{ rgb }}"
+      - conditions:
+          - condition: trigger
+            id: switched
+        sequence:
+          - action: light.turn_on
+            target:
+              entity_id: light.game_room
+            data:
+              rgb_color: "{{ rgb }}"
+      - conditions:
+          - condition: trigger
+            id: ended
+        sequence:
+          - action: switch.turn_off
+            target:
+              entity_id: switch.gaming_pc_power
+          - action: light.turn_off
+            target:
+              entity_id: light.game_room
+mode: single
 ```
-
-The **Started playing** trigger waits up to about 15 seconds for a new game's artwork and color, so the color is almost always included. If a game's color is extracted after that, the light stays white until the next game starts.
 
 The rename and delete services can also be triggered from a dashboard using the [Game Management card](https://github.com/adamjthompson/Gaming-Status-Cards#8-gaming-status---game-management), which provides player/platform/game dropdowns populated from real data instead of requiring you to type exact names.
 

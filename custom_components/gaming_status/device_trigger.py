@@ -13,11 +13,17 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.trigger import TriggerActionType, TriggerInfo
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN, EVENT_SESSION_ENDED, EVENT_SESSION_STARTED
+from .const import (
+    DOMAIN,
+    EVENT_SESSION_ENDED,
+    EVENT_SESSION_STARTED,
+    EVENT_SESSION_SWITCHED,
+)
 from .device import HUB_DEVICE_ID
 
 TRIGGER_TYPES = {
     "session_started": EVENT_SESSION_STARTED,
+    "session_switched": EVENT_SESSION_SWITCHED,
     "session_ended": EVENT_SESSION_ENDED,
 }
 

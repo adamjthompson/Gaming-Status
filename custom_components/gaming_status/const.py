@@ -9,6 +9,7 @@ CONF_DISCORD_SERVER = "discord_server_id"
 # device_trigger.py for the matching automation-UI triggers).
 EVENT_SESSION_STARTED = f"{DOMAIN}_session_started"
 EVENT_SESSION_ENDED = f"{DOMAIN}_session_ended"
+EVENT_SESSION_SWITCHED = f"{DOMAIN}_session_switched"
 
 # --- Default values ---
 DEFAULT_RESET_HISTORY = False
