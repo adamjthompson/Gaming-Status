@@ -469,6 +469,32 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 # ---------------------------------------------------------------------------
 # Options flow
 # ---------------------------------------------------------------------------
+
+
+async def _async_validate_psn_npsso(hass, npsso):
+    """Signs in to PSN with a newly entered NPSSO override, so a bad cookie
+    is caught on save instead of only surfacing (as a Repairs issue) on a
+    later PSN call -- which never comes while the official
+    playstation_network integration supplies its own NPSSO, since the
+    override is only a fallback. Returns a form error key, or None.
+    A network/rate-limit failure doesn't block saving: that says nothing
+    about the cookie itself."""
+    from .platform_exceptions import ApiError, AuthError
+    from .psn_client import PsnClient
+    from .rate_limiter import RateLimiter
+
+    client = PsnClient(
+        async_get_clientsession(hass), npsso, RateLimiter(5, 1, name="psn_validate")
+    )
+    try:
+        await client._async_ensure_session()
+    except AuthError:
+        return "invalid_npsso"
+    except ApiError as err:
+        _LOGGER.debug("Gaming Status: couldn't verify the NPSSO override: %s", err)
+    return None
+
+
 class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self._config_entry = config_entry
@@ -1999,26 +2025,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 ),
             )
 
-            steam_achievements_key_override = user_input.get(
-                CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, ""
-            ).strip()
-            psn_npsso_override = user_input.get(CONF_PSN_NPSSO_OVERRIDE, "").strip()
-            new_data = dict(self._config_entry.data)
-            new_data[CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE] = (
-                steam_achievements_key_override
-            )
-            new_data[CONF_PSN_NPSSO_OVERRIDE] = psn_npsso_override
-
             if not errors:
                 self._options = opts
-                # Combined into one call (data + options together) so this
-                # save triggers a single reload instead of two back-to-back
-                # ones -- _update_and_return's own update-entry call would
-                # otherwise duplicate the one above.
-                self.hass.config_entries.async_update_entry(
-                    self._config_entry, data=new_data, options=self._options
-                )
-                return await self.async_step_init()
+                return await self._update_and_return()
 
         schema_dict = {
             vol.Optional(
@@ -2043,26 +2052,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     min=MIN_ACHIEVEMENT_RECHECK_SECONDS,
                     mode=selector.NumberSelectorMode.BOX,
                 )
-            ),
-            vol.Optional(
-                CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE,
-                description={
-                    "suggested_value": self._config_entry.data.get(
-                        CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, ""
-                    )
-                },
-            ): selector.TextSelector(
-                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
-            ),
-            vol.Optional(
-                CONF_PSN_NPSSO_OVERRIDE,
-                description={
-                    "suggested_value": self._config_entry.data.get(
-                        CONF_PSN_NPSSO_OVERRIDE, ""
-                    )
-                },
-            ): selector.TextSelector(
-                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
             ),
             vol.Optional(
                 OPT_ENABLE_LIBRARY_SCAN,
@@ -2111,6 +2100,17 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 new_data[CONF_DISCORD_SERVER] = user_input.get(
                     CONF_DISCORD_SERVER, ""
                 ).strip()
+            new_data[CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE] = user_input.get(
+                CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, ""
+            ).strip()
+            psn_npsso_override = user_input.get(CONF_PSN_NPSSO_OVERRIDE, "").strip()
+            new_data[CONF_PSN_NPSSO_OVERRIDE] = psn_npsso_override
+            if psn_npsso_override and psn_npsso_override != self._config_entry.data.get(
+                CONF_PSN_NPSSO_OVERRIDE
+            ):
+                error = await _async_validate_psn_npsso(self.hass, psn_npsso_override)
+                if error:
+                    errors[CONF_PSN_NPSSO_OVERRIDE] = error
             if not errors:
                 self._options = opts
                 # Combined into one call (data + options together) so this
@@ -2160,6 +2160,31 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     ): str,
                 }
             )
+
+        schema_dict.update(
+            {
+                vol.Optional(
+                    CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE,
+                    description={
+                        "suggested_value": self._config_entry.data.get(
+                            CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE, ""
+                        )
+                    },
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
+                vol.Optional(
+                    CONF_PSN_NPSSO_OVERRIDE,
+                    description={
+                        "suggested_value": self._config_entry.data.get(
+                            CONF_PSN_NPSSO_OVERRIDE, ""
+                        )
+                    },
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
+            }
+        )
 
         schema_dict[
             vol.Optional(

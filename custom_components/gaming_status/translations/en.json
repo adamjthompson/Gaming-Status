@@ -299,8 +299,6 @@
           "enable_native_ratings": "Enable Native Content Ratings",
           "enable_achievement_tracking": "Enable Achievement/Trophy Tracking",
           "achievement_recheck_seconds": "Achievement/Trophy Recheck Interval (seconds)",
-          "steam_achievements_api_key_override": "Steam Web API Key Override (Optional)",
-          "psn_npsso_override": "PSN NPSSO Override (Optional)",
           "enable_library_scan": "Enable Full Game Library Scan",
           "library_scan_interval_hours": "Library Scan Interval (hours)"
         },
@@ -308,8 +306,6 @@
           "enable_native_ratings": "Looks up each game's ESRB rating directly from Steam/Xbox/PlayStation -- feeds the game_content_rating sensor attribute and Parental Controls' Content Rating Limit rule. Independent of achievement tracking below: Steam and Xbox ratings need no credential at all, PlayStation reuses the same session achievement tracking uses. Off by default. Also shown on the per-player Parental Controls screen (same setting, shown in both places for convenience).",
           "enable_achievement_tracking": "Adds achievement/trophy counts and unlock details to the current game's Steam/Xbox/PlayStation sensor, reusing credentials already configured on the official  integrations where possible. Off by default. The recheck interval, credential overrides, and library scan fields below only take effect once this is on.",
           "achievement_recheck_seconds": "How often to re-check for newly-earned achievements/trophies while a game keeps running. Default 900 (15 min), minimum 300 (5 min).",
-          "steam_achievements_api_key_override": "Only needed if the Steam integration isn't installed, or you want a different key than the one already configured there. Leave blank to auto-detect.",
-          "psn_npsso_override": "Only needed if the PlayStation Network integration isn't installed, or you want a different account's NPSSO than the one already configured there. Leave blank to auto-detect. Used by both native ratings and achievement tracking.",
           "enable_library_scan": "Adds a Game Library sensor (plus one per tracked platform) with your full game collection -- total achievements/trophies, completion percentage, and per-game details -- scanned periodically in the background. Only created for platforms you already track. Off by default.",
           "library_scan_interval_hours": "How often to rescan your full game library. Default 12 hours, range 1-24."
         }
@@ -321,9 +317,13 @@
           "steamgriddb_api_key": "SteamGridDB API Key (for fetching artwork)",
           "discord_bot_token": "Discord Bot Token (for game tracking)",
           "discord_server_id": "Discord Server ID (for game tracking)",
+          "steam_achievements_api_key_override": "Steam Web API Key Override (Optional)",
+          "psn_npsso_override": "PSN NPSSO Override (Optional)",
           "same_game_prefix_words": "Same-Game Prefix Match (leading words, 0 = off)"
         },
         "data_description": {
+          "steam_achievements_api_key_override": "Only needed if the Steam integration isn't installed, or you want a different key than the one already configured there. Leave blank to auto-detect.",
+          "psn_npsso_override": "Only needed if the PlayStation Network integration isn't installed, or you want a different account's NPSSO than the one already configured there. Leave blank to auto-detect. Used by both native ratings and achievement tracking. Checked with PlayStation when you save.",
           "same_game_prefix_words": "Game names starting with this many matching words (e.g. \"Call of Duty ...\") are treated as the same game instead of a switch. Default: 2. Set to 0 to disable."
         }
       },
@@ -411,7 +411,8 @@
       "custom_duplicates_gsa": "The Custom sensor can't be the same entity as the Gaming Status Agent sensor.",
       "invalid_hex_color": "Must be a valid 6-digit hex color code, e.g. #FF0000",
       "malformed_override_line": "Each line must be in the form 'Game Name = Override Name'. Fix or remove the invalid line(s) and try again.",
-      "malformed_rating_override_line": "Each line must be in the form 'Game Name = RATING' using one of the supported rating codes. Fix or remove the invalid line(s) and try again."
+      "malformed_rating_override_line": "Each line must be in the form 'Game Name = RATING' using one of the supported rating codes. Fix or remove the invalid line(s) and try again.",
+      "invalid_npsso": "PlayStation rejected this NPSSO. Sign in at playstation.com, copy a fresh npsso value and try again."
     }
   },
   "issues": {
@@ -421,7 +422,7 @@
     },
     "psn_npsso_expired": {
       "title": "PlayStation NPSSO cookie expired",
-      "description": "PlayStation Network rejected the stored NPSSO cookie, so PlayStation trophies, ratings and library scans have stopped updating. Sign in at playstation.com, open the Learn More link to copy a fresh NPSSO value, then paste it into the official PlayStation Network integration (Reconfigure) or into the player's NPSSO override under Gaming Status → Configure. This issue clears automatically once PSN accepts the new cookie."
+      "description": "PlayStation Network rejected the stored NPSSO cookie, so PlayStation trophies, ratings and library scans have stopped updating. Sign in at playstation.com, open the Learn More link to copy a fresh NPSSO value, then paste it into the official PlayStation Network integration (Reconfigure) or into the PSN NPSSO Override under Gaming Status → Configure → Advanced. This issue clears automatically once PSN accepts the new cookie."
     }
   },
   "device_automation": {

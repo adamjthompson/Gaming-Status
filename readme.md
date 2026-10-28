@@ -148,9 +148,8 @@ Manually adjust game titles, ratings, and what gets tracked.
 #### 6. Achievements & Ratings
 Native achievement/trophy/rating enrichment and full game library scanning, all in one place -- every field here is always visible together, regardless of which toggles are on, so you never have to save and reopen the menu just to find a setting.
 * **Enable Native Content Ratings:** See [Content Ratings](#content-ratings) above. Off by default. Independent from achievement tracking below — Steam ratings need no credential at all, while Xbox and PlayStation each reuse the same session achievement tracking uses (Xbox's numeric age limit is still free either way, from the same official Xbox integration sensor it always was; the credential is only needed for the ESRB/PEGI text label alongside it). This same setting is also shown on the main Parental Controls screen.
-* **Enable Achievement/Trophy Tracking:** Adds achievement/trophy counts and recent-unlock details to the current game's Steam/Xbox/PlayStation sensor. Off by default; the recheck interval, credential overrides, and library scan fields below only take effect once this is on.
+* **Enable Achievement/Trophy Tracking:** Adds achievement/trophy counts and recent-unlock details to the current game's Steam/Xbox/PlayStation sensor. Off by default; the recheck interval and library scan fields below only take effect once this is on. To use a different Steam key or PSN NPSSO than the official integrations', see the credential overrides under [Advanced](#8-advanced).
 * **Achievement/Trophy Recheck Interval:** How often to re-check for newly-earned achievements/trophies while a game keeps running. Default 900 seconds (15 min), minimum 300 (5 min).
-* **Steam Web API Key Override / PSN NPSSO Override:** *(Optional)* Only needed if the Steam /PlayStation Network integration isn't installed, or you want to use a different credential than the one already configured there. Leave blank to auto-detect. The PSN override is used by both native ratings and achievement tracking.
 * **Enable Full Game Library Scan:** Adds a Game Library sensor (plus one per tracked platform) with your full game collection — total achievements/trophies, completion percentage, and per-game details — scanned periodically in the background. Only created for platforms you already track. Games matching Global Exclusions or that player's own Exclude Games list (see [Overrides & Exclusions](#5-overrides--exclusions)) are skipped entirely. Off by default.
 * **Library Scan Interval:** How often to rescan your full game library. Default 12 hours, range 1–24.
 
@@ -188,6 +187,7 @@ Add any other `/local/` folders that hold images (such as `/local/gaming_status/
 #### 8. Advanced
 Update your API keys and fine-tune the game-matching engine.
 * **API Keys & Tokens:** Update your SteamGridDB API key, or your Discord Bot Token and Server ID.
+* **Steam Web API Key Override / PSN NPSSO Override:** *(Optional)* Only needed if the Steam / PlayStation Network integration isn't installed, or you want to use a different credential than the one already configured there. Leave blank to auto-detect. These are fallbacks: while the official integration supplies its own credential, that one is used instead. A new PSN NPSSO is checked with PlayStation when you save, and the form shows an error if it's rejected. The PSN override is used by native ratings, achievement tracking and library scans.
 * **Same-Game Prefix Match:** Game names starting with this many matching leading words (e.g. "Call of Duty ...") are treated as the same game instead of a switch. Default: 2. Set to 0 to disable.
 
 #### 9. Global Settings
