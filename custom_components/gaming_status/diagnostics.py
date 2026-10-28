@@ -26,6 +26,15 @@ _REDACT_KEY_RE = re.compile(
     r"xuid|account_id|user_id|steam_?id|online_id|discord_server|backup)",
     re.IGNORECASE,
 )
+# Exact-match keys too generic for the pattern above: a player's "discord"
+# slot holds their Discord user ID.
+_REDACT_EXACT_KEYS = {"discord"}
+# Secrets embedded inside otherwise-useful string values: image_proxy access
+# tokens, and the Discord user ID in avatar URLs.
+_REDACT_IN_STRING = (
+    (re.compile(r"([?&]token=)[^&]+"), r"\1" + REDACTED),
+    (re.compile(r"(cdn\.discordapp\.com/avatars/)\d+"), r"\1" + REDACTED),
+)
 
 # Library sensors carry whole game lists; a few samples are enough to see
 # their shape without making the download megabytes long.
@@ -36,7 +45,9 @@ def _redact(value: Any) -> Any:
     if isinstance(value, dict):
         return {
             k: REDACTED
-            if isinstance(k, str) and _REDACT_KEY_RE.search(k) and v
+            if isinstance(k, str)
+            and v
+            and (_REDACT_KEY_RE.search(k) or k in _REDACT_EXACT_KEYS)
             else _redact(v)
             for k, v in value.items()
         }
@@ -51,6 +62,9 @@ def _redact(value: Any) -> Any:
             return _redact(json.loads(value))
         except ValueError:
             return value
+    if isinstance(value, str):
+        for pattern, repl in _REDACT_IN_STRING:
+            value = pattern.sub(repl, value)
     return value
 
 
