@@ -10,6 +10,7 @@
 session_started: *session_common
 session_switched: *session_common
 session_ended: *session_common
+screen_time_warning: *session_common
 screen_time_exceeded: *session_common
 curfew_exceeded: *session_common
 rating_exceeded: *session_common

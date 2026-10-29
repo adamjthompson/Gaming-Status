@@ -5004,7 +5004,11 @@ class MasterGamingSensor(RestoreSensor):
         achievement_tracking_enabled=True,
     ):
         self.hass = hass
-        self._parental_rules = parental_rules or {}
+        # Parental rules are read live (see the _parental_rules property)
+        # so a change from a setting entity applies without a reload; this
+        # setup-time copy is only the fallback if no config entry is found.
+        self._player_name = name
+        self._initial_parental_rules = parental_rules or {}
         self._same_game_prefix_words = same_game_prefix_words
         self._handoff_grace_seconds = handoff_grace_seconds
         self._achievement_tracking_enabled = achievement_tracking_enabled
@@ -5069,11 +5073,30 @@ class MasterGamingSensor(RestoreSensor):
                 )
             )
         self.async_on_remove(self._update_debouncer.async_shutdown)
+        # A setting entity changed a live setting (limits, rating limit,
+        # parental controls on/off) -- recompute the parental attributes.
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+
+        from .settings import SIGNAL_SETTINGS_UPDATED
+
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SETTINGS_UPDATED, self._async_platform_changed
+            )
+        )
         await self._update_master_state_safe()
 
     @callback
-    def _async_platform_changed(self, event):
+    def _async_platform_changed(self, event=None):
         self.hass.async_create_task(self._update_debouncer.async_call())
+
+    @property
+    def _parental_rules(self) -> dict:
+        from .settings import get_entry, parental_rules_live
+
+        if get_entry(self.hass) is None:
+            return self._initial_parental_rules
+        return parental_rules_live(self.hass, self._player_name)
 
     async def _update_master_state_safe(self):
         """Wraps _update_master_state so unexpected/malformed data on any
@@ -6949,6 +6972,15 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                         coordinator, player_name, safe_owner, platform, device_info
                     )
                 )
+            # A platform whose library scan was turned off for this player
+            # (while others stay on) isn't recreated above -- remove its
+            # leftover registry entry rather than leaving it "unavailable".
+            for platform in ("steam", "xbox", "playstation"):
+                if platform in library_platform_sources:
+                    continue
+                target_id = f"sensor.gaming_status_{safe_owner}_library_{platform}"
+                if registry.async_get(target_id):
+                    registry.async_remove(target_id)
 
             # Non-blocking -- a full scan can take a while (esp. a large
             # never-before-seen Steam library), and must never delay HA

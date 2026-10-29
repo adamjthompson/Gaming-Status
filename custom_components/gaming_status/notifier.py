@@ -24,6 +24,7 @@ from .const import (
     EVENT_CURFEW_EXCEEDED,
     EVENT_RATING_EXCEEDED,
     EVENT_SCREEN_TIME_EXCEEDED,
+    EVENT_SCREEN_TIME_WARNING,
     EVENT_SESSION_ENDED,
     EVENT_SESSION_STARTED,
     EVENT_SESSION_SWITCHED,
@@ -990,6 +991,33 @@ class GamingNotifier:
                     today_minutes = int(float(raw_hours) * 60)
                 except (ValueError, TypeError):
                     continue
+
+                # Warning: once per day, warning_minutes before the limit.
+                warn_key = f"{st_key}_warning"
+                try:
+                    warning_minutes = int(st_rule.get("warning_minutes") or 0)
+                except (ValueError, TypeError):
+                    warning_minutes = 0
+                if warning_minutes > 0 and today_minutes < limit - warning_minutes:
+                    self._parental_event_marks.pop(warn_key, None)
+                elif (
+                    warning_minutes > 0
+                    and is_playing
+                    and today_minutes < limit
+                    and warn_key not in self._parental_event_marks
+                ):
+                    self._parental_event_marks[warn_key] = True
+                    async_fire_player_event(
+                        self.hass,
+                        EVENT_SCREEN_TIME_WARNING,
+                        player_name,
+                        {
+                            "game": master_state.state,
+                            "limit_minutes": limit,
+                            "minutes_played": today_minutes,
+                            "minutes_left": limit - today_minutes,
+                        },
+                    )
 
                 if today_minutes >= limit:
                     if is_playing:

@@ -43,7 +43,17 @@ from .notifier import GamingNotifier
 from .public_page import async_invalidate_public_cache, async_register_public_views
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = ["sensor", "binary_sensor", "button", "event", "image"]
+PLATFORMS = [
+    "sensor",
+    "binary_sensor",
+    "button",
+    "event",
+    "image",
+    "number",
+    "select",
+    "switch",
+    "time",
+]
 
 
 async def _async_migrate_custom_to_gsa(hass: HomeAssistant, config_entry: ConfigEntry):
@@ -617,7 +627,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload the integration when options change so entities rebuild."""
+    """Reload the integration when options change so entities rebuild --
+    except for a live setting written by a setting entity (settings.py),
+    which every reader already picks up without one."""
+    from .settings import consume_skip_reload
+
+    if consume_skip_reload(hass):
+        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 

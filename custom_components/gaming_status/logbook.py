@@ -20,6 +20,7 @@ from .const import (
     EVENT_CURFEW_EXCEEDED,
     EVENT_RATING_EXCEEDED,
     EVENT_SCREEN_TIME_EXCEEDED,
+    EVENT_SCREEN_TIME_WARNING,
     EVENT_SESSION_ENDED,
     EVENT_SESSION_STARTED,
     EVENT_SESSION_SWITCHED,
@@ -61,6 +62,10 @@ def async_describe_events(
         elif event.event_type == EVENT_SESSION_ENDED:
             message = f"stopped playing {game}{_duration(data.get('duration_minutes'))}"
             icon = "mdi:controller-off"
+        elif event.event_type == EVENT_SCREEN_TIME_WARNING:
+            left = data.get("minutes_left")
+            message = f"has {left} minute{'s' if left != 1 else ''} of screen time left"
+            icon = "mdi:timer-sand"
         elif event.event_type == EVENT_SCREEN_TIME_EXCEEDED:
             over = data.get("minutes_over") or 0
             message = (
@@ -94,6 +99,7 @@ def async_describe_events(
         EVENT_SESSION_STARTED,
         EVENT_SESSION_SWITCHED,
         EVENT_SESSION_ENDED,
+        EVENT_SCREEN_TIME_WARNING,
         EVENT_SCREEN_TIME_EXCEEDED,
         EVENT_CURFEW_EXCEEDED,
         EVENT_RATING_EXCEEDED,

@@ -1587,6 +1587,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 "enabled": user_input.get("st_enabled", False),
                 "weekday_minutes": user_input.get("st_weekday_minutes", 120),
                 "weekend_minutes": user_input.get("st_weekend_minutes", 180),
+                "warning_minutes": user_input.get("st_warning_minutes", 0),
                 "repeat": int(user_input.get("st_repeat", "0")),
                 "action": st_action_final,
             }
@@ -1648,6 +1649,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 "st_weekend_minutes", default=st.get("weekend_minutes", 180)
             ): vol.All(int, vol.Range(min=0)),
+            vol.Optional(
+                "st_warning_minutes", default=st.get("warning_minutes", 0)
+            ): vol.All(int, vol.Range(min=0, max=120)),
             vol.Optional(
                 "st_repeat", default=str(st.get("repeat", 0))
             ): selector.SelectSelector(

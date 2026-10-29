@@ -29,6 +29,7 @@ from .const import (
     EVENT_CURFEW_EXCEEDED,
     EVENT_RATING_EXCEEDED,
     EVENT_SCREEN_TIME_EXCEEDED,
+    EVENT_SCREEN_TIME_WARNING,
     EVENT_SESSION_ENDED,
     EVENT_SESSION_STARTED,
     EVENT_SESSION_SWITCHED,
@@ -115,6 +116,9 @@ if Trigger is not None:
     class SessionEndedTrigger(_PlayerEventTrigger):
         _event_type = EVENT_SESSION_ENDED
 
+    class ScreenTimeWarningTrigger(_PlayerEventTrigger):
+        _event_type = EVENT_SCREEN_TIME_WARNING
+
     class ScreenTimeExceededTrigger(_PlayerEventTrigger):
         _event_type = EVENT_SCREEN_TIME_EXCEEDED
 
@@ -131,6 +135,7 @@ if Trigger is not None:
         "session_started": SessionStartedTrigger,
         "session_switched": SessionSwitchedTrigger,
         "session_ended": SessionEndedTrigger,
+        "screen_time_warning": ScreenTimeWarningTrigger,
         "screen_time_exceeded": ScreenTimeExceededTrigger,
         "curfew_exceeded": CurfewExceededTrigger,
         "rating_exceeded": RatingExceededTrigger,

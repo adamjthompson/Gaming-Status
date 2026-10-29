@@ -12,6 +12,7 @@ EVENT_SESSION_ENDED = f"{DOMAIN}_session_ended"
 EVENT_SESSION_SWITCHED = f"{DOMAIN}_session_switched"
 # Parental-control and achievement events (notifier.py / sensor.py).
 EVENT_SCREEN_TIME_EXCEEDED = f"{DOMAIN}_screen_time_exceeded"
+EVENT_SCREEN_TIME_WARNING = f"{DOMAIN}_screen_time_warning"
 EVENT_CURFEW_EXCEEDED = f"{DOMAIN}_curfew_exceeded"
 EVENT_RATING_EXCEEDED = f"{DOMAIN}_rating_exceeded"
 EVENT_ACHIEVEMENT_UNLOCKED = f"{DOMAIN}_achievement_unlocked"

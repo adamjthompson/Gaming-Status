@@ -529,6 +529,7 @@ Gaming Status fires these events on the Home Assistant event bus, for use as aut
 | `gaming_status_session_started` | A player starts a new gaming session | `player`, `game`, `platform`, `entity_id` (the master sensor), `device_id`, `game_cover_art`, `game_color` |
 | `gaming_status_session_switched` | A player switches from one game to another | The same fields for the new game, plus `previous_game` and `duration_minutes` (how long the previous game was played) |
 | `gaming_status_session_ended` | A player stops playing | The same fields for the game that ended, plus `duration_minutes` |
+| `gaming_status_screen_time_warning` | A player has played to within their **Screen time warning** minutes of the limit (once per day; set the minutes in Parental Controls or with the player's Screen time warning entity) | `player`, `entity_id`, `device_id`, `game`, `limit_minutes`, `minutes_played`, `minutes_left` |
 | `gaming_status_screen_time_exceeded` | A player reaches their daily screen time limit while playing. Repeats on the rule's **Repeat** interval while they keep playing | `player`, `entity_id`, `device_id`, `game`, `limit_minutes`, `minutes_played`, `minutes_over` |
 | `gaming_status_curfew_exceeded` | A player is still playing at curfew. Repeats on the rule's **Repeat** interval while they keep playing | `player`, `entity_id`, `device_id`, `game`, `curfew` (e.g. `22:00`), `minutes_over` |
 | `gaming_status_rating_exceeded` | A player starts a game rated above their limit (once per game) | `player`, `entity_id`, `device_id`, `game`, `age_floor`, `esrb`, `pegi`, `max_age_floor` (the player's limit), `game_cover_art` |
@@ -542,7 +543,7 @@ Gaming Status fires these events on the Home Assistant event bus, for use as aut
 Each event is also written to Home Assistant's **Logbook** in plain language, for example "Adam started playing ELDEN RING on Steam", "Adam switched from Halo (1h 35m) to DOOM Eternal on Xbox", "Liv is still playing Roblox after the 22:00 curfew (10 minutes past)" or "Adam unlocked "Arena Grande" in Borderlands 4". These entries appear in the Logbook and on each player's device and master sensor pages.
 
 #### Triggers
-In the automation editor's **Add trigger** dialog, the events are available as **Started playing**, **Switched games**, **Stopped playing**, **Screen time exceeded**, **Curfew exceeded**, **Rating exceeded** and **Achievement unlocked**. Find them under **By type → Gaming Status**, or under **By target** by picking a player (their device is under **Unassigned → Devices** unless you've given it an area). Each player's device also has matching classic device triggers.
+In the automation editor's **Add trigger** dialog, the events are available as **Started playing**, **Switched games**, **Stopped playing**, **Screen time warning**, **Screen time exceeded**, **Curfew exceeded**, **Rating exceeded** and **Achievement unlocked**. Find them under **By type → Gaming Status**, or under **By target** by picking a player (their device is under **Unassigned → Devices** unless you've given it an area). Each player's device also has matching classic device triggers.
 
 The target picks **which player(s)** the trigger watches, not which sensor. Any of a player's Gaming Status sensors works: picking their Library or Steam sensor triggers exactly the same as picking their master sensor, because the trigger looks up the player that sensor belongs to. The master sensor (*Name* Gaming Status) is the clearest choice. You can also target a player's device (`device_id:`), or an area or label (`area_id:` / `label_id:`) to cover several players at once.
 
@@ -677,6 +678,37 @@ actions:
               entity_id: light.game_room
 mode: single
 ```
+
+### Settings on the device page
+Common settings can also be changed from each player's device page (**Configuration** section), from a dashboard, or in automations, without opening Configure. These controls read and write the same settings as Configure, so a change in either place shows up in the other.
+
+**Per player**
+
+| Setting | Control | Applies |
+| --- | --- | --- |
+| Screen time limit | On/off | Immediately |
+| Weekday screen time, Weekend screen time | Minutes | Immediately |
+| Screen time warning | Slider, minutes before the limit (0 = off). Fires the Screen time warning event | Immediately |
+| Screen time reminder interval | Once per day, or every 15, 30 or 60 minutes | Immediately |
+| Curfew | On/off | Immediately |
+| Weekday curfew, Weekend curfew | Time | Immediately |
+| Curfew reminder interval | Once per day, or every 15, 30 or 60 minutes | Immediately |
+| Rating limit, Maximum age rating | On/off, and Everyone through Adults Only. Only while **Native Content Ratings** is on | Immediately |
+| Steam / Xbox achievement tracking, PlayStation trophy tracking | On/off, one per platform the player has. Only while **Achievement/Trophy Tracking** is on | Reloads Gaming Status |
+| Steam / Xbox / PlayStation library scan | On/off, one per platform. Only while **Full Game Library Scan** is on | Reloads Gaming Status |
+| Show on public page | On/off | Immediately |
+
+**On the Gaming Status hub device:** Public page, Notifications, Parental controls and Weekly report on/off, all applied immediately.
+
+**Parental controls follow their rules.** A player's parental controls only appear while they'd do something:
+- **Screen time limit, Curfew and Rating limit** are available while **Parental controls** is on.
+- **Each rule's other controls** (its times, minutes, warning and reminder interval) are available only while that rule is on.
+
+Turning a rule on or off in Configure shows or hides its controls straight away. Turning it on or off from its own switch takes about 30 seconds, because Home Assistant briefly reloads Gaming Status to add or remove them. If you disable one of these controls yourself (for example, to keep it out of reach of other people in your home), Gaming Status leaves it disabled.
+
+> **Who can change these:** anyone who can use your Home Assistant dashboards can change an enabled control, while Configure is limited to administrators. If players have their own Home Assistant accounts, disable any parental control you don't want them to change, or keep it off your dashboards.
+
+Notification destinations, and the action each parental rule takes, are only set in Configure.
 
 ### Voice assistants (Assist)
 Gaming Status adds three questions you can ask Home Assistant's Assist:

@@ -9,6 +9,9 @@
     "session_ended": {
       "trigger": "mdi:controller-off"
     },
+    "screen_time_warning": {
+      "trigger": "mdi:timer-sand"
+    },
     "screen_time_exceeded": {
       "trigger": "mdi:timer-alert-outline"
     },

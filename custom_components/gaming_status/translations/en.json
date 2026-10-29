@@ -267,6 +267,7 @@
           "st_enabled": "Enable screen time limit",
           "st_weekday_minutes": "Weekday limit (minutes)",
           "st_weekend_minutes": "Weekend limit (minutes)",
+          "st_warning_minutes": "Warning before limit (minutes, 0 = off)",
           "st_repeat": "Screen time action frequency",
           "st_action_targets": "Notification method(s) when limit reached",
           "cf_enabled": "Enable curfew",
@@ -277,6 +278,9 @@
           "rt_enabled": "Enable content rating limit",
           "rt_max_age_floor": "Maximum allowed age rating",
           "rt_action_targets": "Notification method(s) when rating exceeded"
+        },
+        "data_description": {
+          "st_warning_minutes": "Fires the Screen time warning event this many minutes before the limit is reached, so an automation can warn the player."
         }
       },
       "overrides_exclusions": {
@@ -430,6 +434,7 @@
       "session_started": "Started playing a game",
       "session_switched": "Switched games",
       "session_ended": "Stopped playing a game",
+      "screen_time_warning": "Screen time warning",
       "screen_time_exceeded": "Screen time exceeded",
       "curfew_exceeded": "Curfew exceeded",
       "rating_exceeded": "Rating exceeded",
@@ -448,6 +453,10 @@
     "session_ended": {
       "name": "Stopped playing",
       "description": "Triggers when a player stops playing."
+    },
+    "screen_time_warning": {
+      "name": "Screen time warning",
+      "description": "Triggers shortly before a player reaches their screen time limit."
     },
     "screen_time_exceeded": {
       "name": "Screen time exceeded",
