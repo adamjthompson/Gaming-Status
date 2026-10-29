@@ -110,6 +110,26 @@ def player_device_info(
     )
 
 
+def ensure_player_device(hass, config_entry, player_name: str) -> DeviceInfo:
+    """Link-only DeviceInfo for platforms that add entities to a player's
+    existing device (event.py, image.py). Platforms set up concurrently, so
+    the device may not exist yet when they run -- create a bare one with
+    just the player's name; sensor.py's full player_device_info fills in
+    the model as soon as it registers."""
+    from homeassistant.helpers import device_registry as dr
+
+    identifiers = {(DOMAIN, safe_owner_slug(player_name))}
+    registry = dr.async_get(hass)
+    if registry.async_get_device(identifiers=identifiers) is None:
+        registry.async_get_or_create(
+            config_entry_id=config_entry.entry_id,
+            identifiers=identifiers,
+            name=player_name,
+            manufacturer="Gaming Status",
+        )
+    return DeviceInfo(identifiers=identifiers)
+
+
 def hub_device_info() -> DeviceInfo:
     return DeviceInfo(
         identifiers={(DOMAIN, HUB_DEVICE_ID)},

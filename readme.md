@@ -287,6 +287,8 @@ Upon restart, the integration will instantly read your settings and generate the
 | sensor.gaming_status_XXXXX_library_steam | Sensor | *(Requires Full Game Library Scan)* Steam-specific Game Library sensor |
 | sensor.gaming_status_XXXXX_library_xbox | Sensor | *(Requires Full Game Library Scan)* Xbox-specific Game Library sensor |
 | sensor.gaming_status_XXXXX_library_playstation | Sensor | *(Requires Full Game Library Scan)* PlayStation-specific Game Library sensor |
+| event.gaming_status_XXXXX_session | Event | The player's last session event (`started`, `switched` or `stopped`), with the game, platform, color, cover art and, for switches and stops, how long they played. See [Events](#events) |
+| image.gaming_status_XXXXX_game_art | Image | Cover art of the game the player is playing, or last played. Works in picture cards and notifications |
 | button.gaming_status_XXXXX_library_refresh | Button | *(Requires Full Game Library Scan)* Manually triggers an immediate full library rescan for this player, bypassing the normal scan interval |
 | sensor.gaming_status_players_online | Sensor | Global sensor that tracks the total number of players currently online |
 | binary_sensor.gaming_status_anyone_gaming | Binary Sensor | Useful for showing or hiding cards |
@@ -517,6 +519,8 @@ Moves one recorded session to another player (and/or platform), correcting total
 | `to_player` | Yes | The player to move the session to |
 | `to_platform` | Yes | Exactly one platform on `to_player` to move it onto |
 
+The rename and delete services can also be triggered from a dashboard using the [Game Management card](https://github.com/adamjthompson/Gaming-Status-Cards#8-gaming-status---game-management), which provides player/platform/game dropdowns populated from real data instead of requiring you to type exact names.
+
 ### Events
 Gaming Status fires these events on the Home Assistant event bus, for use as automation triggers. They use the same filtering as notifications, so a launcher handing off to the real game, or a game moving from one platform to another, doesn't fire extra events. They fire whether or not notifications are turned on.
 
@@ -668,7 +672,45 @@ actions:
 mode: single
 ```
 
-The rename and delete services can also be triggered from a dashboard using the [Game Management card](https://github.com/adamjthompson/Gaming-Status-Cards#8-gaming-status---game-management), which provides player/platform/game dropdowns populated from real data instead of requiring you to type exact names.
+### Voice assistants (Assist)
+Gaming Status adds three questions you can ask Home Assistant's Assist:
+
+| Question | Example answer |
+| --- | --- |
+| Who's playing games? | "Adam is playing ELDEN RING on Steam, and Josh is playing Halo on Xbox." |
+| What is *player* playing? | "Adam is playing ELDEN RING on Steam." or "Adam isn't playing anything right now. The last game was Halo." |
+| How long has *player* played? | "Adam has played 2 hours and 15 minutes today and 9 hours this week." |
+
+**AI-powered assistants** (OpenAI, Google Gemini, Anthropic Claude, Ollama and others set to control Home Assistant): these work automatically, once at least one player's master sensor is exposed to the assistant (**Settings → Voice assistants → Expose**). Ask in your own words.
+
+**Home Assistant's built-in assistant** only understands sentences it has been taught. Create `custom_sentences/en/gaming_status.yaml` in your Home Assistant config folder with the following, then restart:
+
+```yaml
+language: "en"
+intents:
+  GamingStatusWhoIsPlaying:
+    data:
+      - sentences:
+          - "who is (playing [video] games|gaming)"
+          - "who's (playing [video] games|gaming)"
+          - "is anyone (playing [video] games|gaming)"
+  GamingStatusWhatIsPlaying:
+    data:
+      - sentences:
+          - "what is {player} playing"
+          - "what's {player} playing"
+          - "what game is {player} playing"
+  GamingStatusPlayTime:
+    data:
+      - sentences:
+          - "how long has {player} (played|been playing|been gaming) [today|this week]"
+          - "how much has {player} played [today|this week]"
+lists:
+  player:
+    wildcard: true
+```
+
+Player names are matched without regard to capitalization, so "what is adam playing" works for a player named Adam.
 
 ## What Next?
 Once everything is up and running (with sensors showing up from the integration), try playing a game for at least 5 minutes to make sure the online status is reflected in the `_master` sensors. *Note that, by default, sessions shorter than 300 seconds (5 minutes) are discarded and do not count toward the total playtime hours.* If the sensors are working correctly, try some of the following! If not, see the [troubleshooting](docs/troubleshooting.md) documentation.

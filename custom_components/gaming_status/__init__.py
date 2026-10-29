@@ -43,7 +43,7 @@ from .notifier import GamingNotifier
 from .public_page import async_invalidate_public_cache, async_register_public_views
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = ["sensor", "binary_sensor", "button"]
+PLATFORMS = ["sensor", "binary_sensor", "button", "event", "image"]
 
 
 async def _async_migrate_custom_to_gsa(hass: HomeAssistant, config_entry: ConfigEntry):
