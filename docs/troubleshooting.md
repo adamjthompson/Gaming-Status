@@ -3,6 +3,9 @@ Below are some of the possible issues you may encounter and their fixes.
 
 ---
 
+## Checking whether Gaming Status can reach its services
+Go to **Settings → System → Repairs → ⋮ → System information** and scroll to **Gaming Status**. It shows whether Home Assistant can reach the Steam, PlayStation, Xbox and SteamGridDB servers, whether your SteamGridDB API key is working, the result of the last library scans, whether any service has asked Gaming Status to slow down, the number of open repair issues, and (if you use it) whether the Discord bot is connected. These checks only run when you open that page.
+
 ## Reporting a problem
 When opening a [GitHub issue](https://github.com/adamjthompson/Gaming-Status/issues), please attach the integration's diagnostics: **Settings → Devices & services → Gaming Status → ⋮ → Download diagnostics**. The file contains your settings, each Gaming Status sensor's current state, library scan results and API rate-limit status. API keys, the NPSSO cookie, the Discord token, account IDs and notification targets are replaced with `**REDACTED**`, but gamertags and game names are kept. Look it over before posting if you'd rather not share those.
 

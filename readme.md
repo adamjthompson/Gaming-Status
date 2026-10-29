@@ -529,6 +529,8 @@ Gaming Status fires these events on the Home Assistant event bus, for use as aut
 * **`game_color`:** The game's dominant color as a hex code (e.g. `#3c3c5a`), handy for setting light colors. Only filled in when **Enable Game Color Extraction** is turned on in Global Settings; otherwise it's empty. Gaming Status waits up to about 15 seconds after a game starts for its artwork and color, so they're almost always included.
 * A switch within 90 seconds of starting a game (e.g. a launcher opening the real game) fires nothing; the earlier **Started playing** stands.
 
+Each event is also written to Home Assistant's **Logbook** in plain language, for example "Adam started playing ELDEN RING on Steam", "Adam switched from Halo (1h 35m) to DOOM Eternal on Xbox" or "Adam stopped playing DOOM Eternal (42m)". These entries appear in the Logbook and on each player's device and master sensor pages.
+
 #### Triggers
 In the automation editor's **Add trigger** dialog, the three events are available as **Started playing**, **Switched games** and **Stopped playing**. Find them under **By type → Gaming Status**, or under **By target** by picking a player (their device is under **Unassigned → Devices** unless you've given it an area). Each player's device also has matching classic device triggers.
 

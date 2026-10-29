@@ -445,5 +445,19 @@
       "name": "Stopped playing",
       "description": "Triggers when a player stops playing."
     }
+  },
+  "system_health": {
+    "info": {
+      "players": "Players",
+      "steam_reachable": "Reach Steam API",
+      "psn_reachable": "Reach PlayStation Network API",
+      "xbox_reachable": "Reach Xbox Live API",
+      "steamgriddb_reachable": "Reach SteamGridDB API",
+      "steamgriddb_api_key": "SteamGridDB API key",
+      "library_scans": "Library scans",
+      "rate_limits": "API rate limits",
+      "repairs_issues": "Open repair issues",
+      "discord_bot": "Discord bot"
+    }
   }
 }
