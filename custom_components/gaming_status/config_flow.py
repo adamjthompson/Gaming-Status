@@ -1585,9 +1585,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
             rules["screen_time"] = {
                 "enabled": user_input.get("st_enabled", False),
-                "weekday_minutes": user_input.get("st_weekday_minutes", 120),
-                "weekend_minutes": user_input.get("st_weekend_minutes", 180),
-                "warning_minutes": user_input.get("st_warning_minutes", 0),
+                "weekday_minutes": int(user_input.get("st_weekday_minutes", 120)),
+                "weekend_minutes": int(user_input.get("st_weekend_minutes", 180)),
+                "warning_minutes": int(user_input.get("st_warning_minutes", 0)),
                 "repeat": int(user_input.get("st_repeat", "0")),
                 "action": st_action_final,
             }
@@ -1645,13 +1645,43 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             vol.Optional("st_enabled", default=st.get("enabled", False)): bool,
             vol.Optional(
                 "st_weekday_minutes", default=st.get("weekday_minutes", 120)
-            ): vol.All(int, vol.Range(min=0)),
+            ): selector.NumberSelector(
+                # Same 0-1440 range in 5-minute steps as the player's
+                # Weekday/Weekend screen time entities (number.py).
+                selector.NumberSelectorConfig(
+                    min=0,
+                    max=1440,
+                    step=5,
+                    unit_of_measurement="min",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
             vol.Optional(
                 "st_weekend_minutes", default=st.get("weekend_minutes", 180)
-            ): vol.All(int, vol.Range(min=0)),
+            ): selector.NumberSelector(
+                # Same 0-1440 range in 5-minute steps as the player's
+                # Weekday/Weekend screen time entities (number.py).
+                selector.NumberSelectorConfig(
+                    min=0,
+                    max=1440,
+                    step=5,
+                    unit_of_measurement="min",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
             vol.Optional(
                 "st_warning_minutes", default=st.get("warning_minutes", 0)
-            ): vol.All(int, vol.Range(min=0, max=120)),
+            ): selector.NumberSelector(
+                # Same 0-120 slider in 5-minute steps as the player's
+                # Screen time warning entity (number.py).
+                selector.NumberSelectorConfig(
+                    min=0,
+                    max=120,
+                    step=5,
+                    unit_of_measurement="min",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
             vol.Optional(
                 "st_repeat", default=str(st.get("repeat", 0))
             ): selector.SelectSelector(

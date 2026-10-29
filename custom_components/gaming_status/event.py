@@ -1,7 +1,10 @@
 """Event entity platform -- one event.gaming_status_<player>_session per
-player recording their last session start/switch/stop, so the session
-events notifier.py fires show up on dashboards, in history, and as a plain
-"Event" trigger for anyone not using trigger.py's triggers."""
+player recording their latest event: session start/switch/stop, parental
+alerts (screen time warning/exceeded, curfew, rating) and achievement
+unlocks. Puts the bus events notifier.py/sensor.py fire on dashboards and
+in history, and offers a plain "Event" trigger for anyone not using
+trigger.py's triggers. The entity_id keeps its original "_session" name so
+existing dashboards and automations keep working."""
 
 import json
 
@@ -9,6 +12,11 @@ from homeassistant.components.event import EventEntity
 from homeassistant.core import Event, callback
 
 from .const import (
+    EVENT_ACHIEVEMENT_UNLOCKED,
+    EVENT_CURFEW_EXCEEDED,
+    EVENT_RATING_EXCEEDED,
+    EVENT_SCREEN_TIME_EXCEEDED,
+    EVENT_SCREEN_TIME_WARNING,
     EVENT_SESSION_ENDED,
     EVENT_SESSION_STARTED,
     EVENT_SESSION_SWITCHED,
@@ -20,8 +28,14 @@ _EVENT_TYPES = {
     EVENT_SESSION_STARTED: "started",
     EVENT_SESSION_SWITCHED: "switched",
     EVENT_SESSION_ENDED: "stopped",
+    EVENT_SCREEN_TIME_WARNING: "screen_time_warning",
+    EVENT_SCREEN_TIME_EXCEEDED: "screen_time_exceeded",
+    EVENT_CURFEW_EXCEEDED: "curfew_exceeded",
+    EVENT_RATING_EXCEEDED: "rating_exceeded",
+    EVENT_ACHIEVEMENT_UNLOCKED: "achievement_unlocked",
 }
-# Bus event fields carried onto the entity's attributes.
+# Bus event fields carried onto the entity's attributes (each event only
+# carries the ones it has -- see the README's Events table).
 _ATTRIBUTES = (
     "game",
     "platform",
@@ -29,6 +43,23 @@ _ATTRIBUTES = (
     "duration_minutes",
     "game_color",
     "game_cover_art",
+    # Parental
+    "limit_minutes",
+    "minutes_played",
+    "minutes_left",
+    "minutes_over",
+    "curfew",
+    "age_floor",
+    "esrb",
+    "pegi",
+    "max_age_floor",
+    # Achievements
+    "console",
+    "achievement",
+    "description",
+    "tier",
+    "icon_url",
+    "unlocked_at",
 )
 
 
@@ -54,7 +85,7 @@ class GamingSessionEvent(EventEntity):
         self._player_name = player_name
         self.entity_id = f"event.gaming_status_{safe_owner}_session"
         self._attr_unique_id = f"gaming_status_{safe_owner}_session_event"
-        self._attr_name = f"{player_name} Gaming Session"
+        self._attr_name = f"{player_name} Gaming Activity"
         self._attr_device_info = device_info
 
     async def async_added_to_hass(self):

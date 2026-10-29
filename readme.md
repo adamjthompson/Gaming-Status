@@ -287,7 +287,7 @@ Upon restart, the integration will instantly read your settings and generate the
 | sensor.gaming_status_XXXXX_library_steam | Sensor | *(Requires Full Game Library Scan)* Steam-specific Game Library sensor |
 | sensor.gaming_status_XXXXX_library_xbox | Sensor | *(Requires Full Game Library Scan)* Xbox-specific Game Library sensor |
 | sensor.gaming_status_XXXXX_library_playstation | Sensor | *(Requires Full Game Library Scan)* PlayStation-specific Game Library sensor |
-| event.gaming_status_XXXXX_session | Event | The player's last session event (`started`, `switched` or `stopped`), with the game, platform, color, cover art and, for switches and stops, how long they played. See [Events](#events) |
+| event.gaming_status_XXXXX_session | Event | **Gaming Activity**: the player's latest event. Its `event_type` attribute is `started`, `switched`, `stopped`, `screen_time_warning`, `screen_time_exceeded`, `curfew_exceeded`, `rating_exceeded` or `achievement_unlocked`, and its other attributes are that event's data. See [Events](#events) |
 | image.gaming_status_XXXXX_game_art | Image | Cover art of the game the player is playing, or last played. Works in picture cards and notifications |
 | button.gaming_status_XXXXX_library_refresh | Button | *(Requires Full Game Library Scan)* Manually triggers an immediate full library rescan for this player, bypassing the normal scan interval |
 | sensor.gaming_status_players_online | Sensor | Global sensor that tracks the total number of players currently online |
