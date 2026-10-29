@@ -4,6 +4,7 @@
 Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The `*_master` sensors provide the following attributes:
 
 **Aggregate Analytics**
+
 | Attribute | Description |
 | --- | --- |
 | friendly_name | Display name for this player's entity |
@@ -28,6 +29,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | recent_sessions | List of the most recently completed play sessions across all of this player's platforms (newest first, capped at 20): `{game, platform, platform_key, duration_seconds, date, start_time, end_time, hero_art_url, game_dominant_color}`. `platform` is a display label (a Gaming Status Agent session shows its launcher); `platform_key` is the internal platform key |
 
 **Parental/Limit Controls**
+
 | Attribute | Description |
 | --- | --- |
 | daily_play_limit_minutes | The configured daily limit |
@@ -37,6 +39,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 
 
 **Active Status**
+
 | Attribute | Description |
 | --- | --- |
 | secondary | Current state or the time elapsed and session duration of the last played game |
@@ -57,6 +60,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | gamertag | The real account name (Steam persona name, Xbox gamertag, PSN online ID, Discord username, or Gaming Status Agent `Profile Name`) of whichever platform is currently active, or the most recently active platform if everything's offline. The `..._pc` sub-master sensor exposes this same attribute, scoped to just its own PC platforms (Playnite, Gaming Status Agent, Custom, Steam, Discord) |
 
 **Identity (per platform)**
+
 | Attribute | Description |
 | --- | --- |
 | steam_gamertag | This player's Steam persona name, if Steam is configured |
@@ -69,6 +73,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The individual `*_steam`, `*_xbox`, `*_playstation`, `*_discord`, `*_playnite`, `*_gsa`, and `*_custom` sensors provide the following attributes:
 
 **Core State Attributes**
+
 | Attribute | Description |
 | --- | --- |
 | friendly_name | Display name for this player's entity |
@@ -90,6 +95,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | launcher | Gaming Status Agent sensors only. The launcher the current or last game came from (e.g. `Epic`, `GOG`, `Custom`), kept while offline for "last seen" displays |
 
 **Rich Tracking & Analytics**
+
 | Attribute | Description |
 | --- | --- |
 | icon | Icon to match the current platform |
@@ -120,6 +126,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 The sensor's **state** on both the summary and per-platform Library sensors is a raw *count of achievements/trophies earned* — not a percentage and not a game count. On the summary sensor that's the total earned across every tracked platform combined; on a platform sensor (e.g. `..._library_steam`) it's earned on that platform only. The rest of the picture — totals, percentages, game counts — lives in the attributes below.
 
 **Summary Sensor (`..._library_summary`)**
+
 | Attribute | Description |
 | --- | --- |
 | total_achievements_possible | Sum of every achievement/trophy that exists across all tracked games, on all platforms |
@@ -140,6 +147,7 @@ The sensor's **state** on both the summary and per-platform Library sensors is a
 *Steam account check:* Each Steam library remembers which Steam account it was scanned from. If that changes (or on the first scan after updating from a version that didn't record it), games that aren't in the current account's library are dropped instead of kept. This cleans up libraries where an older version mixed in games from the Steam API key owner's account.
 
 **Platform Sensors (`..._library_steam`, `..._library_xbox`, `..._library_playstation`)**
+
 | Attribute | Description |
 | --- | --- |
 | achievements_total | Sum of every achievement/trophy that exists across this platform's tracked games |
@@ -150,6 +158,7 @@ The sensor's **state** on both the summary and per-platform Library sensors is a
 | trophies_bronze / trophies_silver / trophies_gold / trophies_platinum (+ `_total` variants) | *(PlayStation only)* Trophy counts earned / possible, per tier, summed across all PlayStation games |
 
 **Each entry in a `games` list**
+
 | Field | Description |
 | --- | --- |
 | title | Game name |
@@ -163,6 +172,7 @@ The sensor's **state** on both the summary and per-platform Library sensors is a
 | game_cover_art / game_hero_art / game_logo_art / game_icon_art | Artwork URLs from SteamGridDB, if configured |
 
 ## Attributes for Players Online Sensor
+
 | Attribute | Description |
 | --- | --- |
 | active_games | A comma-separated string of the games currently being played by online players |
