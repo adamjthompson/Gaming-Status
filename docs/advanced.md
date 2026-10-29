@@ -1,4 +1,4 @@
-# 🛠️ Advanced Setup
+# Advanced Setup
 
 Below are additional setup options as well as descriptions of each.
 
@@ -99,7 +99,7 @@ These settings allow you to adjust caching, override the default grace periods (
 ## Tracking Standalone PC Games (Gaming Status Agent)
 Steam and Xbox tell Home Assistant exactly what game you are playing. Standalone PC games (Epic, GOG, Battle.net, Ubisoft, EA, Amazon Games, and so on) have no native integration.
 
-To track these, install [Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent) on the gaming PC. It detects the running game and its launcher and publishes a `sensor.gsa_<profile name>` sensor over MQTT. Games it can't detect on its own can be matched by executable or window title under its **Custom Games** menu; those report their launcher as `Custom`. See [Setting up Gaming Status Agent Tracking](../README.md#pc-tracking--discord-setup) for the setup steps.
+To track these, install [Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent) on the gaming PC. It detects the running game and its launcher and publishes a `sensor.gsa_<profile name>` sensor over MQTT. Games it can't detect on its own can be matched by executable or window title under its **Custom Games** menu; those report their launcher as `Custom`. See [Setting up Gaming Status Agent Tracking](setup/pc-tracking.md) for the setup steps.
 
 ## Tracking PC Games with a Custom Sensor
 If Gaming Status Agent isn't an option (for example on a Linux PC), enable the **Custom** platform and point the player's Custom slot at any sensor whose state is the game title. A state of `on`/`1`/`true`/`playing` reports "Unknown Custom Game"; `off`/`0`/`false`/`offline`/`unavailable` reports offline. Custom and Gaming Status Agent can be used together; when both report the same game, Gaming Status Agent wins.

@@ -1,14 +1,15 @@
-## 🔔 Notifications
+# Notifications
 
 The integration features a powerful, built-in notification engine. You can automatically broadcast when specific players start or finish gaming sessions directly to Discord, via SMS, or straight to your Home Assistant Companion App, without needing external tools like Node-RED or complex YAML automations.
 
 The engine uses native Home Assistant memory to prevent duplicate alerts during rapid game-switching and gives the backend time to fetch high-resolution hero art before broadcasting.
 
 **Example Discord Notifications**
-![Discord Screenshot](../images/discord.png)
+![Discord Screenshot](images/discord.png)
 
-### ⚠️ Prerequisites
+### Prerequisites
 This feature leverages Home Assistant's native notification engine. **It does not create the connection to Discord or your SMS provider for you.** Before configuring this feature, you must already have your desired notification service set up and working in Home Assistant. 
+
 * **For Discord:** You must install and configure the official [Discord Integration](https://www.home-assistant.io/integrations/discord/).
 * **For SMS:** You must install an SMS integration (such as [Twilio](https://www.home-assistant.io/integrations/twilio/) or [ClickSend](https://www.home-assistant.io/integrations/clicksend/)).
 * **For Mobile:** You must have the Home Assistant Companion App installed on your iOS or Android device.
@@ -20,6 +21,7 @@ Once your service is working and you can successfully call it from the Home Assi
 With Gaming Status, you can set up global notification destinations (like a specific phone or Discord channel) and assign them to individual players. 
 
 **Step 1: Create a Notification**
+
 1. In Home Assistant, navigate to **Settings** > **Devices & Services**.
 2. Click the **Configure** button on the Gaming Status card.
 3. Select **Notifications** from the main menu and click Submit.
@@ -27,6 +29,7 @@ With Gaming Status, you can set up global notification destinations (like a spec
 5. Fill out the notification settings (see below) and submit to save. You can add as many methods as you need.
 
 **Step 2: Assign to a Player**
+
 1. From the main Gaming Status configuration menu, select **Manage Players**.
 2. Select the player you want to edit and proceed to their **Player Details** screen.
 3. Under **Session Start Notifications** and **Session End Notifications**, simply select the endpoints you created from the dropdown lists.

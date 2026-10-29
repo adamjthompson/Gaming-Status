@@ -1,0 +1,72 @@
+site_name: Gaming Status
+site_description: Unified gaming presence tracking for Home Assistant
+site_url: https://adamjthompson.github.io/Gaming-Status/
+repo_url: https://github.com/adamjthompson/Gaming-Status
+repo_name: adamjthompson/Gaming-Status
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  logo: assets/logo.png
+  favicon: assets/logo.png
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.highlight
+    - content.code.copy
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Prerequisites: getting-started/prerequisites.md
+      - Installation: getting-started/installation.md
+      - Configuration: getting-started/configuration.md
+      - What Next?: what-next.md
+  - Options & Features:
+      - Overview: configuration/index.md
+      - Manage Players: configuration/manage-players.md
+      - Notifications & Reporting: configuration/notifications-reporting.md
+      - Parental Controls: configuration/parental-controls.md
+      - Custom Artwork: configuration/custom-artwork.md
+      - Overrides & Exclusions: configuration/overrides-exclusions.md
+      - Achievements & Ratings: configuration/achievements-ratings.md
+      - Public Page: configuration/public-page.md
+      - Advanced: configuration/advanced.md
+      - Global Settings: configuration/global-settings.md
+  - Guides:
+      - PC Tracking & Discord Setup: setup/pc-tracking.md
+      - Notifications: notifications.md
+      - Advanced Setup: advanced.md
+      - Troubleshooting & FAQ: troubleshooting.md
+  - Reference:
+      - Devices: reference/devices.md
+      - Entities: reference/entities.md
+      - Sensor Attributes: reference/attributes.md
+      - Services: reference/services.md
+      - Events: reference/events.md
+      - Device Page Settings: reference/device-settings.md
+      - Voice Assistants: reference/voice.md
