@@ -16,6 +16,10 @@ from homeassistant.core import Event, HomeAssistant, callback
 
 from .const import (
     DOMAIN,
+    EVENT_ACHIEVEMENT_UNLOCKED,
+    EVENT_CURFEW_EXCEEDED,
+    EVENT_RATING_EXCEEDED,
+    EVENT_SCREEN_TIME_EXCEEDED,
     EVENT_SESSION_ENDED,
     EVENT_SESSION_STARTED,
     EVENT_SESSION_SWITCHED,
@@ -54,9 +58,31 @@ def async_describe_events(
                 f"{_on(data.get('platform'))}"
             )
             icon = "mdi:swap-horizontal"
-        else:
+        elif event.event_type == EVENT_SESSION_ENDED:
             message = f"stopped playing {game}{_duration(data.get('duration_minutes'))}"
             icon = "mdi:controller-off"
+        elif event.event_type == EVENT_SCREEN_TIME_EXCEEDED:
+            over = data.get("minutes_over") or 0
+            message = (
+                f"reached the {data.get('limit_minutes')}-minute screen time limit"
+                + (f" ({over} minutes over)" if over else "")
+            )
+            icon = "mdi:timer-alert-outline"
+        elif event.event_type == EVENT_CURFEW_EXCEEDED:
+            over = data.get("minutes_over") or 0
+            message = (
+                f"is still playing {game} after the {data.get('curfew')} curfew"
+                + (f" ({over} minutes past)" if over else "")
+            )
+            icon = "mdi:weather-night"
+        elif event.event_type == EVENT_RATING_EXCEEDED:
+            age = data.get("age_floor")
+            message = f"started {game}" + (f", rated for ages {age}+" if age else "")
+            icon = "mdi:shield-alert-outline"
+        else:
+            tier = f" {data['tier']} trophy" if data.get("tier") else ""
+            message = f'unlocked{tier} "{data.get("achievement")}" in {game}'
+            icon = "mdi:trophy"
         return {
             LOGBOOK_ENTRY_NAME: data.get("player"),
             LOGBOOK_ENTRY_MESSAGE: message,
@@ -68,5 +94,9 @@ def async_describe_events(
         EVENT_SESSION_STARTED,
         EVENT_SESSION_SWITCHED,
         EVENT_SESSION_ENDED,
+        EVENT_SCREEN_TIME_EXCEEDED,
+        EVENT_CURFEW_EXCEEDED,
+        EVENT_RATING_EXCEEDED,
+        EVENT_ACHIEVEMENT_UNLOCKED,
     ):
         async_describe_event(DOMAIN, event_type, _describe)

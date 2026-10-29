@@ -1,11 +1,11 @@
-"""Target-based triggers ("Started playing" / "Switched games" / "Stopped
-playing") for Home Assistant's newer automation trigger picker, which lists
+"""Target-based triggers (sessions, parental-control alerts and
+achievements) for Home Assistant's newer automation trigger picker, which lists
 integration trigger platforms rather than classic device triggers
 (device_trigger.py still covers the older Device trigger flow).
 
-All three fire off the same filtered session events notifier.py puts on the
-bus, so they skip launcher hand-offs and cross-platform restarts exactly
-like notifications do. A target matches a session when it references the
+Each fires off one of the bus events notifier.py/sensor.py put on the bus
+(session events already skip launcher hand-offs and cross-platform
+restarts, exactly like notifications do). A target matches an event when it references the
 player's device, or any entity on it (master, Steam, Xbox, ...).
 
 Version support: the Trigger base class these build on arrived in HA
@@ -24,7 +24,15 @@ from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.typing import ConfigType
 
-from .const import EVENT_SESSION_ENDED, EVENT_SESSION_STARTED, EVENT_SESSION_SWITCHED
+from .const import (
+    EVENT_ACHIEVEMENT_UNLOCKED,
+    EVENT_CURFEW_EXCEEDED,
+    EVENT_RATING_EXCEEDED,
+    EVENT_SCREEN_TIME_EXCEEDED,
+    EVENT_SESSION_ENDED,
+    EVENT_SESSION_STARTED,
+    EVENT_SESSION_SWITCHED,
+)
 
 if TYPE_CHECKING:
     # Annotation only (HA 2026.10+); never imported at runtime.
@@ -52,7 +60,7 @@ TRIGGERS: dict[str, Any] = {}
 
 if Trigger is not None:
 
-    class _SessionTrigger(Trigger):
+    class _PlayerEventTrigger(Trigger):
         _event_type: str
 
         @classmethod
@@ -91,26 +99,42 @@ if Trigger is not None:
                     return
                 run_action(
                     {**event.data, ATTR_ENTITY_ID: event.data.get("entity_id")},
-                    f"{event.data.get('player')} "
-                    f"{self._event_type.rsplit('_', 1)[-1]} {event.data.get('game')}",
+                    f"{event.data.get('player')}: "
+                    f"{self._event_type.removeprefix('gaming_status_').replace('_', ' ')}",
                     event.context,
                 )
 
             return self._hass.bus.async_listen(self._event_type, _handle)
 
-    class SessionStartedTrigger(_SessionTrigger):
+    class SessionStartedTrigger(_PlayerEventTrigger):
         _event_type = EVENT_SESSION_STARTED
 
-    class SessionSwitchedTrigger(_SessionTrigger):
+    class SessionSwitchedTrigger(_PlayerEventTrigger):
         _event_type = EVENT_SESSION_SWITCHED
 
-    class SessionEndedTrigger(_SessionTrigger):
+    class SessionEndedTrigger(_PlayerEventTrigger):
         _event_type = EVENT_SESSION_ENDED
+
+    class ScreenTimeExceededTrigger(_PlayerEventTrigger):
+        _event_type = EVENT_SCREEN_TIME_EXCEEDED
+
+    class CurfewExceededTrigger(_PlayerEventTrigger):
+        _event_type = EVENT_CURFEW_EXCEEDED
+
+    class RatingExceededTrigger(_PlayerEventTrigger):
+        _event_type = EVENT_RATING_EXCEEDED
+
+    class AchievementUnlockedTrigger(_PlayerEventTrigger):
+        _event_type = EVENT_ACHIEVEMENT_UNLOCKED
 
     TRIGGERS = {
         "session_started": SessionStartedTrigger,
         "session_switched": SessionSwitchedTrigger,
         "session_ended": SessionEndedTrigger,
+        "screen_time_exceeded": ScreenTimeExceededTrigger,
+        "curfew_exceeded": CurfewExceededTrigger,
+        "rating_exceeded": RatingExceededTrigger,
+        "achievement_unlocked": AchievementUnlockedTrigger,
     }
 
 

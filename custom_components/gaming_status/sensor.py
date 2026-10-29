@@ -34,6 +34,7 @@ _LOGGER = logging.getLogger(__name__)
 
 from . import utils
 from .const import (
+    ACHIEVEMENT_EVENT_MAX_AGE_MINUTES,
     CONF_PSN_NPSSO_OVERRIDE,
     CONF_STEAM_ACHIEVEMENTS_API_KEY_OVERRIDE,
     CONF_STEAMGRIDDB_API_KEY,
@@ -56,6 +57,7 @@ from .const import (
     DEFAULT_USE_CACHE,
     DISCORD_XBOX_CONNECTION_APP_ID,
     DOMAIN,
+    EVENT_ACHIEVEMENT_UNLOCKED,
     GSA_LAUNCHER_ICONS,
     GSA_NATIVE_LAUNCHERS,
     MASTER_RECENT_ACHIEVEMENTS_RESERVED_PER_PLATFORM,
@@ -99,6 +101,7 @@ from .const import (
 )
 from .device import (
     _raw_owner_slug,
+    async_fire_player_event,
     hub_device_info,
     player_device_info,
     resolve_registered_entity_id,
@@ -2009,10 +2012,17 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 # that's the entire reason console is part of this key.
                 existing = existing_by_key.get((game_key, None, unlock.get("name")))
             if existing is not None:
+                newly_dated = not existing.get("unlocked_at") and unlock.get(
+                    "unlocked_at"
+                )
                 for field in ("icon_url", "description", "tier", "unlocked_at"):
                     if not existing.get(field) and unlock.get(field):
                         existing[field] = unlock.get(field)
                         patched = True
+                if newly_dated:
+                    # PSN sometimes records a trophy before its timestamp is
+                    # known; the event waits until it can be dated.
+                    self._fire_achievement_event(existing)
                 if existing.get("console") != console:
                     existing["console"] = console
                     patched = True
@@ -2044,6 +2054,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._recent_achievements.insert(0, new_entry)
             existing_by_key[key] = new_entry
             inserted = True
+            self._fire_achievement_event(new_entry)
         if inserted or patched:
             # Also re-sort on a patch-only pass (not just insert): a
             # retroactively-filled unlocked_at (see the field list above)
@@ -2056,6 +2067,37 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if len(self._recent_achievements) > MAX_RECENT_ACHIEVEMENT_UNLOCKS:
                 del self._recent_achievements[MAX_RECENT_ACHIEVEMENT_UNLOCKS:]
             self._store.async_delay_save(self._get_store_data, 5.0)
+
+    def _fire_achievement_event(self, entry):
+        """Fires gaming_status_achievement_unlocked for a just-recorded
+        unlock -- only if it was earned within ACHIEVEMENT_EVENT_MAX_AGE_MINUTES,
+        so turning tracking on or a library backfill (which record older
+        history through this same path) doesn't fire a flood of events.
+        Undated entries wait (see the PSN note in _ingest_recent_unlocks)."""
+        unlocked_dt = _safe_parse_datetime(entry.get("unlocked_at"))
+        if unlocked_dt is None:
+            return
+        if unlocked_dt.tzinfo is None:
+            unlocked_dt = unlocked_dt.replace(tzinfo=UTC)
+        age_minutes = (dt_util.utcnow() - unlocked_dt).total_seconds() / 60
+        if age_minutes > ACHIEVEMENT_EVENT_MAX_AGE_MINUTES:
+            return
+        async_fire_player_event(
+            self.hass,
+            EVENT_ACHIEVEMENT_UNLOCKED,
+            self._owner_name,
+            {
+                "game": entry.get("game"),
+                "platform": entry.get("platform"),
+                "console": entry.get("console"),
+                "achievement": entry.get("name"),
+                "description": entry.get("description"),
+                "tier": entry.get("tier"),
+                "icon_url": entry.get("icon_url"),
+                "unlocked_at": entry.get("unlocked_at"),
+                "game_color": entry.get("game_dominant_color"),
+            },
+        )
 
     def _get_session_info(self):
         if not self._play_start_time:

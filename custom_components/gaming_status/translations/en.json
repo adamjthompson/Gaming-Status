@@ -429,7 +429,11 @@
     "trigger_type": {
       "session_started": "Started playing a game",
       "session_switched": "Switched games",
-      "session_ended": "Stopped playing a game"
+      "session_ended": "Stopped playing a game",
+      "screen_time_exceeded": "Screen time exceeded",
+      "curfew_exceeded": "Curfew exceeded",
+      "rating_exceeded": "Rating exceeded",
+      "achievement_unlocked": "Achievement unlocked"
     }
   },
   "triggers": {
@@ -444,6 +448,22 @@
     "session_ended": {
       "name": "Stopped playing",
       "description": "Triggers when a player stops playing."
+    },
+    "screen_time_exceeded": {
+      "name": "Screen time exceeded",
+      "description": "Triggers when a player reaches their screen time limit."
+    },
+    "curfew_exceeded": {
+      "name": "Curfew exceeded",
+      "description": "Triggers when a player is still playing at curfew."
+    },
+    "rating_exceeded": {
+      "name": "Rating exceeded",
+      "description": "Triggers when a player starts a game above their rating limit."
+    },
+    "achievement_unlocked": {
+      "name": "Achievement unlocked",
+      "description": "Triggers when a player earns an achievement or trophy."
     }
   },
   "system_health": {

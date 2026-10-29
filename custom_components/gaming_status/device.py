@@ -130,6 +130,26 @@ def ensure_player_device(hass, config_entry, player_name: str) -> DeviceInfo:
     return DeviceInfo(identifiers=identifiers)
 
 
+def async_fire_player_event(hass, event_type: str, player_name: str, data: dict):
+    """Fires one of this integration's bus events with the fields every
+    one of them carries -- player, master entity_id and device_id (what
+    trigger.py/device_trigger.py match on) -- plus the event's own data."""
+    from homeassistant.helpers import device_registry as dr
+
+    device = dr.async_get(hass).async_get_device(
+        identifiers={(DOMAIN, safe_owner_slug(player_name))}
+    )
+    hass.bus.async_fire(
+        event_type,
+        {
+            "player": player_name,
+            "entity_id": resolve_master_entity_id(hass, player_name),
+            "device_id": device.id if device else None,
+            **data,
+        },
+    )
+
+
 def hub_device_info() -> DeviceInfo:
     return DeviceInfo(
         identifiers={(DOMAIN, HUB_DEVICE_ID)},

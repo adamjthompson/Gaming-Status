@@ -10,6 +10,14 @@ CONF_DISCORD_SERVER = "discord_server_id"
 EVENT_SESSION_STARTED = f"{DOMAIN}_session_started"
 EVENT_SESSION_ENDED = f"{DOMAIN}_session_ended"
 EVENT_SESSION_SWITCHED = f"{DOMAIN}_session_switched"
+# Parental-control and achievement events (notifier.py / sensor.py).
+EVENT_SCREEN_TIME_EXCEEDED = f"{DOMAIN}_screen_time_exceeded"
+EVENT_CURFEW_EXCEEDED = f"{DOMAIN}_curfew_exceeded"
+EVENT_RATING_EXCEEDED = f"{DOMAIN}_rating_exceeded"
+EVENT_ACHIEVEMENT_UNLOCKED = f"{DOMAIN}_achievement_unlocked"
+# An unlock older than this when first seen is history being filled in
+# (tracking just enabled, library backfill), not a fresh unlock -- no event.
+ACHIEVEMENT_EVENT_MAX_AGE_MINUTES = 60
 
 # --- Default values ---
 DEFAULT_RESET_HISTORY = False

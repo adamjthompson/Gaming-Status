@@ -21,6 +21,9 @@ from homeassistant.util import dt as dt_util
 from .const import (
     DEFAULT_SAME_GAME_PREFIX_WORDS,
     DOMAIN,
+    EVENT_CURFEW_EXCEEDED,
+    EVENT_RATING_EXCEEDED,
+    EVENT_SCREEN_TIME_EXCEEDED,
     EVENT_SESSION_ENDED,
     EVENT_SESSION_STARTED,
     EVENT_SESSION_SWITCHED,
@@ -35,6 +38,7 @@ from .const import (
     SAME_GAME_HANDOFF_WINDOW_SECONDS,
 )
 from .device import (
+    async_fire_player_event,
     resolve_master_entity_id,
     resolve_pc_entity_id,
     resolve_platform_entity_id,
@@ -62,6 +66,12 @@ class GamingNotifier:
         self._unsub_parental = None
         self._startup_time: datetime | None = None
         self._triggered_parental_events: dict = {}
+        # Same keys/values as _triggered_parental_events, but for the bus
+        # events -- tracked separately because that dict only advances when
+        # a notification actually sends (so failures retry), which would
+        # otherwise re-fire the event every minute for a rule with no
+        # destinations.
+        self._parental_event_marks: dict = {}
 
         # Instant O(1) lookup map (entity_id -> player_name)
         # Built once at startup since entities require a full system reload to change
@@ -984,6 +994,23 @@ class GamingNotifier:
                 if today_minutes >= limit:
                     if is_playing:
                         overage = max(0, today_minutes - limit)
+                        last_event_overage = self._parental_event_marks.get(st_key)
+                        if last_event_overage is None or (
+                            st_repeat > 0
+                            and (overage - last_event_overage) >= st_repeat
+                        ):
+                            self._parental_event_marks[st_key] = overage
+                            async_fire_player_event(
+                                self.hass,
+                                EVENT_SCREEN_TIME_EXCEEDED,
+                                player_name,
+                                {
+                                    "game": master_state.state,
+                                    "limit_minutes": limit,
+                                    "minutes_played": today_minutes,
+                                    "minutes_over": overage,
+                                },
+                            )
                         last_notified_overage = self._triggered_parental_events.get(
                             st_key
                         )
@@ -1032,6 +1059,7 @@ class GamingNotifier:
                                 self._triggered_parental_events[st_key] = overage
                 else:
                     self._triggered_parental_events.pop(st_key, None)
+                    self._parental_event_marks.pop(st_key, None)
 
             # --- CURFEW ---
             cf_rule = rules.get("curfew", {})
@@ -1052,6 +1080,28 @@ class GamingNotifier:
                     )
 
                     if now_dt >= curfew_dt:
+                        last_event = self._parental_event_marks.get(cf_key)
+                        if is_playing and (
+                            last_event is None
+                            or (
+                                cf_repeat > 0
+                                and (now_dt - last_event).total_seconds()
+                                >= (cf_repeat * 60)
+                            )
+                        ):
+                            self._parental_event_marks[cf_key] = now_dt
+                            async_fire_player_event(
+                                self.hass,
+                                EVENT_CURFEW_EXCEEDED,
+                                player_name,
+                                {
+                                    "game": master_state.state,
+                                    "curfew": curfew_dt.strftime("%H:%M"),
+                                    "minutes_over": int(
+                                        (now_dt - curfew_dt).total_seconds() / 60
+                                    ),
+                                },
+                            )
                         last_fired = self._triggered_parental_events.get(cf_key)
 
                         if is_playing and (
@@ -1106,6 +1156,7 @@ class GamingNotifier:
 
                     elif now_dt < curfew_dt:
                         self._triggered_parental_events.pop(cf_key, None)
+                        self._parental_event_marks.pop(cf_key, None)
 
                 except (ValueError, AttributeError):
                     pass
@@ -1122,6 +1173,26 @@ class GamingNotifier:
 
                 if is_playing and rating_exceeded:
                     current_game = master_state.state
+                    if self._parental_event_marks.get(rt_key) != current_game:
+                        self._parental_event_marks[rt_key] = current_game
+                        content_rating = (
+                            master_state.attributes.get("game_content_rating") or {}
+                        )
+                        async_fire_player_event(
+                            self.hass,
+                            EVENT_RATING_EXCEEDED,
+                            player_name,
+                            {
+                                "game": current_game,
+                                "age_floor": content_rating.get("age_floor"),
+                                "esrb": content_rating.get("esrb"),
+                                "pegi": content_rating.get("pegi"),
+                                "max_age_floor": rt_rule.get("max_age_floor"),
+                                "game_cover_art": master_state.attributes.get(
+                                    "game_cover_art"
+                                ),
+                            },
+                        )
                     last_notified_game = self._triggered_parental_events.get(rt_key)
 
                     if last_notified_game != current_game:
@@ -1158,6 +1229,7 @@ class GamingNotifier:
                             self._triggered_parental_events[rt_key] = current_game
                 else:
                     self._triggered_parental_events.pop(rt_key, None)
+                    self._parental_event_marks.pop(rt_key, None)
 
     async def _fire_parental_action(
         self,

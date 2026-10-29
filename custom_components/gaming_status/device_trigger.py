@@ -15,6 +15,10 @@ from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     DOMAIN,
+    EVENT_ACHIEVEMENT_UNLOCKED,
+    EVENT_CURFEW_EXCEEDED,
+    EVENT_RATING_EXCEEDED,
+    EVENT_SCREEN_TIME_EXCEEDED,
     EVENT_SESSION_ENDED,
     EVENT_SESSION_STARTED,
     EVENT_SESSION_SWITCHED,
@@ -25,6 +29,10 @@ TRIGGER_TYPES = {
     "session_started": EVENT_SESSION_STARTED,
     "session_switched": EVENT_SESSION_SWITCHED,
     "session_ended": EVENT_SESSION_ENDED,
+    "screen_time_exceeded": EVENT_SCREEN_TIME_EXCEEDED,
+    "curfew_exceeded": EVENT_CURFEW_EXCEEDED,
+    "rating_exceeded": EVENT_RATING_EXCEEDED,
+    "achievement_unlocked": EVENT_ACHIEVEMENT_UNLOCKED,
 }
 
 TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
