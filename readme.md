@@ -534,6 +534,8 @@ In the automation editor's **Add trigger** dialog, the three events are availabl
 
 The target picks **which player(s)** the trigger watches, not which sensor. Any of a player's Gaming Status sensors works: picking their Library or Steam sensor triggers exactly the same as picking their master sensor, because the trigger looks up the player that sensor belongs to. The master sensor (*Name* Gaming Status) is the clearest choice. You can also target a player's device (`device_id:`), or an area or label (`area_id:` / `label_id:`) to cover several players at once.
 
+**Home Assistant version:** **Started playing**, **Switched games** and **Stopped playing** need Home Assistant 2025.12 or newer, and they appear in the **Add trigger** dialog from 2026.2. On older versions they aren't available, but the events above and the classic device triggers still work, so use an event trigger (see the second example below) instead.
+
 With these triggers, the event data is directly under `trigger.` (e.g. `trigger.game_color`). With a raw event trigger, it's under `trigger.event.data.`.
 
 #### Example: light matches the game's color
