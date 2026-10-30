@@ -26,7 +26,7 @@ Playnite is an incredible open-source library manager that can track games acros
 5. Go to the Gaming Status configuration, select Playnite as an Enabled Platform, and assign that new `binary_sensor` to your player! *By default, it may be named `binary_sensor.desktop_playnite_playnite_playing_game`.*
 
 **Setting up Gaming Status Agent Tracking:**
-[Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent) is a companion Windows tray app that detects what you're playing and which launcher it came from, then publishes it to Home Assistant over MQTT. Home Assistant discovers the sensor automatically, so no YAML is needed.
+[Gaming Status Agent](https://github.com/adamjthompson/Gaming-Status-Agent) is a companion Windows tray app that detects what you're playing and which launcher it came from, then publishes it to Home Assistant over MQTT. Home Assistant discovers the sensor automatically, so no YAML is needed. It is the way to track standalone PC games that have no native Home Assistant integration (Epic, GOG, Battle.net, Ubisoft, EA, Amazon Games, and so on). Games it can't detect on its own can be matched by executable or window title under its **Custom Games** menu; those report their launcher as `Custom`.
 
 1. Ensure you have an MQTT Broker (like Mosquitto) installed and the MQTT integration configured in Home Assistant.
 2. Download and run Gaming Status Agent on the PC. Right-click its tray icon, open **MQTT Settings**, and enter your broker's address and credentials.
@@ -46,7 +46,7 @@ The Agent's sensor reports the following, which Gaming Status reads directly:
 
 The Agent can also report Playnite games, which the priority rules below keep from being counted twice.
 
-**Custom sensors:** For PCs that can't run Gaming Status Agent (e.g. Linux), enable the **Custom** platform and select any sensor whose state is the game title, such as a HASS.Agent or template sensor. See [Tracking PC Games with a Custom Sensor](../advanced.md#tracking-pc-games-with-a-custom-sensor). Custom entries that an earlier update moved into the Gaming Status Agent slot are moved back automatically, along with their history.
+**Custom sensors:** For PCs that can't run Gaming Status Agent (e.g. Linux), enable the **Custom** platform and select any sensor whose state is the game title, such as a HASS.Agent or template sensor. See [Tracking PC Games with a Custom Sensor](#tracking-pc-games-with-a-custom-sensor) below. Custom entries that an earlier update moved into the Gaming Status Agent slot are moved back automatically, along with their history.
 
 **The PC Sub-Master Priority Logic:**
 If a player launches a game, it is very common for multiple trackers (like Discord, Playnite, and Steam) to detect it simultaneously. To prevent double-counting your playtime hours and sending duplicate push notifications, the `sensor.gaming_status_XXXXX_pc` sensor uses strict **Smart Platform Yielding**. 
@@ -59,3 +59,31 @@ Within the PC sensor, platforms are prioritized in this order: **Playnite > Gami
 Separately, each platform sensor yields its playtime timer to any higher-priority platform tracking the same game, using the global order **Gaming Status Agent > Custom > Steam > Xbox > PlayStation > Playnite > Discord** (the same order the Master sensor checks platforms in). The same GSA Steam/Xbox exception applies.
 
 **Platform hops:** A "finished playing" notification is held for about 45 seconds before sending; if the same game starts on another platform in that window (e.g. one platform's integration briefly drops while another keeps tracking), the end/start notification pair is skipped.
+
+## Tracking PC Games with a Custom Sensor
+If Gaming Status Agent isn't an option (for example on a Linux PC), enable the **Custom** platform and point the player's Custom slot at any sensor whose state is the game title. A state of `on`/`1`/`true`/`playing` reports "Unknown Custom Game"; `off`/`0`/`false`/`offline`/`unavailable` reports offline. Custom and Gaming Status Agent can be used together; when both report the same game, Gaming Status Agent wins.
+
+A common setup is a **HASS.Agent** (Windows) or other companion-app "process active" sensor per game, combined into one "PC Funnel" template sensor:
+
+```yaml
+- sensor:
+    - name: "Username Active PC Game"
+      unique_id: username_active_pc_game
+      icon: mdi:desktop-tower
+      state: >
+        {# Format -> "your_pc_sensor_entity_id": "Clean Dashboard Name" #}
+        {% set pc_games = {
+          "sensor.pc_name_genshin_impact_status": "Genshin Impact",
+          "sensor.pc_name_wonderlands_status": "Tiny Tina's Wonderlands"
+        } %}
+        {% set active = namespace(game='Offline') %}
+        {% for entity_id, game_name in pc_games.items() %}
+          {% set state_val = states(entity_id) %}
+          {% if state_val in ['on', 'true'] or (state_val | int(default=-1)) > 0 %}
+            {% set active.game = game_name %}
+          {% endif %}
+        {% endfor %}
+        {{ active.game }}
+```
+
+Then select `sensor.username_active_pc_game` as that player's Custom sensor. Custom sensors have no avatar of their own; add `custom_username_avatar.png` as described in [Custom User Avatars](../configuration/manage-players.md#custom-user-avatars).

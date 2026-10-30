@@ -30,6 +30,12 @@ theme:
     - content.code.copy
     - toc.follow
 
+# Broken links and #anchors are warnings, which --strict (CI and deploy)
+# turns into build failures.
+validation:
+  links:
+    anchors: warn
+
 markdown_extensions:
   - admonition
   - attr_list
@@ -45,7 +51,7 @@ nav:
       - Prerequisites: getting-started/prerequisites.md
       - Installation: getting-started/installation.md
       - Configuration: getting-started/configuration.md
-      - What Next?: what-next.md
+      - What Next?: getting-started/what-next.md
   - Options & Features:
       - Overview: configuration/index.md
       - Manage Players: configuration/manage-players.md
@@ -55,13 +61,11 @@ nav:
       - Overrides & Exclusions: configuration/overrides-exclusions.md
       - Achievements & Ratings: configuration/achievements-ratings.md
       - Public Page: configuration/public-page.md
-      - Advanced: configuration/advanced.md
+      - Advanced Settings: configuration/advanced-settings.md
       - Global Settings: configuration/global-settings.md
   - Guides:
       - PC Tracking & Discord Setup: setup/pc-tracking.md
-      - Notifications: notifications.md
-      - Advanced Setup: advanced.md
-      - Troubleshooting & FAQ: troubleshooting.md
+      - Troubleshooting & FAQ: setup/troubleshooting.md
   - Reference:
       - Devices: reference/devices.md
       - Entities: reference/entities.md

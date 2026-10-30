@@ -1,4 +1,4 @@
-# Advanced
+# Advanced Settings
 Update your API keys and fine-tune the game-matching engine.
 
 * **API Keys & Tokens:** Update your SteamGridDB API key, or your Discord Bot Token and Server ID.

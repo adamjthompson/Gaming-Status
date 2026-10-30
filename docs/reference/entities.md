@@ -21,5 +21,11 @@ Upon restart, the integration will instantly read your settings and generate the
 | image.gaming_status_XXXXX_game_art | Image | Cover art of the game the player is playing, or last played. Works in picture cards and notifications |
 | button.gaming_status_XXXXX_library_refresh | Button | *(Requires Full Game Library Scan)* Manually triggers an immediate full library rescan for this player, bypassing the normal scan interval |
 | sensor.gaming_status_players_online | Sensor | Global sensor that tracks the total number of players currently online |
-| binary_sensor.gaming_status_anyone_gaming | Binary Sensor | Useful for showing or hiding cards |
-| button.gaming_status_send_weekly_report_now | Button | *(Requires [Weekly Report](../notifications.md) to be enabled)* Manually sends the weekly report immediately, using its current settings and destinations -- handy for previewing the exact formatting without waiting for its scheduled day/time |
+| binary_sensor.gaming_status_anyone_gaming | Binary Sensor | Useful for showing or hiding cards and for automations. See [below](#the-is-anyone-gaming-binary-sensor-for-automations) |
+| button.gaming_status_send_weekly_report_now | Button | *(Requires [Weekly Report](../configuration/notifications-reporting.md) to be enabled)* Manually sends the weekly report immediately, using its current settings and destinations -- handy for previewing the exact formatting without waiting for its scheduled day/time |
+
+## The "Is Anyone Gaming?" Binary Sensor (For Automations)
+
+**The Problem:** You want to trigger a Home Assistant automation (like changing the living room lights to a specific color, or silencing TTS announcements) whenever *anyone* in the house starts gaming, but you don't want to write a messy automation trigger that manually lists every single person's Xbox, Steam, PlayStation, Discord, Playnite, and Gaming Status Agent sensors.
+
+**The Solution:** `binary_sensor.gaming_status_anyone_gaming` automatically searches your entire Home Assistant system for any Master Gaming Sensors (`_master`) created by this integration. If *any* of them are currently playing a game, it turns `on`. When the last person stops playing, it turns `off`.
