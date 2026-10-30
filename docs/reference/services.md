@@ -53,4 +53,4 @@ Moves one recorded session to another player (and/or platform), correcting total
 | `to_player` | Yes | The player to move the session to |
 | `to_platform` | Yes | Exactly one platform on `to_player` to move it onto |
 
-The rename and delete services can also be triggered from a dashboard using the [Game Management card](https://github.com/adamjthompson/Gaming-Status-Cards#8-gaming-status---game-management), which provides player/platform/game dropdowns populated from real data instead of requiring you to type exact names.
+The rename and delete services can also be triggered from a dashboard using the [Game Management card](https://github.com/adamjthompson/Gaming-Status-Cards#7-gaming-status---game-management), which provides player/platform/game dropdowns populated from real data instead of requiring you to type exact names.
