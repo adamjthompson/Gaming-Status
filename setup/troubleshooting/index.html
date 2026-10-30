@@ -1,0 +1,1648 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Unified gaming presence tracking for Home Assistant">
+      
+      
+      
+        <link rel="canonical" href="https://adamjthompson.github.io/Gaming-Status/setup/troubleshooting/">
+      
+      
+        <link rel="prev" href="../pc-tracking/">
+      
+      
+        <link rel="next" href="../../reference/devices/">
+      
+      
+      <link rel="icon" href="../../assets/logo.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.14">
+    
+    
+      
+        <title>Troubleshooting & FAQ - Gaming Status</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.342714a4.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#troubleshooting-faq" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Gaming Status" class="md-header__button md-logo" aria-label="Gaming Status" data-md-component="logo">
+      
+  <img src="../../assets/logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Gaming Status
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Troubleshooting & FAQ
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/adamjthompson/Gaming-Status" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81"/></svg>
+  </div>
+  <div class="md-source__repository">
+    adamjthompson/Gaming-Status
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/prerequisites/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../configuration/" class="md-tabs__link">
+          
+  
+  
+  Options & Features
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../pc-tracking/" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/devices/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Gaming Status" class="md-nav__button md-logo" aria-label="Gaming Status" data-md-component="logo">
+      
+  <img src="../../assets/logo.png" alt="logo">
+
+    </a>
+    Gaming Status
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/adamjthompson/Gaming-Status" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81"/></svg>
+  </div>
+  <div class="md-source__repository">
+    adamjthompson/Gaming-Status
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Home
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Getting Started
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            Getting Started
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/prerequisites/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Prerequisites
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Installation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Configuration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/what-next/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    What Next?
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Options & Features
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Options & Features
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Overview
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/manage-players/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Manage Players
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/notifications-reporting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Notifications & Reporting
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/parental-controls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Parental Controls
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/custom-artwork/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Custom Artwork & Colors
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/overrides-exclusions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Overrides & Exclusions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/achievements-ratings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Achievements & Ratings
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/public-page/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Public Page
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/advanced-settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Advanced Settings
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/global-settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Global Settings
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Guides
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Guides
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pc-tracking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    PC Tracking & Discord Setup
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Troubleshooting & FAQ
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    Troubleshooting & FAQ
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#checking-whether-gaming-status-can-reach-its-services" class="md-nav__link">
+    <span class="md-ellipsis">
+      Checking whether Gaming Status can reach its services
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reporting-a-problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      Reporting a problem
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#settings-repairs-says-my-playstation-npsso-cookie-expired" class="md-nav__link">
+    <span class="md-ellipsis">
+      Settings → Repairs says my PlayStation NPSSO cookie expired
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#my-game-is-being-tracked-by-more-than-one-platform-at-the-same-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      My game is being tracked by more than one platform at the same time
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#my-sensor-always-says-offline-even-when-im-playing" class="md-nav__link">
+    <span class="md-ellipsis">
+      My sensor always says "Offline" even when I'm playing!
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="My sensor always says &#34;Offline&#34; even when I&#39;m playing!">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#playstation-network-psn" class="md-nav__link">
+    <span class="md-ellipsis">
+      PlayStation Network (PSN)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#steam" class="md-nav__link">
+    <span class="md-ellipsis">
+      Steam
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#xbox-microsoft" class="md-nav__link">
+    <span class="md-ellipsis">
+      Xbox / Microsoft
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#discord" class="md-nav__link">
+    <span class="md-ellipsis">
+      Discord
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-game-cover-art-is-missing-or-incorrect" class="md-nav__link">
+    <span class="md-ellipsis">
+      The game cover art is missing or incorrect.
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#my-gamerpic-avatar-is-blank-or-broken" class="md-nav__link">
+    <span class="md-ellipsis">
+      My gamerpic / avatar is blank or broken.
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#my-epic-gog-other-pc-game-isnt-triggering" class="md-nav__link">
+    <span class="md-ellipsis">
+      My Epic / GOG / other PC game isn't triggering.
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#i-changed-a-games-title-but-the-old-name-is-still-showing" class="md-nav__link">
+    <span class="md-ellipsis">
+      I changed a game's title, but the old name is still showing.
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Reference
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Reference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/devices/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Devices
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/entities/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Entities
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/attributes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Sensor Attributes
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Services
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/events/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Events
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/device-settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Device Page Settings
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/voice/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Voice Assistants
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#checking-whether-gaming-status-can-reach-its-services" class="md-nav__link">
+    <span class="md-ellipsis">
+      Checking whether Gaming Status can reach its services
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reporting-a-problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      Reporting a problem
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#settings-repairs-says-my-playstation-npsso-cookie-expired" class="md-nav__link">
+    <span class="md-ellipsis">
+      Settings → Repairs says my PlayStation NPSSO cookie expired
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#my-game-is-being-tracked-by-more-than-one-platform-at-the-same-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      My game is being tracked by more than one platform at the same time
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#my-sensor-always-says-offline-even-when-im-playing" class="md-nav__link">
+    <span class="md-ellipsis">
+      My sensor always says "Offline" even when I'm playing!
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="My sensor always says &#34;Offline&#34; even when I&#39;m playing!">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#playstation-network-psn" class="md-nav__link">
+    <span class="md-ellipsis">
+      PlayStation Network (PSN)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#steam" class="md-nav__link">
+    <span class="md-ellipsis">
+      Steam
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#xbox-microsoft" class="md-nav__link">
+    <span class="md-ellipsis">
+      Xbox / Microsoft
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#discord" class="md-nav__link">
+    <span class="md-ellipsis">
+      Discord
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-game-cover-art-is-missing-or-incorrect" class="md-nav__link">
+    <span class="md-ellipsis">
+      The game cover art is missing or incorrect.
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#my-gamerpic-avatar-is-blank-or-broken" class="md-nav__link">
+    <span class="md-ellipsis">
+      My gamerpic / avatar is blank or broken.
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#my-epic-gog-other-pc-game-isnt-triggering" class="md-nav__link">
+    <span class="md-ellipsis">
+      My Epic / GOG / other PC game isn't triggering.
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#i-changed-a-games-title-but-the-old-name-is-still-showing" class="md-nav__link">
+    <span class="md-ellipsis">
+      I changed a game's title, but the old name is still showing.
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="troubleshooting-faq">Troubleshooting &amp; FAQ<a class="headerlink" href="#troubleshooting-faq" title="Permanent link">&para;</a></h1>
+<p>Below are some of the possible issues you may encounter and their fixes.</p>
+<hr />
+<h2 id="checking-whether-gaming-status-can-reach-its-services">Checking whether Gaming Status can reach its services<a class="headerlink" href="#checking-whether-gaming-status-can-reach-its-services" title="Permanent link">&para;</a></h2>
+<p>Go to <strong>Settings → System → Repairs → ⋮ → System information</strong> and scroll to <strong>Gaming Status</strong>. It shows whether Home Assistant can reach the Steam, PlayStation, Xbox and SteamGridDB servers, whether your SteamGridDB API key is working, the result of the last library scans, whether any service has asked Gaming Status to slow down, the number of open repair issues, and (if you use it) whether the Discord bot is connected. These checks only run when you open that page.</p>
+<h2 id="reporting-a-problem">Reporting a problem<a class="headerlink" href="#reporting-a-problem" title="Permanent link">&para;</a></h2>
+<p>When opening a <a href="https://github.com/adamjthompson/Gaming-Status/issues">GitHub issue</a>, please attach the integration's diagnostics: <strong>Settings → Devices &amp; services → Gaming Status → ⋮ → Download diagnostics</strong>. The file contains your settings, each Gaming Status sensor's current state, library scan results and API rate-limit status. API keys, the NPSSO cookie, the Discord token, account IDs and notification targets are replaced with <code>**REDACTED**</code>, but gamertags and game names are kept. Look it over before posting if you'd rather not share those.</p>
+<h2 id="settings-repairs-says-my-playstation-npsso-cookie-expired">Settings → Repairs says my PlayStation NPSSO cookie expired<a class="headerlink" href="#settings-repairs-says-my-playstation-npsso-cookie-expired" title="Permanent link">&para;</a></h2>
+<p>PlayStation Network NPSSO cookies expire after a while, and when that happens PlayStation trophies, ratings and library scans stop updating. Sign in at <a href="https://www.playstation.com">playstation.com</a>, then open <a href="https://ca.account.sony.com/api/v1/ssocookie">this link</a> in the same browser and copy the <code>npsso</code> value. Paste it into the official PlayStation Network integration (<strong>⋮ → Reconfigure</strong>), or into <strong>PSN NPSSO Override</strong> under Gaming Status → Configure → Advanced Settings if you use one. The repair clears itself once PSN accepts the new cookie.</p>
+<h2 id="my-game-is-being-tracked-by-more-than-one-platform-at-the-same-time">My game is being tracked by more than one platform at the same time<a class="headerlink" href="#my-game-is-being-tracked-by-more-than-one-platform-at-the-same-time" title="Permanent link">&para;</a></h2>
+<p>This generally happens if you're using Discord for tracking along with other services. Sometimes, game titles are reported differently, resulting in a game being tracked by more than one service simultaneously. For example, Xbox may track the title as "DOOM Eternal" while Discord tracks it as "DOOM Eternal (BATTLEMODE)". The solution is to add a game title override under <a href="../../configuration/overrides-exclusions/"><strong>Overrides &amp; Exclusions</strong></a> to normalize the name. This would look like "DOOM Eternal (BATTLEMODE) = DOOM Eternal". Once the names match, the prioritization of trackers will take effect, with Xbox tracking the game and Discord stepping out of the way.</p>
+<h2 id="my-sensor-always-says-offline-even-when-im-playing">My sensor always says "Offline" even when I'm playing!<a class="headerlink" href="#my-sensor-always-says-offline-even-when-im-playing" title="Permanent link">&para;</a></h2>
+<p>One possibility is the privacy settings of your account. Your online status and game activity must be viewable by the public in order to be properly reported by the Gaming Status integration. Instructions for changing the necessary settings is included below:</p>
+<h3 id="playstation-network-psn">PlayStation Network (PSN)<a class="headerlink" href="#playstation-network-psn" title="Permanent link">&para;</a></h3>
+<p><em>Please remember that only the <ins>official</ins> PlayStation Integration will work properly with Gaming Status; if you have the HACS version installed, uninstall or disable it and install the official integration.</em> If your PSN sensor reports as "Offline" while you are gaming, your PSN privacy settings are likely restricting API access.</p>
+<p><strong>On your PS5 Console:</strong></p>
+<ul>
+<li>Go to Settings &gt; Users and Accounts &gt; Privacy.</li>
+<li>Select View and Customize Your Privacy Settings.</li>
+<li>Scroll down to your activity and locate the option for "Who can see your online status and what you're currently playing".</li>
+<li>Change this setting to Anyone.</li>
+</ul>
+<p><em>Note on Hidden Games: In the same Privacy menu, check the "Hide your games from other players" setting. Any game toggled to be hidden in this list will refuse to broadcast its title to Home Assistant.</em></p>
+<h3 id="steam">Steam<a class="headerlink" href="#steam" title="Permanent link">&para;</a></h3>
+<p>Steam separates your overall profile visibility from your gaming activity. If "Game details" are restricted, Home Assistant will see you as online but will not know what game you are playing and report you as "Offline".</p>
+<p><strong>Global Privacy Settings:</strong></p>
+<ul>
+<li>Go to your Steam Profile in the desktop client or web browser.</li>
+<li>Click Edit Profile, then navigate to the Privacy Settings tab.</li>
+<li>Ensure My profile is set to Public.</li>
+<li>Ensure Game details is set to Public. This specific setting controls whether you are seen as "in-game" and broadcasts the title of the software you are running.</li>
+</ul>
+<p><strong>Per-Game Privacy:</strong>
+Steam allows you to mark individual games as private. If a specific game is not showing up, right-click the game in your Steam Library, click the gear icon on the game details page, and go to Privacy to ensure it is not marked as a private game.</p>
+<h3 id="xbox-microsoft">Xbox / Microsoft<a class="headerlink" href="#xbox-microsoft" title="Permanent link">&para;</a></h3>
+<p>Xbox possesses highly granular privacy controls that explicitly separate your online status from your game history. Both must be publicly visible for the integration to function properly.</p>
+<p><strong>Via Web Browser (Recommended):</strong></p>
+<ul>
+<li>Sign in to Xbox.com and click your gamerpic in the top-right corner of the page.</li>
+<li>Click "..." (More options) &gt; Xbox settings &gt; Privacy &amp; online safety &gt; Privacy.</li>
+<li>Under the "Others can" section, find "Others can see if you're online" and set it to Everyone.</li>
+<li>Find "Others can see your game and app history" and set it to Everyone.</li>
+<li>Scroll to the bottom and click Submit to save your changes.</li>
+</ul>
+<p><strong>Via Xbox Console:</strong></p>
+<ul>
+<li>Press the Xbox button to open the guide, then go to Profile &amp; system &gt; Settings.</li>
+<li>Navigate to Account &gt; Privacy &amp; online safety &gt; Xbox privacy &gt; View details &amp; customize.</li>
+<li>Select Online status &amp; history.</li>
+<li>Ensure both "Others can see if you're online" and "Others can see your game and app history" are set to allow visibility.</li>
+</ul>
+<p><strong>For PC Gamers:</strong></p>
+<ul>
+<li>If you are playing non-Xbox games on a Windows PC, open the Game Bar by pressing the Windows key + G.</li>
+<li>Go to the Xbox Social widget, click Xbox Social Options in the title bar, then select Account.</li>
+<li>Under "Others can see your PC game activity", ensure this is set to Allow so that Microsoft can collect your PC game activity and determine what you are playing.</li>
+</ul>
+<h3 id="discord">Discord<a class="headerlink" href="#discord" title="Permanent link">&para;</a></h3>
+<p>Discord requires specific settings to be enabled on both your local client and the specific server where your Home Assistant bot resides. If your status is not updating, Discord is likely refusing to broadcast your Rich Presence data.</p>
+<p><strong>Client Activity Privacy:</strong></p>
+<ul>
+<li>Open Discord and click the gear icon (User Settings) in the bottom left.</li>
+<li>Navigate to Activity Privacy under the Activity Settings section.</li>
+<li>Ensure Display current activity as a status message is toggled ON. This is the master switch that allows Discord to broadcast what game you are playing.</li>
+</ul>
+<p><strong>Server-Specific Privacy:</strong>
+Even if your global activity is enabled, Discord allows you to hide your status from specific servers. If your bot is on a server where your activity is hidden, it will not be able to track your games.</p>
+<ul>
+<li>Open the Discord server where your Home Assistant bot is located.</li>
+<li>Click the Server Name at the top left of the screen to open the dropdown menu.</li>
+<li>Select Privacy Settings.</li>
+<li>Ensure Activity Status is toggled ON to allow your gaming activity to be visible within that specific server.</li>
+</ul>
+<p><em>Note on Custom Games: If you manually added a non-supported game to Discord via the "Registered Games" menu, ensure the eye icon next to the game is not crossed out. If it is crossed out, Discord will hide that specific game from your status.</em></p>
+<h2 id="the-game-cover-art-is-missing-or-incorrect">The game cover art is missing or incorrect.<a class="headerlink" href="#the-game-cover-art-is-missing-or-incorrect" title="Permanent link">&para;</a></h2>
+<p>The integration searches SteamGridDB for high-quality cover art based on the name of the game. If a publisher names a game weirdly on Xbox (like <em>"Call of Duty®: HQ - Cross-Gen Bundle"</em>), the search will fail.</p>
+<ul>
+<li><strong>The Fix:</strong> Use the <strong>Game Title Overrides</strong> in the Advanced Settings section to map that messy title to a clean one (e.g., <code>Call of Duty®: HQ - Cross-Gen Bundle = Call of Duty</code>). The integration will instantly find the right art!</li>
+</ul>
+<h2 id="my-gamerpic-avatar-is-blank-or-broken">My gamerpic / avatar is blank or broken.<a class="headerlink" href="#my-gamerpic-avatar-is-blank-or-broken" title="Permanent link">&para;</a></h2>
+<p>Sometimes, official APIs (especially PlayStation) fail to pass the avatar image URL to Home Assistant. </p>
+<ul>
+<li><strong>The Fix (Local Override):</strong> You can force your own profile picture! Create a folder inside your Home Assistant <code>www</code> directory called <code>gaming_status</code>. Drop a <code>.png</code> or <code>.jpg</code> image in there using the format: <code>[platform]_[profile_name]_avatar.jpg</code>. </li>
+<li><em>Example:</em> If your profile name is "Player One" and you want an Xbox avatar, name the file <code>xbox_player_one_avatar.jpg</code> and the integration will automatically use it!</li>
+</ul>
+<h2 id="my-epic-gog-other-pc-game-isnt-triggering">My Epic / GOG / other PC game isn't triggering.<a class="headerlink" href="#my-epic-gog-other-pc-game-isnt-triggering" title="Permanent link">&para;</a></h2>
+<p>PC games outside Steam and Xbox are tracked by <a href="https://github.com/adamjthompson/Gaming-Status-Agent">Gaming Status Agent</a>.</p>
+<ul>
+<li><strong>Check the Agent first:</strong> Right-click its tray icon and choose <strong>Run Diagnostics</strong>. It shows what it currently detects and why, and which launchers are switched on under <strong>Platforms</strong>.</li>
+<li><strong>Check the sensor:</strong> In Home Assistant, <code>sensor.gsa_&lt;profile name&gt;</code> should show the game title and a <code>Launcher</code> attribute. If it doesn't exist, check the Agent's MQTT settings and that the MQTT integration is set up.</li>
+<li><strong>Check the player:</strong> Make sure <strong>Gaming Status Agent</strong> is an enabled platform and that the player's Gaming Status Agent slot points at that <code>sensor.gsa_*</code> sensor.</li>
+</ul>
+<h2 id="i-changed-a-games-title-but-the-old-name-is-still-showing">I changed a game's title, but the old name is still showing.<a class="headerlink" href="#i-changed-a-games-title-but-the-old-name-is-still-showing" title="Permanent link">&para;</a></h2>
+<p>The Master Sensor caches history and states to prevent drop-outs. If things look stuck, simply restart Home Assistant to flush the cache and force it to rebuild from the current live data.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../pc-tracking/" class="md-footer__link md-footer__link--prev" aria-label="Previous: PC Tracking &amp; Discord Setup">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                PC Tracking & Discord Setup
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../../reference/devices/" class="md-footer__link md-footer__link--next" aria-label="Next: Devices">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Devices
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.top", "navigation.footer", "search.highlight", "content.code.copy", "toc.follow"], "search": "../../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.13a4f30d.min.js"></script>
+      
+    
+  </body>
+</html>
