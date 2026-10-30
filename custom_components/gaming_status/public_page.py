@@ -1082,7 +1082,9 @@ function makeHass(states){
   const nope=()=>Promise.reject(new Error("Read-only public page"));
   return{states,language:lang,locale:{language:lang,number_format:"language",time_format:"language"},
     themes:{darkMode:dark},selectedTheme:null,user:{is_admin:false,name:"Guest"},
-    callService:nope,callWS:nope,callApi:nope,connection:null};
+    callService:nope,callWS:nope,callApi:nope,connection:null,
+    // Tells the cards there's no Home Assistant UI here (e.g. no more-info dialog).
+    readOnly:true};
 }
 
 let cards=[], layoutKey="", scriptUrl=null;
