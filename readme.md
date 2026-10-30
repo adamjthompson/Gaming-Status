@@ -55,3 +55,15 @@ Go to Settings / Devices & Services and press the Add Integration button, or cli
 Gaming Status is configured entirely through the Home Assistant UI. **There is no YAML or JSON configuration required.**
 
 See the [Configuration guide](https://adamjthompson.github.io/Gaming-Status/getting-started/configuration/) for the full setup walkthrough.
+
+## Star History
+
+⭐ Star this repo if you find Gaming Status to be a valuable addition to your Home Assistant install!
+
+<a href="https://www.star-history.com/?repos=adamjthompson%2Fgaming-status&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=adamjthompson/gaming-status&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=adamjthompson/gaming-status&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=adamjthompson/gaming-status&type=date&legend=top-left" />
+ </picture>
+</a>
