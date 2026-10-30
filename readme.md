@@ -52,7 +52,6 @@ Go to Settings / Devices & Services and press the Add Integration button, or cli
 
 [![Add Integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=gaming_status)
 
-Gaming Status is configured entirely through the Home Assistant UI. **There is no YAML or JSON configuration required.** *(Note: If you are upgrading from an older version, your `gaming_profiles.json` file will be automatically migrated to the new database and can be safely deleted).*
-
+Gaming Status is configured entirely through the Home Assistant UI. **There is no YAML or JSON configuration required.**
 
 See the [Configuration guide](https://adamjthompson.github.io/Gaming-Status/getting-started/configuration/) for the full setup walkthrough.
