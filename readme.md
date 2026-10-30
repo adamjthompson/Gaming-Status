@@ -60,10 +60,10 @@ See the [Configuration guide](https://adamjthompson.github.io/Gaming-Status/gett
 
 ⭐ Star this repo if you find Gaming Status to be a valuable addition to your Home Assistant install!
 
-<a href="https://www.star-history.com/?repos=adamjthompson%2Fgaming-status&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=adamjthompson%2Fgaming-status&type=date&releases=&legend=bottom-right">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=adamjthompson/gaming-status&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=adamjthompson/gaming-status&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=adamjthompson/gaming-status&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=adamjthompson/gaming-status&type=date&theme=dark&legend=bottom-right" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=adamjthompson/gaming-status&type=date&legend=bottom-right" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=adamjthompson/gaming-status&type=date&legend=bottom-right" />
  </picture>
 </a>
