@@ -1,4 +1,4 @@
-# Voice assistants (Assist)
+# Voice Assistants (Assist)
 Gaming Status adds three questions you can ask Home Assistant's Assist:
 
 | Question | Example answer |

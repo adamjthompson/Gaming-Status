@@ -1,4 +1,4 @@
-# Settings on the device page
+# Device Page Settings
 Common settings can also be changed from each player's device page (**Configuration** section), from a dashboard, or in automations, without opening Configure. These controls read and write the same settings as Configure, so a change in either place shows up in the other.
 
 **Per player**
