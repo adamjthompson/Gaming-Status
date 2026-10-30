@@ -1,2 +1,2 @@
-# Options & Features
+# Overview
 To configure your players, notifications, and rules, click the **Configure** button (gear icon) on the Gaming Status integration card. This opens the main configuration hub, which is divided into nine menus. Every menu is always listed; features that can be switched off (Notifications & Reporting, Parental Controls, and Public Page) have their own on/off toggle inside their menu.
