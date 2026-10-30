@@ -37,6 +37,7 @@ _EVENT_TYPES = {
 # Bus event fields carried onto the entity's attributes (each event only
 # carries the ones it has -- see the README's Events table).
 _ATTRIBUTES = (
+    "message",
     "game",
     "platform",
     "previous_game",

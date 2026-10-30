@@ -18,6 +18,7 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.network import get_url
 from homeassistant.util import dt as dt_util
 
+from . import messages
 from .const import (
     DEFAULT_SAME_GAME_PREFIX_WORDS,
     DOMAIN,
@@ -641,6 +642,7 @@ class GamingNotifier:
         if event_type in (EVENT_SESSION_ENDED, EVENT_SESSION_SWITCHED):
             # For a switch, how long the previous game was played.
             data["duration_minutes"] = duration_minutes
+        data["message"] = messages.event_message(event_type, data)
         self.hass.bus.async_fire(event_type, data)
 
     async def _handle_state_change(self, event) -> None:
@@ -830,14 +832,10 @@ class GamingNotifier:
 
         if is_start or is_switch:
             if is_switch:
-                msg = (
-                    f"{target_player} switched games after {duration_str}"
-                    if duration_str
-                    else f"{target_player} switched games"
-                )
-                display_title = f"{old_game} > {new_game}"
+                msg = messages.notify_switched(target_player, duration_str)
+                display_title = messages.notify_switch_title(old_game, new_game)
             else:
-                msg = f"{target_player} started playing"
+                msg = messages.notify_started(target_player)
                 display_title = new_game
 
             raw_url = await self._resolve_cover_art(
@@ -907,11 +905,7 @@ class GamingNotifier:
         if not end_dests:
             return
 
-        msg = (
-            f"{target_player} played for {duration_str}"
-            if duration_str
-            else f"{target_player} finished playing"
-        )
+        msg = messages.notify_ended(target_player, duration_str)
 
         if self._cached_notify_artwork == "none":
             raw_url = None
@@ -1051,10 +1045,9 @@ class GamingNotifier:
                             should_notify = True
 
                         if should_notify:
-                            if overage > 0:
-                                msg = f"❗️ {player_name} has exceeded the {limit}-minute screen time limit by {overage} minutes ({today_minutes} minutes total)."
-                            else:
-                                msg = f"❗️ {player_name} has reached the {limit}-minute screen time limit."
+                            msg = messages.notify_screen_time(
+                                player_name, limit, overage, today_minutes
+                            )
 
                             current_game = master_state.state if is_playing else None
                             parental_image = None
@@ -1147,10 +1140,9 @@ class GamingNotifier:
                             # re-parsing curfew_time with a strict format
                             # that "HH:MM:SS" input wouldn't match.
                             pretty_time = curfew_dt.strftime("%I:%M %p").lstrip("0")
-                            if overage_minutes > 1:
-                                msg = f"❗️ {player_name} has exceeded the {pretty_time} curfew by {overage_minutes} minutes."
-                            else:
-                                msg = f"❗️ {player_name} has reached the {pretty_time} curfew."
+                            msg = messages.notify_curfew(
+                                player_name, pretty_time, overage_minutes
+                            )
 
                             current_game = master_state.state if is_playing else None
                             parental_image = None
@@ -1227,7 +1219,9 @@ class GamingNotifier:
                         age_floor = (
                             master_state.attributes.get("game_content_rating") or {}
                         ).get("age_floor")
-                        msg = f"❗️ {player_name} is playing {current_game}, rated for ages {age_floor}+."
+                        msg = messages.notify_rating(
+                            player_name, current_game, age_floor
+                        )
 
                         parental_image = None
                         if self._cached_notify_artwork != "none":

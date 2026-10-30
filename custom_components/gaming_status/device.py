@@ -139,15 +139,16 @@ def async_fire_player_event(hass, event_type: str, player_name: str, data: dict)
     device = dr.async_get(hass).async_get_device(
         identifiers={(DOMAIN, safe_owner_slug(player_name))}
     )
-    hass.bus.async_fire(
-        event_type,
-        {
-            "player": player_name,
-            "entity_id": resolve_master_entity_id(hass, player_name),
-            "device_id": device.id if device else None,
-            **data,
-        },
-    )
+    from .messages import event_message
+
+    payload = {
+        "player": player_name,
+        "entity_id": resolve_master_entity_id(hass, player_name),
+        "device_id": device.id if device else None,
+        **data,
+    }
+    payload["message"] = event_message(event_type, payload)
+    hass.bus.async_fire(event_type, payload)
 
 
 def hub_device_info() -> DeviceInfo:
