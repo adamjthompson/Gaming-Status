@@ -69,7 +69,7 @@ from .const import (
     XBOX_LIBRARY_BACKFILL_BUDGET_PER_CYCLE,
 )
 from .device import safe_owner_slug
-from .utils import _normalize_game_name, _safe_parse_datetime
+from .utils import _elapsed_seconds, _normalize_game_name, _safe_parse_datetime
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -305,7 +305,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         last_synced = _safe_parse_datetime((self.data or {}).get("last_synced"))
         remaining = 0.0
         if last_synced:
-            elapsed = (dt_util.now() - last_synced).total_seconds()
+            elapsed = _elapsed_seconds(last_synced, dt_util.now())
             remaining = self.update_interval.total_seconds() - elapsed
 
         # The freshness check above is purely time-based, so on its own it

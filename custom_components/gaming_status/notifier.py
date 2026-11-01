@@ -46,6 +46,7 @@ from .device import (
     resolve_platform_entity_id,
     safe_owner_slug,
 )
+from .utils import _elapsed_seconds
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -705,7 +706,7 @@ class GamingNotifier:
             handoff = self._recent_end.get(target_player)
             if (
                 handoff
-                and (now - handoff["at"]).total_seconds()
+                and _elapsed_seconds(handoff["at"], now)
                 < SAME_GAME_HANDOFF_WINDOW_SECONDS
             ):
                 from .utils import _is_same_base_game
@@ -722,7 +723,7 @@ class GamingNotifier:
 
             last_start = self._last_start_time.get(target_player)
             # COOLDOWN: If a session just started less than 90 seconds ago, block the duplicate bounce!
-            if last_start and (now - last_start).total_seconds() < 90:
+            if last_start and _elapsed_seconds(last_start, now) < 90:
                 return
 
             self._last_start_time[target_player] = now
@@ -737,7 +738,7 @@ class GamingNotifier:
         elif is_switch:
             last_start = self._last_start_time.get(target_player)
             # If a game launcher transitioned to the real game within 90 seconds, suppress the switch alert
-            if last_start and (now - last_start).total_seconds() < 90:
+            if last_start and _elapsed_seconds(last_start, now) < 90:
                 return
 
             # Same wait as is_start: the new game's own state write happens
@@ -787,8 +788,7 @@ class GamingNotifier:
                             if temp_end > start_dt:
                                 end_dt = temp_end
 
-                    diff = end_dt - start_dt
-                    total_minutes = int(diff.total_seconds() / 60)
+                    total_minutes = int(_elapsed_seconds(start_dt, end_dt) / 60)
                     if total_minutes > 0:
                         hours, minutes = total_minutes // 60, total_minutes % 60
                         duration_str = (
@@ -1106,7 +1106,7 @@ class GamingNotifier:
                             last_event is None
                             or (
                                 cf_repeat > 0
-                                and (now_dt - last_event).total_seconds()
+                                and _elapsed_seconds(last_event, now_dt)
                                 >= (cf_repeat * 60)
                             )
                         ):
@@ -1119,7 +1119,7 @@ class GamingNotifier:
                                     "game": master_state.state,
                                     "curfew": curfew_dt.strftime("%H:%M"),
                                     "minutes_over": int(
-                                        (now_dt - curfew_dt).total_seconds() / 60
+                                        _elapsed_seconds(curfew_dt, now_dt) / 60
                                     ),
                                 },
                             )
@@ -1129,12 +1129,12 @@ class GamingNotifier:
                             last_fired is None
                             or (
                                 cf_repeat > 0
-                                and (now_dt - last_fired).total_seconds()
+                                and _elapsed_seconds(last_fired, now_dt)
                                 >= (cf_repeat * 60)
                             )
                         ):
                             overage_minutes = int(
-                                (now_dt - curfew_dt).total_seconds() / 60
+                                _elapsed_seconds(curfew_dt, now_dt) / 60
                             )
                             # Reuse the already-parsed curfew_dt rather than
                             # re-parsing curfew_time with a strict format

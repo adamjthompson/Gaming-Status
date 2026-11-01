@@ -111,6 +111,7 @@ from .library_scan import LibraryScanCoordinator
 from .library_sensor import TrophyLibraryPlatformSensor, TrophyLibrarySummarySensor
 from .utils import (
     _calculate_time_ago_v2,
+    _elapsed_seconds,
     _format_game_name_for_display,
     _format_time,
     _get_gamertag_from_entity,
@@ -617,7 +618,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             day = cursor.date()
             next_midnight = dt_util.start_of_local_day(day + timedelta(days=1))
             segment_end = min(next_midnight, local_end)
-            per_day[day] = per_day.get(day, 0) + (segment_end - cursor).total_seconds()
+            per_day[day] = per_day.get(day, 0) + _elapsed_seconds(cursor, segment_end)
             cursor = segment_end
         return per_day
 
@@ -635,7 +636,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         if not game or not seconds:
             return {}
         seconds = int(seconds)
-        total = (end_dt - start_dt).total_seconds()
+        total = _elapsed_seconds(start_dt, end_dt)
         per_day = self._wall_clock_by_local_day(start_dt, end_dt) if total > 0 else {}
         if not per_day:
             # Degenerate span -- fall back to today's buckets, i.e. exactly
@@ -1689,7 +1690,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             return True
 
         # Still pending until it has held for the full window.
-        return (now_dt - self._pending_first_seen).total_seconds() < window
+        return _elapsed_seconds(self._pending_first_seen, now_dt) < window
 
     def _handle_game_transition(self, new_game_name, explicit_end_time=None):
         now = dt_util.now()
@@ -1702,7 +1703,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     start_dt = start_dt.replace(tzinfo=actual_end_time.tzinfo)
                 else:
                     start_dt = start_dt.astimezone(actual_end_time.tzinfo)
-                session_seconds = (actual_end_time - start_dt).total_seconds()
+                session_seconds = _elapsed_seconds(start_dt, actual_end_time)
                 session_ticks = self._session_ticks_persistent.get(
                     self._current_game, 0
                 )
@@ -2079,7 +2080,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             return
         if unlocked_dt.tzinfo is None:
             unlocked_dt = unlocked_dt.replace(tzinfo=UTC)
-        age_minutes = (dt_util.utcnow() - unlocked_dt).total_seconds() / 60
+        age_minutes = _elapsed_seconds(unlocked_dt, dt_util.utcnow()) / 60
         if age_minutes > ACHIEVEMENT_EVENT_MAX_AGE_MINUTES:
             return
         async_fire_player_event(
@@ -2110,7 +2111,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             start_dt = start_dt.replace(tzinfo=now.tzinfo)
         else:
             start_dt = start_dt.astimezone(now.tzinfo)
-        seconds = (now - start_dt).total_seconds()
+        seconds = _elapsed_seconds(start_dt, now)
         if seconds < 60:
             return seconds, "just now"
         minutes = int(seconds // 60)
@@ -2245,7 +2246,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             self._last_online_valid_timestamp
                         )
                         if last_ts:
-                            age = (dt_util.now() - last_ts).total_seconds()
+                            age = _elapsed_seconds(last_ts, dt_util.now())
                             if age < self._active_settings.get(
                                 "GRACE_PERIOD_SECONDS", 180
                             ):
@@ -2884,7 +2885,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
         local_start = dt_util.as_local(start_dt)
         local_end = dt_util.as_local(end_dt)
-        secs = int((local_end - local_start).total_seconds())
+        secs = int(_elapsed_seconds(local_start, local_end))
         date_str = local_start.strftime("%Y-%m-%d")
 
         self._recent_sessions.insert(
@@ -3518,7 +3519,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             last_ts = last_ts.astimezone(now_dt.tzinfo)
 
                         # Safeguard 2: Catch Raspberry Pi negative boot-clock drift
-                        delta_seconds = (now_dt - last_ts).total_seconds()
+                        delta_seconds = _elapsed_seconds(last_ts, now_dt)
                         if delta_seconds < 0:
                             _LOGGER.warning(
                                 "Negative time delta detected for %s. System clock may be out of sync.",
@@ -3965,7 +3966,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             now_dt = dt_util.now()
             delta_seconds = 30
             if self._last_update_dt:
-                delta = (now_dt - self._last_update_dt).total_seconds()
+                delta = _elapsed_seconds(self._last_update_dt, now_dt)
                 if 0 < delta < 120:
                     delta_seconds = int(delta)
                 else:
@@ -3973,14 +3974,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if not self._attr_extra_state_attributes:
                 self._attr_extra_state_attributes = {}
             if self._temp_offline_start:
-                time_in_limbo = (now_dt - self._temp_offline_start).total_seconds()
+                time_in_limbo = _elapsed_seconds(self._temp_offline_start, now_dt)
                 if time_in_limbo > self._active_settings["GRACE_PERIOD_SECONDS"]:
                     self.hass.async_create_task(self._trigger_source_update())
             # Backstop for the session-start confirmation timer: if that
             # one-shot was ever lost, a pending game would otherwise sit
             # unconfirmed forever. Mirrors the limbo self-heal directly above.
             if self._pending_first_seen is not None:
-                pending_for = (now_dt - self._pending_first_seen).total_seconds()
+                pending_for = _elapsed_seconds(self._pending_first_seen, now_dt)
                 if pending_for >= self._active_settings.get(
                     "SESSION_START_CONFIRM_SECONDS", 0
                 ):
@@ -4106,9 +4107,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     ):
                         due = (
                             self._last_achievements_check_dt is None
-                            or (
-                                now_dt - self._last_achievements_check_dt
-                            ).total_seconds()
+                            or _elapsed_seconds(
+                                self._last_achievements_check_dt, now_dt
+                            )
                             >= utils.ACHIEVEMENT_RECHECK_SECONDS
                         )
                         if due:
@@ -4225,21 +4226,21 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             self._last_online_valid_timestamp
                         )
                         if last_ts:
-                            time_since_valid = (now_dt - last_ts).total_seconds()
+                            time_since_valid = _elapsed_seconds(last_ts, now_dt)
                             if time_since_valid > current_grace_limit:
                                 can_start_grace = False
                     if can_start_grace:
                         self._temp_offline_start = now_dt
                         self._store.async_delay_save(self._get_store_data, 5.0)
                 if self._temp_offline_start:
-                    offline_duration = (
-                        now_dt - self._temp_offline_start
-                    ).total_seconds()
+                    offline_duration = _elapsed_seconds(
+                        self._temp_offline_start, now_dt
+                    )
                     if offline_duration <= current_grace_limit:
                         in_grace_period = True
             elif not is_offline_now:
                 if self._temp_offline_start:
-                    missed_seconds = (now_dt - self._temp_offline_start).total_seconds()
+                    missed_seconds = _elapsed_seconds(self._temp_offline_start, now_dt)
                     if missed_seconds > 0:
                         # Same day-awareness as the session-close gap: a grace
                         # window that spans local midnight must repay each day
@@ -4299,9 +4300,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         # session and canonical name locked to what was already playing.
                         game_name_display = self._current_game
                     elif self._temp_game_lost_time and self._current_game:
-                        time_since_lost = (
-                            now_dt - self._temp_game_lost_time
-                        ).total_seconds()
+                        time_since_lost = _elapsed_seconds(
+                            self._temp_game_lost_time, now_dt
+                        )
                         if (
                             _normalize_game_name(self._current_game) == normalized_new
                             and time_since_lost
@@ -4759,8 +4760,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                                 "AWAY_GRACE_PERIOD_SECONDS"
                             ]
                         if (
-                            now_dt - self._temp_offline_start
-                        ).total_seconds() > limit_to_check:
+                            _elapsed_seconds(self._temp_offline_start, now_dt)
+                            > limit_to_check
+                        ):
                             self._handle_game_transition(
                                 None, explicit_end_time=self._temp_offline_start
                             )
@@ -4769,10 +4771,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             self._store.async_delay_save(self._get_store_data, 5.0)
                     elif self._temp_game_lost_time:
                         if (
-                            now_dt - self._temp_game_lost_time
-                        ).total_seconds() > self._active_settings[
-                            "GAME_TRANSITION_GRACE_SECONDS"
-                        ]:
+                            _elapsed_seconds(self._temp_game_lost_time, now_dt)
+                            > self._active_settings["GAME_TRANSITION_GRACE_SECONDS"]
+                        ):
                             self._handle_game_transition(None)
                             self._temp_game_lost_time = None
                     else:
@@ -4928,7 +4929,7 @@ def _candidate_wins_handoff(
         )
         incumbent_stale = (
             incumbent_last_valid is None
-            or (dt_util.now() - incumbent_last_valid).total_seconds()
+            or _elapsed_seconds(incumbent_last_valid, dt_util.now())
             >= handoff_grace_seconds
         )
         return bool(

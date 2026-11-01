@@ -2050,6 +2050,15 @@ def _safe_parse_datetime(value):
         return None
 
 
+def _elapsed_seconds(start, end):
+    """Real seconds from start to end.
+
+    Subtracting two aware datetimes that share a tzinfo object is wall-clock
+    arithmetic in Python, so a span crossing a DST change comes out an hour
+    off (negative across a fall-back). Timestamps are always absolute."""
+    return end.timestamp() - start.timestamp()
+
+
 def _parse_relative_time_from_status(status_text):
     if not status_text or isinstance(status_text, datetime):
         return None
@@ -2102,7 +2111,7 @@ def _calculate_time_ago_v2(timestamp_val):
         else:
             ts = ts.astimezone(now.tzinfo)
 
-        seconds = int((now - ts).total_seconds())
+        seconds = int(_elapsed_seconds(ts, now))
         debug = f"Now:{int(now.timestamp())} - TS:{int(ts.timestamp())} = {seconds}s"
 
         if seconds < 0:
