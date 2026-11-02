@@ -1,5 +1,6 @@
 {
   "name": "Gaming Status",
   "render_readme": true,
-  "filename": "gaming_status"
+  "filename": "gaming_status",
+  "homeassistant": "2026.1.0"
 }

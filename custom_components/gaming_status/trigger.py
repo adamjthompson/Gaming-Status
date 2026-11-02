@@ -40,20 +40,16 @@ if TYPE_CHECKING:
     from homeassistant.helpers.trigger import TriggerNotTriggeredReporter
 
 try:
-    from homeassistant.helpers.target import async_extract_referenced_entity_ids
+    from homeassistant.helpers.target import (
+        TargetSelection,
+        async_extract_referenced_entity_ids,
+    )
     from homeassistant.helpers.trigger import (
         ENTITY_STATE_TRIGGER_SCHEMA,
         Trigger,
         TriggerActionRunner,
         TriggerConfig,
     )
-
-    try:
-        from homeassistant.helpers.target import TargetSelection
-    except ImportError:  # HA 2025.12 -- renamed in 2026.2
-        from homeassistant.helpers.target import (  # type: ignore[attr-defined,no-redef]
-            TargetSelectorData as TargetSelection,
-        )
 except ImportError:  # HA older than 2025.12
     Trigger = None  # type: ignore[assignment,misc]
 
