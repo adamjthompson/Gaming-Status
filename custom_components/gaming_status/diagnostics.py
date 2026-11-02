@@ -28,12 +28,14 @@ _REDACT_KEY_RE = re.compile(
 )
 # Exact-match keys too generic for the pattern above: a player's "discord"
 # slot holds their Discord user ID.
-_REDACT_EXACT_KEYS = {"discord"}
+_REDACT_EXACT_KEYS = {"discord", "public_page_key"}
 # Secrets embedded inside otherwise-useful string values: image_proxy access
 # tokens, and the Discord user ID in avatar URLs.
 _REDACT_IN_STRING = (
     (re.compile(r"([?&]token=)[^&]+"), r"\1" + REDACTED),
     (re.compile(r"(cdn\.discordapp\.com/avatars/)\d+"), r"\1" + REDACTED),
+    # PSN account IDs inside request URLs carried by logged exceptions.
+    (re.compile(r"(/users/)\d+"), r"\1" + REDACTED),
 )
 
 # Library sensors carry whole game lists; a few samples are enough to see
@@ -90,7 +92,7 @@ def _library_coordinators(hass: HomeAssistant) -> dict[str, Any]:
         data = coordinator.data or {}
         out[key] = {
             "last_update_success": coordinator.last_update_success,
-            "last_exception": repr(coordinator.last_exception)
+            "last_exception": _redact(repr(coordinator.last_exception))
             if coordinator.last_exception
             else None,
             "update_interval": str(coordinator.update_interval),

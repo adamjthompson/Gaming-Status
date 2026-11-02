@@ -47,6 +47,27 @@ def master_entity_ids(hass: HomeAssistant) -> list[str]:
     return [resolve_master_entity_id(hass, name) for name in player_names(hass)]
 
 
+def _visible_players(intent_obj: intent.Intent) -> list[str]:
+    """Players the asking assistant may talk about: those whose master
+    sensor is exposed to it. If none are exposed (e.g. built-in Assist with
+    custom sentences and nothing exposed) everyone stays answerable, as
+    before -- llm.py never offers these tools to an AI in that case."""
+    hass = intent_obj.hass
+    names = player_names(hass)
+    if not intent_obj.assistant:
+        return names
+    from homeassistant.components.homeassistant import async_should_expose
+
+    exposed = [
+        name
+        for name in names
+        if async_should_expose(
+            hass, intent_obj.assistant, resolve_master_entity_id(hass, name)
+        )
+    ]
+    return exposed or names
+
+
 def _master_state(hass: HomeAssistant, name: str):
     return hass.states.get(resolve_master_entity_id(hass, name))
 
@@ -82,7 +103,7 @@ class _PlayerIntent(intent.IntentHandler):
 
     def _resolve_player(self, intent_obj: intent.Intent) -> str | None:
         spoken = str(intent_obj.slots["player"]["value"]).strip().casefold()
-        for name in player_names(intent_obj.hass):
+        for name in _visible_players(intent_obj):
             if name.casefold() == spoken:
                 return name
         return None
@@ -107,7 +128,7 @@ class WhoIsPlayingIntent(_PlayerIntent):
         hass = intent_obj.hass
         playing = [
             _now_playing(name, state)
-            for name in player_names(hass)
+            for name in _visible_players(intent_obj)
             if _is_playing(state := _master_state(hass, name))
         ]
         if not playing:

@@ -74,6 +74,7 @@ from .const import (
     OPT_PLAYERS,
     OPT_RATING_OVERRIDES,
     OPT_RESET_HISTORY,
+    OPT_RESTRICT_HISTORY_EDITS,
     OPT_SAME_GAME_PREFIX_WORDS,
     OPT_TITLE_CLEANUPS,
     OPT_TITLE_OVERRIDES,
@@ -2123,6 +2124,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             opts[OPT_SAME_GAME_PREFIX_WORDS] = user_input.get(
                 OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS
             )
+            opts[OPT_RESTRICT_HISTORY_EDITS] = user_input.get(
+                OPT_RESTRICT_HISTORY_EDITS, False
+            )
 
             api_key = user_input.get(CONF_STEAMGRIDDB_API_KEY, "").strip()
             new_data = dict(self._config_entry.data)
@@ -2228,6 +2232,12 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 ),
             )
         ] = vol.All(int, vol.Range(min=0))
+        schema_dict[
+            vol.Optional(
+                OPT_RESTRICT_HISTORY_EDITS,
+                default=opts.get(OPT_RESTRICT_HISTORY_EDITS, False),
+            )
+        ] = bool
 
         return self.async_show_form(
             step_id=MENU_ADVANCED,

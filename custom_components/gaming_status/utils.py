@@ -18,6 +18,7 @@ from dateutil import parser
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 from homeassistant.util import dt as dt_util
+from yarl import URL
 
 from .platform_exceptions import ApiError, AuthError
 
@@ -493,15 +494,13 @@ async def fetch_game_assets(hass, game_name):
                             asset_type,
                         )
                     else:
-                        async with session.get(remote_url, timeout=15) as img_resp:
-                            if img_resp.status == 200 and await is_public_url(
-                                hass, str(img_resp.url)
-                            ):
-                                img_bytes = await _read_capped(img_resp)
-                                if img_bytes is not None:
-                                    await hass.async_add_executor_job(
-                                        lambda: file_path.write_bytes(img_bytes)
-                                    )
+                        img_bytes = await _fetch_public_image(
+                            hass, session, remote_url, 15
+                        )
+                        if img_bytes is not None:
+                            await hass.async_add_executor_job(
+                                lambda: file_path.write_bytes(img_bytes)
+                            )
                 except Exception as e:
                     _LOGGER.error(
                         "Failed to cache override for %s (%s): %s",
@@ -679,22 +678,13 @@ async def fetch_game_assets(hass, game_name):
                                         game_name,
                                     )
                                 else:
-                                    async with session.get(
-                                        remote_url, timeout=15
-                                    ) as img_resp:
-                                        if (
-                                            img_resp.status == 200
-                                            and await is_public_url(
-                                                hass, str(img_resp.url)
-                                            )
-                                        ):
-                                            img_bytes = await _read_capped(img_resp)
-                                            if img_bytes is not None:
-                                                await hass.async_add_executor_job(
-                                                    lambda: file_path.write_bytes(
-                                                        img_bytes
-                                                    )
-                                                )
+                                    img_bytes = await _fetch_public_image(
+                                        hass, session, remote_url, 15
+                                    )
+                                    if img_bytes is not None:
+                                        await hass.async_add_executor_job(
+                                            lambda: file_path.write_bytes(img_bytes)
+                                        )
 
                             try:
                                 mt = int(
@@ -1869,16 +1859,14 @@ async def fetch_and_cache_image(hass, remote_url, file_name):
             return remote_url
 
         session = async_get_clientsession(hass)
-        async with session.get(remote_url, timeout=10) as resp:
-            if resp.status == 200 and await is_public_url(hass, str(resp.url)):
-                img_bytes = await _read_capped(resp)
-                if img_bytes is not None:
-                    # Safely wrap the file writing command
-                    def _write_img():
-                        file_path.write_bytes(img_bytes)
+        img_bytes = await _fetch_public_image(hass, session, remote_url, 10)
+        if img_bytes is not None:
+            # Safely wrap the file writing command
+            def _write_img():
+                file_path.write_bytes(img_bytes)
 
-                    await hass.async_add_executor_job(_write_img)
-                    return f"{base_url}/local/gaming_status_cache/{safe_file_name}"
+            await hass.async_add_executor_job(_write_img)
+            return f"{base_url}/local/gaming_status_cache/{safe_file_name}"
     except Exception as e:
         _LOGGER.error("Failed to cache avatar %s: %s", remote_url, e)
 
@@ -2176,6 +2164,32 @@ async def _read_capped(resp, max_bytes=MAX_IMAGE_DOWNLOAD_BYTES):
             return None
         chunks.append(chunk)
     return b"".join(chunks)
+
+
+_MAX_IMAGE_REDIRECTS = 3
+
+
+async def _fetch_public_image(hass, session, url, request_timeout):
+    """GET an image, following redirects by hand so every hop is checked
+    with is_public_url *before* it's requested. aiohttp's own redirect
+    handling would send the request to a private target first and only
+    let us reject the response afterwards. Returns the bytes or None."""
+    for _ in range(_MAX_IMAGE_REDIRECTS + 1):
+        async with session.get(
+            url, timeout=request_timeout, allow_redirects=False
+        ) as resp:
+            if resp.status in (301, 302, 303, 307, 308):
+                location = resp.headers.get("Location")
+                if not location:
+                    return None
+                url = str(resp.url.join(URL(location)))
+                if not await is_public_url(hass, url):
+                    return None
+                continue
+            if resp.status != 200:
+                return None
+            return await _read_capped(resp)
+    return None
 
 
 def safe_image_ext(url, default="png"):

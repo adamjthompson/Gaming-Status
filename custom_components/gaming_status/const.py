@@ -217,6 +217,9 @@ OPT_TRANSITION_GRACE = "game_transition_grace_seconds"
 OPT_MIN_SESSION = "min_session_duration"
 OPT_SAME_GAME_PREFIX_WORDS = "same_game_prefix_words"
 DEFAULT_SAME_GAME_PREFIX_WORDS = 2
+# Off by default: the Game Management card keeps working for non-admin users
+# unless an admin opts in to locking history edits down.
+OPT_RESTRICT_HISTORY_EDITS = "restrict_history_edits"
 OPT_MASTER_HANDOFF_GRACE = "master_handoff_grace_seconds"
 OPT_SESSION_START_CONFIRM = "session_start_confirm_seconds"
 

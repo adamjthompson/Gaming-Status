@@ -37,6 +37,7 @@ run and look up the currently loaded entry on every request, returning
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import html
@@ -105,6 +106,7 @@ MDI_FONT_CSS = (
 
 _VIEWS_REGISTERED_KEY = f"{DOMAIN}_public_views_registered"
 _CACHE_KEY = f"{DOMAIN}_public_cache"
+_CACHE_LOCK_KEY = f"{DOMAIN}_public_cache_lock"
 CACHE_SECONDS = 30
 
 # type -> (label for the options menu, per_player, data requirement)
@@ -268,6 +270,7 @@ def with_key(url: str, entry) -> str:
 # a visitor's page polls every ~30s, so a shared IP (tunnel, proxy without
 # trusted_proxies) still fits dozens of visitors.
 _RATE_LIMIT_KEY = "gaming_status_public_rate"
+_RATE_PRUNED_KEY = "gaming_status_public_rate_pruned"
 _RATE_LIMIT_WINDOW_SECONDS = 60
 _RATE_LIMIT_MAX_REQUESTS = 120
 
@@ -275,10 +278,14 @@ _RATE_LIMIT_MAX_REQUESTS = 120
 def _rate_limited(hass: HomeAssistant, request: web.Request) -> bool:
     now = time.monotonic()
     hits = hass.data.setdefault(_RATE_LIMIT_KEY, {})
-    if len(hits) > 1000:
-        # Drop idle clients so the table can't grow without bound.
+    if len(hits) > 1000 and now - hass.data.get(_RATE_PRUNED_KEY, 0) > 60:
+        # Drop idle clients so the table can't grow without bound. Pruned at
+        # most once a minute; a hard cap covers clients rotating addresses.
         for ip in [ip for ip, (start, _) in hits.items() if now - start > 60]:
             del hits[ip]
+        if len(hits) > 10000:
+            hits.clear()
+        hass.data[_RATE_PRUNED_KEY] = now
     ip = request.remote or ""
     start, count = hits.get(ip, (now, 0))
     if now - start > _RATE_LIMIT_WINDOW_SECONDS:
@@ -293,7 +300,11 @@ def _request_allowed(request: web.Request, entry) -> bool:
     if not page_enabled(entry):
         return False
     key = page_key(entry)
-    return not key or secrets.compare_digest(request.query.get("key", ""), key)
+    # Compare bytes: compare_digest raises on non-ASCII str, which would turn
+    # a bad key into a 500 instead of the uniform 404.
+    return not key or secrets.compare_digest(
+        request.query.get("key", "").encode(), key.encode()
+    )
 
 
 def theme_mode(entry) -> str:
@@ -729,10 +740,20 @@ async def _cards_script_url(hass, entry) -> str:
 
 async def build_public_payload(hass: HomeAssistant) -> dict | None:
     cached = hass.data.get(_CACHE_KEY)
-    now = time.monotonic()
-    if cached and now - cached[0] < CACHE_SECONDS:
+    if cached and time.monotonic() - cached[0] < CACHE_SECONDS:
         return cached[1]
+    # One rebuild at a time: visitors arriving together when the cache
+    # expires wait for it instead of each rebuilding the same payload.
+    lock = hass.data.setdefault(_CACHE_LOCK_KEY, asyncio.Lock())
+    async with lock:
+        cached = hass.data.get(_CACHE_KEY)
+        now = time.monotonic()
+        if cached and now - cached[0] < CACHE_SECONDS:
+            return cached[1]
+        return await _build_public_payload(hass, now)
 
+
+async def _build_public_payload(hass: HomeAssistant, now: float) -> dict | None:
     entry = _loaded_entry(hass)
     if not page_enabled(entry):
         return None
@@ -840,7 +861,12 @@ class GamingStatusPublicJsonView(HomeAssistantView):
         resp = web.json_response(
             payload,
             headers={
-                "Cache-Control": f"public, max-age={CACHE_SECONDS}",
+                # A key-protected snapshot must not sit in shared caches.
+                "Cache-Control": (
+                    f"{'private' if page_key(_loaded_entry(hass)) else 'public'}, "
+                    f"max-age={CACHE_SECONDS}"
+                ),
+                "Referrer-Policy": "no-referrer",
                 "X-Robots-Tag": "noindex",
             },
         )

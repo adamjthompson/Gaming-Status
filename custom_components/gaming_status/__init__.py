@@ -11,6 +11,7 @@ from datetime import timedelta
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import Unauthorized
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.storage import Store
@@ -31,6 +32,7 @@ from .const import (
     OPT_PARENTAL,
     OPT_PLAYERS,
     OPT_RESET_HISTORY,
+    OPT_RESTRICT_HISTORY_EDITS,
     OPT_TITLE_CLEANUPS,
     OPT_TITLE_OVERRIDES,
     OPT_TRANSITION_GRACE,
@@ -475,6 +477,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if master is not None:
             await master._update_master_state()
 
+    def _admin_gate(handler):
+        """Enforces the opt-in "Restrict history edits to admins" option.
+        Read at call time (services outlive option reloads). Calls with no
+        user (automations, scripts) are trusted as before."""
+
+        async def _gated(call):
+            entries = hass.config_entries.async_entries(DOMAIN)
+            if (
+                entries
+                and entries[0].options.get(OPT_RESTRICT_HISTORY_EDITS)
+                and call.context.user_id
+            ):
+                user = await hass.auth.async_get_user(call.context.user_id)
+                if user is None or not user.is_admin:
+                    raise Unauthorized(context=call.context)
+            await handler(call)
+
+        return _gated
+
+    # Bounds free-text service fields; real game/player names are far shorter.
+    _text = vol.All(str, vol.Length(max=256))
+
     async def _handle_rename(call):
         targets = _resolve_targets(call.data["player"], call.data.get("platform"))
         for target in targets:
@@ -554,13 +578,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_register(
             DOMAIN,
             "rename_game",
-            _handle_rename,
+            _admin_gate(_handle_rename),
             schema=vol.Schema(
                 {
-                    vol.Required("player"): str,
-                    vol.Optional("platform"): str,
-                    vol.Required("old_name"): str,
-                    vol.Required("new_name"): str,
+                    vol.Required("player"): _text,
+                    vol.Optional("platform"): _text,
+                    vol.Required("old_name"): _text,
+                    vol.Required("new_name"): _text,
                 }
             ),
         )
@@ -568,12 +592,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_register(
             DOMAIN,
             "delete_game",
-            _handle_delete,
+            _admin_gate(_handle_delete),
             schema=vol.Schema(
                 {
-                    vol.Required("player"): str,
-                    vol.Optional("platform"): str,
-                    vol.Required("game"): str,
+                    vol.Required("player"): _text,
+                    vol.Optional("platform"): _text,
+                    vol.Required("game"): _text,
                 }
             ),
         )
@@ -581,13 +605,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_register(
             DOMAIN,
             "delete_session",
-            _handle_delete_session,
+            _admin_gate(_handle_delete_session),
             schema=vol.Schema(
                 {
-                    vol.Required("player"): str,
-                    vol.Optional("platform"): str,
-                    vol.Required("game"): str,
-                    vol.Required("start_time"): str,
+                    vol.Required("player"): _text,
+                    vol.Optional("platform"): _text,
+                    vol.Required("game"): _text,
+                    vol.Required("start_time"): _text,
                 }
             ),
         )
@@ -595,14 +619,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_register(
             DOMAIN,
             "add_session",
-            _handle_add_session,
+            _admin_gate(_handle_add_session),
             schema=vol.Schema(
                 {
-                    vol.Required("player"): str,
-                    vol.Required("platform"): str,
-                    vol.Required("game"): str,
-                    vol.Required("start_time"): str,
-                    vol.Required("end_time"): str,
+                    vol.Required("player"): _text,
+                    vol.Required("platform"): _text,
+                    vol.Required("game"): _text,
+                    vol.Required("start_time"): _text,
+                    vol.Required("end_time"): _text,
                 }
             ),
         )
@@ -610,15 +634,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_register(
             DOMAIN,
             "reassign_session",
-            _handle_reassign_session,
+            _admin_gate(_handle_reassign_session),
             schema=vol.Schema(
                 {
-                    vol.Required("from_player"): str,
-                    vol.Optional("from_platform"): str,
-                    vol.Required("game"): str,
-                    vol.Required("start_time"): str,
-                    vol.Required("to_player"): str,
-                    vol.Required("to_platform"): str,
+                    vol.Required("from_player"): _text,
+                    vol.Optional("from_platform"): _text,
+                    vol.Required("game"): _text,
+                    vol.Required("start_time"): _text,
+                    vol.Required("to_player"): _text,
+                    vol.Required("to_platform"): _text,
                 }
             ),
         )
@@ -663,11 +687,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "Gaming Status Discord Bot task failed during shutdown: %s", e
             )
 
-    # The Xbox client cache is keyed by entry_id (unlike the Steam/PSN
-    # client caches, which are keyed by credential value and shared across
-    # entries -- popping this entry's own credential(s) out of those would
-    # need re-resolving them, which isn't safe to do blindly at unload
-    # time), so this entry's own singleton can be dropped precisely here.
-    hass.data.get("gaming_status_xbox_clients", {}).pop(entry.entry_id, None)
+    # The Xbox client cache is keyed by the *Xbox* entry id (see
+    # xbox_client.get_xbox_client), never this entry's, and only this
+    # integration uses it -- so drop and close every client in it. (Steam/PSN
+    # caches are keyed by credential value and left alone.)
+    for _session, http_client, _client in hass.data.pop(
+        "gaming_status_xbox_clients", {}
+    ).values():
+        hass.async_create_task(http_client.aclose())
 
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

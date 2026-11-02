@@ -83,12 +83,21 @@ def get_xbox_client(hass, entry, oauth_session):
     per-entry singleton cache below reuse it."""
     from homeassistant.helpers.httpx_client import create_async_httpx_client
 
+    # Keyed by the Xbox entry; rebuilt if that entry hands us a new OAuth
+    # session (re-auth/reload), so a stale session is never reused.
     clients = hass.data.setdefault("gaming_status_xbox_clients", {})
-    if entry.entry_id not in clients:
+    cached = clients.get(entry.entry_id)
+    if cached is None or cached[0] is not oauth_session:
+        if cached is not None:
+            hass.async_create_task(cached[1].aclose())
         xbox_http_client = create_async_httpx_client(hass, timeout=30.0)
         auth = AsyncConfigEntryAuth(xbox_http_client, oauth_session)
-        clients[entry.entry_id] = XboxLiveClient(auth)
-    return clients[entry.entry_id]
+        clients[entry.entry_id] = (
+            oauth_session,
+            xbox_http_client,
+            XboxLiveClient(auth),
+        )
+    return clients[entry.entry_id][2]
 
 
 async def async_get_current_title_id(client, xuid):

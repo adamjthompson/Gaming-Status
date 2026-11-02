@@ -661,6 +661,10 @@ class GamingNotifier:
         new_state = event.data.get("new_state")
         if not old_state or not new_state:
             return
+        # Attribute-only writes (the master's ~30s play-time tick) can't be a
+        # start, switch or end -- all three need the state itself to change.
+        if old_state.state == new_state.state:
+            return
 
         for s in (old_state.state, new_state.state):
             if s in (STATE_UNAVAILABLE, STATE_UNKNOWN):
