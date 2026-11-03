@@ -506,6 +506,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._recent_achievements = []
         self._cached_history_seconds = 0
         self._local_avatar_path = None
+        self._default_avatar_path = None
         self._cover_fetch_attempted = False
         self._art_verify_pending = False
 
@@ -3378,19 +3379,21 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             for day in self._play_history.values()
         )
 
-        def _check_local_avatar():
+        def _check_local_avatar(prefix):
             # Same-origin relative path -- see fetch_game_assets.
             base_url = ""
             safe_name = re.sub(
                 r"[^a-z0-9_]", "", self._owner_name.lower().replace(" ", "_")
             )
             for ext in ["png", "jpg"]:
-                file_name = f"{self._gaming_type}_{safe_name}_avatar.{ext}"
+                file_name = f"{prefix}_{safe_name}_avatar.{ext}"
                 if file_name in self._available_avatars:
                     return f"{base_url}/local/gaming_status/{file_name}"
             return None
 
-        self._local_avatar_path = _check_local_avatar()
+        self._local_avatar_path = _check_local_avatar(self._gaming_type)
+        # Used only when the platform supplies no avatar of its own.
+        self._default_avatar_path = _check_local_avatar("default")
 
         last_state = await self.async_get_last_state()
         if self._active_settings["RESET_HISTORY"]:
@@ -4914,6 +4917,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             entity_pic = self._local_avatar_path
             if not entity_pic and platform_data.get("avatar_url"):
                 entity_pic = platform_data.get("avatar_url")
+            if not entity_pic:
+                entity_pic = self._default_avatar_path
             self._attr_entity_picture = entity_pic
             self._write_common_attributes(
                 secondary,

@@ -16,3 +16,5 @@ Add, edit, or delete the gamers in your household.
 If you want to replace the gamer avatar with one of your own or if you want to provide an avatar for a Gaming Status Agent sensor you only need to add an image to the `www/gaming_status` folder. The folder will need to be added manually. For your images, use JPEG or PNG images named as `platform_username_avatar.ext`. So, for a user named John on Xbox, it should be 'xbox_john_avatar.png', for John's Gaming Status Agent sensor, 'gsa_john_avatar.png', and for his Custom sensor, 'custom_john_avatar.png'.
 
 Any images added manually in this way will take priority over whatever is provided by the platform integration.
+
+You can also add a default avatar named `default_username_avatar.ext` (for example, 'default_john_avatar.png'). It's used on any platform where John has no platform-specific image and the platform provides no avatar, such as games tracked through Epic or Ubisoft. If no default avatar exists, the generic controller icon is shown.
