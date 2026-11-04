@@ -247,6 +247,21 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         # None means the stored file predates this being recorded, which
         # that method handles with its own fallback.
         self._stored_platform_sources = None
+        # Pending "resume the schedule" timer from async_schedule_or_refresh,
+        # and whether this coordinator has been shut down (an options reload
+        # replaces it) -- see async_shutdown.
+        self._unsub_resume = None
+        self._shut_down = False
+
+    async def async_shutdown(self):
+        """Stops this coordinator's own timer and any in-flight backfill
+        pass. After an options reload a new coordinator owns the same
+        storage file, so this one must stop calling APIs and saving."""
+        self._shut_down = True
+        if self._unsub_resume is not None:
+            self._unsub_resume()
+            self._unsub_resume = None
+        await super().async_shutdown()
 
     def _store_payload(self, data):
         """The complete persisted shape, defined in exactly one place.
@@ -364,9 +379,12 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 self._owner_name,
                 remaining,
             )
-            async_call_later(self.hass, remaining, self._handle_scheduled_refresh)
+            self._unsub_resume = async_call_later(
+                self.hass, remaining, self._handle_scheduled_refresh
+            )
 
     async def _handle_scheduled_refresh(self, _now):
+        self._unsub_resume = None
         await self.async_refresh()
 
     async def _async_update_data(self):
@@ -1318,8 +1336,12 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         self._backfill_done, and resolves a small budgeted batch of them
         via the same per-title detail calls the delta-detection above
         uses. Steam needs no backfill pass -- it already gets recent_unlocks
-        for free on every regular scan."""
-        if not self.data:
+        for free on every regular scan.
+
+        Checks self._shut_down between steps: a pass already in flight when
+        an options reload replaces this coordinator must stop making API
+        calls and must not save over the new coordinator's storage file."""
+        if self._shut_down or not self.data:
             return
 
         resolved_this_pass = 0
@@ -1327,14 +1349,20 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             resolved_this_pass += await self._backfill_platform(
                 "xbox", XBOX_LIBRARY_BACKFILL_BUDGET_PER_CYCLE
             )
+        if self._shut_down:
+            return
         if "playstation" in self._platform_sources:
             resolved_this_pass += await self._backfill_platform(
                 "playstation", PSN_LIBRARY_BACKFILL_BUDGET_PER_CYCLE
             )
+        if self._shut_down:
+            return
 
         art_updated = await self._backfill_art(
             XBOX_LIBRARY_ART_BACKFILL_BUDGET_PER_CYCLE
         )
+        if self._shut_down:
+            return
         if art_updated:
             # Art is display-only (no totals change), so push it straight
             # to the sensors rather than waiting for the next full scan.
@@ -1400,8 +1428,9 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         replaced = {}  # id(original game dict) -> updated copy
         for game in pending[:budget]:
             # Re-checked per title: a pass takes ~75s at full budget, long
-            # enough for a scan to start partway through.
-            if self.hass.data.get(_SCANS_RUNNING_KEY, [0])[0]:
+            # enough for a scan to start partway through (or for an options
+            # reload to replace this coordinator).
+            if self._shut_down or self.hass.data.get(_SCANS_RUNNING_KEY, [0])[0]:
                 break
             art = await self._async_art_for(game["title"])
             if self._last_art_transient:
@@ -1427,7 +1456,9 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             self.data["games"] = [
                 replaced.get(id(g), g) for g in self.data.get("games") or []
             ]
-        if pending:
+        # Guarded: the "still pending" count is another full pass over up
+        # to ~4000 titles, every tick, even with debug logging off.
+        if pending and _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug(
                 "Gaming Status: SteamGridDB art backfill for %s -- %d updated, %d still pending",
                 self._owner_name,
@@ -1473,6 +1504,8 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             if not entry or not session or not xuid:
                 return resolved
             for game in pending[:budget]:
+                if self._shut_down:
+                    break
                 title_id = str(game["id"])
                 detail = await utils.fetch_xbox_title_achievement_counts(
                     self.hass,
@@ -1529,6 +1562,8 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             if not npsso or not account_id:
                 return resolved
             for game in pending[:budget]:
+                if self._shut_down:
+                    break
                 np_comm_id = str(game["id"])
                 _LOGGER.debug(
                     "Gaming Status: backfill attempting PlayStation title '%s' "

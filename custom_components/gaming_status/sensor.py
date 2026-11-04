@@ -8,7 +8,7 @@ import logging
 import os
 import re
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import NamedTuple
 
@@ -159,6 +159,16 @@ class _DerivedHistoryStats(NamedTuple):
 # ------------------------------------------------------------------
 # 1. PLATFORM SENSOR CLASS
 # ------------------------------------------------------------------
+
+
+def _parse_day(value):
+    """Parses a play-history day key. They're always YYYY-MM-DD, so the
+    fast fixed-format parse almost always applies; anything else still
+    gets dateutil's lenient parse, exactly as before."""
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return parser.parse(value).date()
 
 
 def _gsa_native_platform(launcher):
@@ -869,7 +879,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if not isinstance(day_data, dict):
                 continue
             try:
-                d = parser.parse(date_str).date()
+                d = _parse_day(date_str)
             except (ValueError, OverflowError, TypeError):
                 d = None
             if d is not None and start_inclusive <= d < end_exclusive:
@@ -894,7 +904,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 # abort this whole daily reset instead of just mistagging
                 # one archived day.
                 try:
-                    archived_week_str = parser.parse(self._last_reset_date).strftime(
+                    archived_week_str = _parse_day(self._last_reset_date).strftime(
                         "%Y-%U"
                     )
                 except (ValueError, OverflowError, TypeError):
@@ -911,7 +921,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             keys_to_remove = []
             for date_str in self._play_history:
                 try:
-                    d = parser.parse(date_str).date()
+                    d = _parse_day(date_str)
                     if d < cutoff_date:
                         keys_to_remove.append(date_str)
                 except (ValueError, OverflowError, TypeError):
@@ -2176,7 +2186,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if not isinstance(day_data, dict):
                 continue
             try:
-                day_date = parser.parse(date_str).date()
+                day_date = _parse_day(date_str)
             except (ValueError, OverflowError, TypeError):
                 day_date = None
             in_cal_week = day_date is not None and day_date >= week_start
@@ -4426,38 +4436,44 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     )
                     self.async_write_ha_state()
 
-                if normalized_new and not self._cover_fetch_attempted:
-                    self._cover_fetch_attempted = True
-                    try:
-                        fetched = await utils.fetch_game_assets(
-                            self.hass, game_name_display
-                        )
-                        if (
-                            _normalize_game_name(self._current_game)
-                            == current_game_normalized
-                        ):
-                            if fetched and any(fetched.values()):
-                                self._cached_game_cover = fetched.get(
-                                    "grid"
-                                ) or platform_data.get("game_cover_url")
-                                self._cached_game_hero = fetched.get("hero")
-                                self._cached_game_logo = fetched.get("logo")
-                                self._cached_game_icon = fetched.get("icon")
-                            else:
+                # Artwork and the PSN title_id + rating lookups are independent
+                # network calls, so they run together. Achievements stay after
+                # both: _ingest_recent_unlocks reads the cached hero art/colour.
+                _psn_title_id = None
+
+                async def _fetch_art():
+                    if normalized_new and not self._cover_fetch_attempted:
+                        self._cover_fetch_attempted = True
+                        try:
+                            fetched = await utils.fetch_game_assets(
+                                self.hass, game_name_display
+                            )
+                            if (
+                                _normalize_game_name(self._current_game)
+                                == current_game_normalized
+                            ):
+                                if fetched and any(fetched.values()):
+                                    self._cached_game_cover = fetched.get(
+                                        "grid"
+                                    ) or platform_data.get("game_cover_url")
+                                    self._cached_game_hero = fetched.get("hero")
+                                    self._cached_game_logo = fetched.get("logo")
+                                    self._cached_game_icon = fetched.get("icon")
+                                else:
+                                    self._cached_game_cover = platform_data.get(
+                                        "game_cover_url"
+                                    )
+                        except Exception as e:
+                            _LOGGER.error(
+                                "Artwork fetch failed for %s: %s", game_name_display, e
+                            )
+                            if (
+                                _normalize_game_name(self._current_game)
+                                == current_game_normalized
+                            ):
                                 self._cached_game_cover = platform_data.get(
                                     "game_cover_url"
                                 )
-                    except Exception as e:
-                        _LOGGER.error(
-                            "Artwork fetch failed for %s: %s", game_name_display, e
-                        )
-                        if (
-                            _normalize_game_name(self._current_game)
-                            == current_game_normalized
-                        ):
-                            self._cached_game_cover = platform_data.get(
-                                "game_cover_url"
-                            )
 
                 # Resolved once here (if applicable) and reused for both the
                 # native-rating lookup below and the trophy fetch further
@@ -4466,82 +4482,85 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 # of ratings/achievement-tracking is actually on, so a
                 # ratings-only or achievement-only PSN setup each still
                 # resolve it on their own.
-                _psn_title_id = None
-                if (
-                    self._gaming_type == "playstation"
-                    and self._psn_npsso
-                    and self._psn_account_id
-                    and (
-                        (
-                            utils.ENABLE_NATIVE_RATINGS
-                            and not self._rating_fetch_attempted
+                async def _fetch_title_id_then_rating():
+                    nonlocal _psn_title_id
+                    if (
+                        self._gaming_type == "playstation"
+                        and self._psn_npsso
+                        and self._psn_account_id
+                        and (
+                            (
+                                utils.ENABLE_NATIVE_RATINGS
+                                and not self._rating_fetch_attempted
+                            )
+                            or (
+                                self._achievement_tracking_enabled
+                                and not self._achievements_fetch_attempted
+                            )
                         )
-                        or (
-                            self._achievement_tracking_enabled
-                            and not self._achievements_fetch_attempted
+                    ):
+                        _psn_title_id = await utils.resolve_psn_title_id(
+                            self.hass, self._psn_npsso, self._psn_account_id
                         )
-                    )
-                ):
-                    _psn_title_id = await utils.resolve_psn_title_id(
-                        self.hass, self._psn_npsso, self._psn_account_id
-                    )
 
-                if normalized_new and not self._rating_fetch_attempted:
-                    self._rating_fetch_attempted = True
-                    try:
-                        native_platform, native_context = None, None
-                        if utils.ENABLE_NATIVE_RATINGS:
-                            if self._gaming_type == "xbox":
-                                native_platform, native_context = (
-                                    "xbox",
-                                    {
-                                        "min_age": platform_data.get(
-                                            "xbox_min_age_attr"
-                                        ),
-                                        "xbox_config_entry": self._xbox_config_entry,
-                                        "oauth_session": self._xbox_oauth_session,
-                                        "xuid": self._xbox_xuid,
-                                    },
-                                )
-                            elif self._gaming_type == "steam" and platform_data.get(
-                                "steam_appid"
+                    if normalized_new and not self._rating_fetch_attempted:
+                        self._rating_fetch_attempted = True
+                        try:
+                            native_platform, native_context = None, None
+                            if utils.ENABLE_NATIVE_RATINGS:
+                                if self._gaming_type == "xbox":
+                                    native_platform, native_context = (
+                                        "xbox",
+                                        {
+                                            "min_age": platform_data.get(
+                                                "xbox_min_age_attr"
+                                            ),
+                                            "xbox_config_entry": self._xbox_config_entry,
+                                            "oauth_session": self._xbox_oauth_session,
+                                            "xuid": self._xbox_xuid,
+                                        },
+                                    )
+                                elif self._gaming_type == "steam" and platform_data.get(
+                                    "steam_appid"
+                                ):
+                                    native_platform, native_context = (
+                                        "steam",
+                                        {"appid": platform_data["steam_appid"]},
+                                    )
+                                elif (
+                                    self._gaming_type == "playstation"
+                                    and self._psn_npsso
+                                    and _psn_title_id
+                                ):
+                                    native_platform, native_context = (
+                                        "psn",
+                                        {
+                                            "npsso": self._psn_npsso,
+                                            "title_id": _psn_title_id,
+                                        },
+                                    )
+                            fetched_rating = await utils.fetch_game_rating(
+                                self.hass,
+                                game_name_display,
+                                platform=native_platform,
+                                platform_context=native_context,
+                            )
+                            if (
+                                _normalize_game_name(self._current_game)
+                                == current_game_normalized
                             ):
-                                native_platform, native_context = (
-                                    "steam",
-                                    {"appid": platform_data["steam_appid"]},
-                                )
-                            elif (
-                                self._gaming_type == "playstation"
-                                and self._psn_npsso
-                                and _psn_title_id
+                                self._cached_game_rating = fetched_rating
+                        except Exception as e:
+                            _LOGGER.error(
+                                "Rating fetch failed for %s: %s", game_name_display, e
+                            )
+                            if (
+                                _normalize_game_name(self._current_game)
+                                == current_game_normalized
                             ):
-                                native_platform, native_context = (
-                                    "psn",
-                                    {
-                                        "npsso": self._psn_npsso,
-                                        "title_id": _psn_title_id,
-                                    },
-                                )
-                        fetched_rating = await utils.fetch_game_rating(
-                            self.hass,
-                            game_name_display,
-                            platform=native_platform,
-                            platform_context=native_context,
-                        )
-                        if (
-                            _normalize_game_name(self._current_game)
-                            == current_game_normalized
-                        ):
-                            self._cached_game_rating = fetched_rating
-                    except Exception as e:
-                        _LOGGER.error(
-                            "Rating fetch failed for %s: %s", game_name_display, e
-                        )
-                        if (
-                            _normalize_game_name(self._current_game)
-                            == current_game_normalized
-                        ):
-                            self._cached_game_rating = None
+                                self._cached_game_rating = None
+
+                await asyncio.gather(_fetch_art(), _fetch_title_id_then_rating())
 
                 # Xbox gamerscore: cheap local-attribute read (no HTTP call),
                 # refreshed every update rather than gated by
@@ -5382,7 +5401,7 @@ class MasterGamingSensor(RestoreSensor):
         rolling_secs = 0
         for _date_str, _day_data in master_history.items():
             try:
-                if parser.parse(_date_str).date() >= rolling_cutoff:
+                if _parse_day(_date_str) >= rolling_cutoff:
                     rolling_secs += sum(int(v) for v in _day_data.values())
             except (ValueError, OverflowError, TypeError, AttributeError):
                 pass
@@ -7040,6 +7059,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 multi_steam_account_household=multi_steam_account_household,
             )
             await coordinator.async_load_stored()
+            # Stops its resume timer and any in-flight backfill on reload.
+            config_entry.async_on_unload(coordinator.async_shutdown)
             hass.data.setdefault(DOMAIN, {}).setdefault("library_coordinators", {})[
                 safe_owner
             ] = coordinator

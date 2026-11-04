@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -112,12 +113,18 @@ DISCORD_MEMBERS_CACHE_SECONDS = 60
 async def _fetch_discord_members(hass, token: str, server_id: str) -> list:
     if not token or not server_id:
         return []
+    # Discord server IDs are always numeric; anything else would just be
+    # spliced into the request path.
+    server_id = str(server_id)
+    if not server_id.isdigit():
+        return []
 
     # Short-lived cache -- this is called on every render of any step that
     # shows the Discord member dropdown, so navigating back and forth
     # within one options-flow session shouldn't re-hit Discord's API each
     # time. Short enough that a just-added member still shows up quickly.
-    cache_key = (token, server_id)
+    # Keyed on a hash so bot tokens don't linger in memory until restart.
+    cache_key = (hashlib.sha256(token.encode()).hexdigest(), server_id)
     cached = _DISCORD_MEMBERS_CACHE.get(cache_key)
     if cached is not None and time.time() - cached[0] < DISCORD_MEMBERS_CACHE_SECONDS:
         return cached[1]

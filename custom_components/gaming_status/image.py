@@ -27,6 +27,12 @@ from .utils import is_public_url
 
 _ART_ATTRIBUTE = "game_cover_art"
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024
+# Raster formats only: HA serves these from its own origin via
+# /api/image_proxy, and an SVG opened there could run script with the
+# viewer's HA session. None of the artwork sources serve SVG anyway.
+_ALLOWED_IMAGE_TYPES = frozenset(
+    {"image/png", "image/jpeg", "image/webp", "image/gif", "image/avif", "image/bmp"}
+)
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -102,15 +108,17 @@ class GameArtImage(ImageEntity):
         try:
             # No redirects: is_public_url only vetted this URL's own host.
             async with session.get(url, timeout=15, allow_redirects=False) as resp:
-                content_type = resp.headers.get("content-type", "")
-                if resp.status != 200 or not content_type.startswith("image/"):
+                mime = (
+                    resp.headers.get("content-type", "").split(";")[0].strip().lower()
+                )
+                if resp.status != 200 or mime not in _ALLOWED_IMAGE_TYPES:
                     return None
                 data = await resp.content.read(_MAX_IMAGE_BYTES + 1)
         except (OSError, TimeoutError):
             return None
         if len(data) > _MAX_IMAGE_BYTES:
             return None
-        self._attr_content_type = content_type.split(";")[0]
+        self._attr_content_type = mime
         return data
 
     def _read_local(self, relative: str) -> bytes | None:

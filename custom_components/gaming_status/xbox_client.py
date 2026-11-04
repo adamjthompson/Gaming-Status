@@ -313,7 +313,9 @@ _TITLE_HISTORY_MAX_ITEMS = 5000
 _TITLE_HISTORY_FALLBACK_MAX_ITEMS = 1000
 
 
-async def async_get_title_history(client, xuid, max_items=_TITLE_HISTORY_MAX_ITEMS):
+async def async_get_title_history(
+    hass, client, xuid, max_items=_TITLE_HISTORY_MAX_ITEMS
+):
     """Full-library-scan source for Xbox -- ONE non-paginated call returns
     every title's name + achievement earned/total + gamerscore already, no
     per-title achievement call needed for the library view (unlike Steam/
@@ -351,7 +353,12 @@ async def async_get_title_history(client, xuid, max_items=_TITLE_HISTORY_MAX_ITE
             headers=titlehub._headers,
         )
     resp.raise_for_status()
-    data = json.loads(resp.text)
+    # Thousands of titles -- parse and validate off the event loop.
+    return await hass.async_add_executor_job(_parse_title_history, resp.content)
+
+
+def _parse_title_history(raw):
+    data = json.loads(raw)
     for title in data.get("titles") or []:
         if title.get("displayImage") is None:
             title["displayImage"] = ""

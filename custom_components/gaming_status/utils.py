@@ -1789,7 +1789,7 @@ async def fetch_xbox_title_history(hass, xbox_config_entry, oauth_session, xuid)
         from . import xbox_client
 
         client = xbox_client.get_xbox_client(hass, xbox_config_entry, oauth_session)
-        return await xbox_client.async_get_title_history(client, xuid), None
+        return await xbox_client.async_get_title_history(hass, client, xuid), None
     except Exception as e:
         _LOGGER.debug(
             "[Gaming Status] Xbox title history fetch failed for %s: %s", xuid, e

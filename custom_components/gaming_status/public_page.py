@@ -972,7 +972,11 @@ class GamingStatusPublicPageView(HomeAssistantView):
             .replace("__THEME_MODE__", theme_mode(entry)),
             content_type="text/html",
             headers={
-                "Cache-Control": "no-cache",
+                # The HTML embeds the page key in its preview tags and
+                # links, so a keyed page must not sit in shared caches.
+                "Cache-Control": (
+                    "private, no-cache" if page_key(entry) else "no-cache"
+                ),
                 "X-Robots-Tag": "noindex",
                 "Referrer-Policy": "no-referrer",
                 "Content-Security-Policy": csp,
