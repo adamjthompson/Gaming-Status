@@ -405,9 +405,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 for platform, scan_fn in scans
             )
         )
-        raw_by_platform = {
-            platform: raw for (platform, _), raw in zip(scans, results)
-        }
+        raw_by_platform = {platform: raw for (platform, _), raw in zip(scans, results)}
 
         result = _aggregate(raw_by_platform)
         await self._store.async_save(self._store_payload(result))

@@ -4672,9 +4672,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     prefix = f"{s_name}_"
                     try:
                         with os.scandir(cache_dir) as it:
-                            names = {
-                                d.name for d in it if d.name.startswith(prefix)
-                            }
+                            names = {d.name for d in it if d.name.startswith(prefix)}
                     except OSError:
                         return res
                     for sfx in ["grid", "hero", "logo", "icon"]:
@@ -4682,7 +4680,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             f_name = f"{s_name}_{sfx}.{e}"
                             if f_name not in names:
                                 continue
-                            f_path = os.path.join(cache_dir, f_name)
+                            f_path = str(Path(cache_dir) / f_name)
                             if os.path.exists(f_path):
                                 mt = os.path.getmtime(f_path)
                                 res[sfx] = (
