@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Better Xbox artwork now shows up right away.** The background artwork search swaps Xbox's own cover images for higher-quality SteamGridDB artwork. That artwork wasn't reaching dashboards until the next full library scan, up to 24 hours later depending on your scan interval. Home Assistant saw no change, so it never sent an update. It now appears as soon as the background search finds it.
+
 ### Performance
 
 These changes speed things up without changing what Gaming Status shows or does.

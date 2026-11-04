@@ -1370,10 +1370,12 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
     async def _backfill_art(self, budget):
         """Swaps SteamGridDB art in for Xbox titles the scan showed with
         Xbox's own displayImage stand-in (see _async_art_for's native_grid).
-        Walks up to `budget` pending titles, updating each game dict in
-        self.data in place (the same objects the summary's combined
-        `games` list holds). A title SGDB has no cover for keeps its Xbox
-        one. Stops early on a transient failure (429/timeout) so a rate-
+        Walks up to `budget` pending titles. Changed games are replaced
+        with updated copies in both the Xbox and the summary's combined
+        `games` lists, which are rebuilt as new lists -- editing them in
+        place would also edit the sensors' current state attributes (same
+        objects), so HA would see no change and never publish the new art.
+        A title SGDB has no cover for keeps its Xbox one. Stops early on a transient failure (429/timeout) so a rate-
         limited SteamGridDB isn't hammered for the rest of the batch --
         those titles stay pending for the next tick. Returns how many
         titles' art actually changed."""
@@ -1397,7 +1399,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
 
         games = self.data.get("platforms", {}).get("xbox", {}).get("games", [])
         pending = [g for g in games if self._art_needs_lookup(g.get("title"))]
-        updated = 0
+        replaced = {}  # id(original game dict) -> updated copy
         for game in pending[:budget]:
             # Re-checked per title: a pass takes ~75s at full budget, long
             # enough for a scan to start partway through.
@@ -1406,7 +1408,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             art = await self._async_art_for(game["title"])
             if self._last_art_transient:
                 break
-            changed = False
+            new_game = None
             for asset_type, key in (
                 ("grid", "game_cover_art"),
                 ("hero", "game_hero_art"),
@@ -1414,9 +1416,19 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 ("icon", "game_icon_art"),
             ):
                 if art.get(asset_type) and game.get(key) != art[asset_type]:
-                    game[key] = art[asset_type]
-                    changed = True
-            updated += changed
+                    if new_game is None:
+                        new_game = dict(game)
+                    new_game[key] = art[asset_type]
+            if new_game is not None:
+                replaced[id(game)] = new_game
+        updated = len(replaced)
+        if replaced:
+            self.data["platforms"]["xbox"]["games"] = [
+                replaced.get(id(g), g) for g in games
+            ]
+            self.data["games"] = [
+                replaced.get(id(g), g) for g in self.data.get("games") or []
+            ]
         if pending:
             _LOGGER.debug(
                 "Gaming Status: SteamGridDB art backfill for %s -- %d updated, %d still pending",
