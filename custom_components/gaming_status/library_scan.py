@@ -49,6 +49,7 @@ spread across multiple scan cycles instead of one burst.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import timedelta
@@ -214,6 +215,11 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         self._art_cache = {}
         # Set by _async_art_for; read by _backfill_art to stop a batch early.
         self._last_art_transient = False
+        # {normalized_title: asyncio.Event} -- SteamGridDB lookups in flight.
+        # Platforms scan concurrently, so a title owned on two of them can
+        # be looked up by both at once; the second waits for the first's
+        # result instead of repeating the same calls.
+        self._art_inflight = {}
         # {"xbox"|"playstation": {title_id: iso_timestamp}} -- per-title
         # "last known activity" cursor for delta detection (see _scan_xbox/
         # _scan_psn). Steam has no equivalent timestamp signal -- its
@@ -376,28 +382,32 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
 
     async def _async_scan_all_platforms(self):
         previous_platforms = (self.data or {}).get("platforms", {})
-        raw_by_platform = {}
-        if "steam" in self._platform_sources:
-            raw_by_platform["steam"] = await self._scan_platform_safely(
-                "steam",
-                self._scan_steam,
-                self._platform_sources["steam"],
-                previous_platforms,
+        # Each platform has its own API and rate limiter, so they scan
+        # concurrently; results are keyed back in steam/xbox/playstation
+        # order so _aggregate's output order is unchanged.
+        scans = [
+            (platform, scan_fn)
+            for platform, scan_fn in (
+                ("steam", self._scan_steam),
+                ("xbox", self._scan_xbox),
+                ("playstation", self._scan_psn),
             )
-        if "xbox" in self._platform_sources:
-            raw_by_platform["xbox"] = await self._scan_platform_safely(
-                "xbox",
-                self._scan_xbox,
-                self._platform_sources["xbox"],
-                previous_platforms,
+            if platform in self._platform_sources
+        ]
+        results = await asyncio.gather(
+            *(
+                self._scan_platform_safely(
+                    platform,
+                    scan_fn,
+                    self._platform_sources[platform],
+                    previous_platforms,
+                )
+                for platform, scan_fn in scans
             )
-        if "playstation" in self._platform_sources:
-            raw_by_platform["playstation"] = await self._scan_platform_safely(
-                "playstation",
-                self._scan_psn,
-                self._platform_sources["playstation"],
-                previous_platforms,
-            )
+        )
+        raw_by_platform = {
+            platform: raw for (platform, _), raw in zip(scans, results)
+        }
 
         result = _aggregate(raw_by_platform)
         await self._store.async_save(self._store_payload(result))
@@ -525,6 +535,10 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         overridden_now = {t for t, m in override_maps.items() if cache_key in m}
 
         art = self._fresh_cached_art(cache_key, overridden_now)
+        inflight = self._art_inflight.get(cache_key)
+        if art is None and inflight is not None:
+            await inflight.wait()
+            art = self._fresh_cached_art(cache_key, overridden_now)
         self._last_art_transient = False
 
         if art is None and native_grid:
@@ -538,7 +552,16 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             art = {"grid": native_grid, "hero": None, "logo": None, "icon": None}
 
         if art is None:
-            art, transient = await utils.fetch_game_grid_urls_remote(self.hass, title)
+            done = asyncio.Event()
+            self._art_inflight[cache_key] = done
+            try:
+                art, transient = await utils.fetch_game_grid_urls_remote(
+                    self.hass, title
+                )
+            finally:
+                done.set()
+                if self._art_inflight.get(cache_key) is done:
+                    del self._art_inflight[cache_key]
             sgdb_only = {
                 asset_type: (None if asset_type in overridden_now else value)
                 for asset_type, value in art.items()

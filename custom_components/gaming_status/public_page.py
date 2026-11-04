@@ -55,6 +55,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.json import json_bytes
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -107,6 +108,7 @@ MDI_FONT_CSS = (
 _VIEWS_REGISTERED_KEY = f"{DOMAIN}_public_views_registered"
 _CACHE_KEY = f"{DOMAIN}_public_cache"
 _CACHE_LOCK_KEY = f"{DOMAIN}_public_cache_lock"
+_CACHE_BODY_KEY = f"{DOMAIN}_public_cache_body"
 CACHE_SECONDS = 30
 
 # type -> (label for the options menu, per_player, data requirement)
@@ -212,6 +214,7 @@ def async_register_public_views(hass: HomeAssistant) -> None:
 @callback
 def async_invalidate_public_cache(hass: HomeAssistant) -> None:
     hass.data.pop(_CACHE_KEY, None)
+    hass.data.pop(_CACHE_BODY_KEY, None)
 
 
 # ---------------------------------------------------------------------------
@@ -858,8 +861,18 @@ class GamingStatusPublicJsonView(HomeAssistantView):
         payload = await build_public_payload(hass)
         if payload is None:
             return web.json_response({"error": "not_enabled"}, status=404)
-        resp = web.json_response(
-            payload,
+        # Serialized once per cache rebuild rather than once per visitor:
+        # the payload can be large and every open page polls it.
+        cached_body = hass.data.get(_CACHE_BODY_KEY)
+        if cached_body and cached_body[0] is payload:
+            body = cached_body[1]
+        else:
+            body = json_bytes(payload)
+            hass.data[_CACHE_BODY_KEY] = (payload, body)
+        resp = web.Response(
+            body=body,
+            content_type="application/json",
+            charset="utf-8",
             headers={
                 # A key-protected snapshot must not sit in shared caches.
                 "Cache-Control": (

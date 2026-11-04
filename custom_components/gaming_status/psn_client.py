@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import OrderedDict
 from collections.abc import Callable
 from urllib.parse import parse_qsl, urlparse
 
@@ -69,6 +70,15 @@ _EXPIRY_SAFETY_MARGIN_SECONDS = 30
 # pagination loop -- purely defensive, the loop's own termination logic
 # should always fire first.
 _MAX_TROPHY_TITLE_PAGES = 20
+
+# Per-title trophy metadata (names/descriptions/icons/tiers) is
+# account-independent and effectively static, so it's shared across players
+# and only the per-user progress call is repeated on each recheck. Time-limited
+# rather than permanent so trophies added by a DLC pack still show up, and
+# LRU-capped like the other enrichment caches.
+_TROPHY_META_CACHE: OrderedDict[tuple[str, str], tuple[float, dict]] = OrderedDict()
+_TROPHY_META_CACHE_TTL_SECONDS = 24 * 60 * 60
+_TROPHY_META_CACHE_MAX_SIZE = 500
 
 
 class PsnClient:
@@ -497,20 +507,38 @@ class PsnClient:
         Returns [] on any failure (private profile, never-played title,
         etc.) -- never raises."""
         try:
-            status, meta_body = await self._authenticated_request(
-                "GET",
-                f"{PSN_TROPHY_API_BASE}/npCommunicationIds/{np_communication_id}/trophyGroups/all/trophies",
-                params={"npServiceName": np_service_name},
-            )
-            if status != 200:
-                _LOGGER.debug(
-                    "[Gaming Status] PSN trophy metadata fetch failed for "
-                    "np_communication_id %s (HTTP %s, npServiceName=%s)",
-                    np_communication_id,
-                    status,
-                    np_service_name,
+            cache_key = (np_communication_id, np_service_name)
+            cached = _TROPHY_META_CACHE.get(cache_key)
+            if (
+                cached is not None
+                and time.monotonic() - cached[0] < _TROPHY_META_CACHE_TTL_SECONDS
+            ):
+                _TROPHY_META_CACHE.move_to_end(cache_key)
+                meta_by_id = cached[1]
+            else:
+                status, meta_body = await self._authenticated_request(
+                    "GET",
+                    f"{PSN_TROPHY_API_BASE}/npCommunicationIds/{np_communication_id}/trophyGroups/all/trophies",
+                    params={"npServiceName": np_service_name},
                 )
-                return []
+                if status != 200:
+                    _LOGGER.debug(
+                        "[Gaming Status] PSN trophy metadata fetch failed for "
+                        "np_communication_id %s (HTTP %s, npServiceName=%s)",
+                        np_communication_id,
+                        status,
+                        np_service_name,
+                    )
+                    return []
+                meta_by_id = {
+                    t.get("trophyId"): t for t in (meta_body.get("trophies") or [])
+                }
+                if meta_by_id:
+                    _TROPHY_META_CACHE[cache_key] = (time.monotonic(), meta_by_id)
+                    _TROPHY_META_CACHE.move_to_end(cache_key)
+                    if len(_TROPHY_META_CACHE) > _TROPHY_META_CACHE_MAX_SIZE:
+                        _TROPHY_META_CACHE.popitem(last=False)
+
             status, progress_body = await self._authenticated_request(
                 "GET",
                 f"{PSN_TROPHY_API_BASE}/users/{account_id}/npCommunicationIds/{np_communication_id}/trophyGroups/all/trophies",
@@ -526,9 +554,6 @@ class PsnClient:
                 )
                 return []
 
-            meta_by_id = {
-                t.get("trophyId"): t for t in (meta_body.get("trophies") or [])
-            }
             progress_by_id = {
                 t.get("trophyId"): t for t in (progress_body.get("trophies") or [])
             }

@@ -34,6 +34,10 @@ from homeassistant.util import dt as dt_util
 _LOGGER = logging.getLogger(__name__)
 
 from . import utils
+
+# Fixed precedence for picking a cached local art file when several
+# extensions exist for the same asset.
+_SORTED_IMAGE_EXTENSIONS = sorted(utils._SAFE_IMAGE_EXTENSIONS)
 from .const import (
     ACHIEVEMENT_EVENT_MAX_AGE_MINUTES,
     CONF_PSN_NPSSO_OVERRIDE,
@@ -4662,11 +4666,23 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     # a local copy of the slug regex here silently broke every
                     # title with a mid-word apostrophe.
                     s_name = cache_file_prefix(game_name_display)
+                    # One directory listing instead of an exists() check per
+                    # asset type x extension.
+                    cache_dir = self.hass.config.path("www", "gaming_status_cache")
+                    prefix = f"{s_name}_"
+                    try:
+                        with os.scandir(cache_dir) as it:
+                            names = {
+                                d.name for d in it if d.name.startswith(prefix)
+                            }
+                    except OSError:
+                        return res
                     for sfx in ["grid", "hero", "logo", "icon"]:
-                        for e in sorted(utils._SAFE_IMAGE_EXTENSIONS):
-                            f_path = self.hass.config.path(
-                                "www", "gaming_status_cache", f"{s_name}_{sfx}.{e}"
-                            )
+                        for e in _SORTED_IMAGE_EXTENSIONS:
+                            f_name = f"{s_name}_{sfx}.{e}"
+                            if f_name not in names:
+                                continue
+                            f_path = os.path.join(cache_dir, f_name)
                             if os.path.exists(f_path):
                                 mt = os.path.getmtime(f_path)
                                 res[sfx] = (
