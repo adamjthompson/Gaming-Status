@@ -13,7 +13,7 @@ The engine uses native Home Assistant memory to prevent duplicate alerts during 
 * **Enable Notifications & Reporting:** Turns session alerts and weekly summaries on or off. Your notification methods and settings are kept while it's off. To flip it without opening another screen, leave the menu dropdown on **Save and return to main menu** and submit.
 * **Notification Artwork:** Choose which fetched artwork type (Cover, Hero, Logo, Icon, or No Artwork) attaches to your notifications. Default: Cover.
 * **Add Notification:** Map a friendly name (e.g., "Dad's Phone") to an existing Home Assistant `notify.` service. It fully supports standard mobile app notifications, Discord, and SMS.
-* **Discord Notification Colors:** Customize the embed colors for Discord alerts (Default, Platform Colors, Game Color, or Custom Hex). Custom Hex has a separate color per event: started playing (default `#00FF00`), finished playing (`#FF0000`), parental alerts (`#0000FF`), and the Rich weekly report (`#F1C40F`).
+* **Discord Notification Colors:** Customize the embed colors for Discord alerts (Default, Platform Colors, Game Color, or Custom Hex). Custom Hex has a separate color per event: started playing (default `#00FF00`), finished playing (`#FF0000`), parental alerts (`#0000FF`), the Rich weekly report (`#F1C40F`), and achievement/trophy unlocks (`#9B59B6`). Achievement/trophy notifications use purple (`#9B59B6`) in Default mode, and follow the game or platform color in the Game Color and Platform Colors modes.
 * **Weekly Report:** Send a summary of everyone's weekly playtime to your selected notification methods on a specific day and time (off by default; default time 09:00). Toggle **Enabled**, pick the **Day** and **Time**, and choose the destinations.
     * **Report Style:** **Simple** (a plain, unranked line per player — the original format, unchanged) or **Rich** (players ranked by hours with their top game(s) for the week, a real Discord embed with artwork for Discord destinations, and a sorted plain-text version for Mobile App/SMS destinations).
     * **Players to Include:** *(Rich style only)* Leave blank to include every tracked player, or pick specific players to limit the report to just them.
@@ -55,6 +55,8 @@ With Gaming Status, you can set up global notification destinations (like a spec
 1. From the main Gaming Status configuration menu, select **Manage Players**.
 2. Select the player you want to edit and proceed to their **Player Details** screen.
 3. Under **Session Start Notifications** and **Session End Notifications**, simply select the endpoints you created from the dropdown lists.
+   * **Achievement/Trophy Notification(s)** appears below those two once **Enable Achievement/Trophy Tracking** is on (under [Achievements & Ratings](achievements-ratings.md)). Each unlock sends its own notification with the achievement's icon (or the game's artwork if no icon is available), worded like *"Player1 unlocked an achievement in Grand Theft Auto V (Steam)"* (*"a trophy"* on PlayStation), followed by the achievement's name and description, e.g. *"Catch-A-Ride - Collect 10 personal vehicles."*
+   * Unlocks arrive when Gaming Status next checks for them (every **Achievement/Trophy Recheck Interval**, 15 minutes by default), not the instant they happen. Only unlocks from the last hour notify, so turning tracking on or a library scan filling in older history won't flood you.
 4. Click Submit. *(Home Assistant will automatically reload the integration in the background to apply your new routes!)*
 
 ## Destination Settings

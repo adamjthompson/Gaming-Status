@@ -20,8 +20,10 @@ from homeassistant.util import dt as dt_util
 
 from . import messages
 from .const import (
+    DEFAULT_ENABLE_ACHIEVEMENT_TRACKING,
     DEFAULT_SAME_GAME_PREFIX_WORDS,
     DOMAIN,
+    EVENT_ACHIEVEMENT_UNLOCKED,
     EVENT_CURFEW_EXCEEDED,
     EVENT_RATING_EXCEEDED,
     EVENT_SCREEN_TIME_EXCEEDED,
@@ -30,6 +32,7 @@ from .const import (
     EVENT_SESSION_STARTED,
     EVENT_SESSION_SWITCHED,
     OPT_DISCORD_COLORS,
+    OPT_ENABLE_ACHIEVEMENT_TRACKING,
     OPT_ENDPOINTS,
     OPT_GLOBAL_EXCLUSIONS,
     OPT_NOTIFY_ARTWORK,
@@ -50,6 +53,14 @@ from .utils import _elapsed_seconds
 
 _LOGGER = logging.getLogger(__name__)
 
+# OPT_NOTIFY_ARTWORK attribute name -> utils.ASSET_URL_CACHE asset key.
+_ART_ATTR_TO_ASSET = {
+    "game_cover_art": "grid",
+    "game_hero_art": "hero",
+    "game_logo_art": "logo",
+    "game_icon_art": "icon",
+}
+
 
 def _load_json(raw, fallback):
     if not raw:
@@ -67,6 +78,7 @@ class GamingNotifier:
         self._unsub_listener = None
         self._unsub_weekly = None
         self._unsub_parental = None
+        self._unsub_achievements = None
         self._startup_time: datetime | None = None
         self._triggered_parental_events: dict = {}
         # Same keys/values as _triggered_parental_events, but for the bus
@@ -201,6 +213,13 @@ class GamingNotifier:
             self.hass, self._check_parental_controls, timedelta(minutes=1)
         )
 
+        # sensor.py already fires this event (age-gated to recent unlocks,
+        # so backfills don't flood) -- notifications ride on it rather than
+        # adding a second unlock-detection path.
+        self._unsub_achievements = self.hass.bus.async_listen(
+            EVENT_ACHIEVEMENT_UNLOCKED, self._handle_achievement_unlocked
+        )
+
     async def async_stop(self) -> None:
         if self._unsub_listener:
             self._unsub_listener()
@@ -208,6 +227,8 @@ class GamingNotifier:
             self._unsub_weekly()
         if self._unsub_parental:
             self._unsub_parental()
+        if self._unsub_achievements:
+            self._unsub_achievements()
         for task in getattr(self, "_pending_end_tasks", {}).values():
             task.cancel()
 
@@ -228,12 +249,14 @@ class GamingNotifier:
         event_type: str,
         state_obj,
         game_color_override: str = None,
+        platform_override: str = None,
     ) -> int:
         """Return the Discord embed color integer for this endpoint and event type."""
         DEFAULT_START = 65280  # green
         DEFAULT_STOP = 16711680  # red
         DEFAULT_INFO = 3447003  # blue
         DEFAULT_WEEKLY = 15844367  # gold
+        DEFAULT_ACHIEVEMENT = 10181046  # purple, #9B59B6
 
         PLATFORM_COLORS = {
             "steam": 175599,  # rgb(2, 173, 239)
@@ -249,14 +272,22 @@ class GamingNotifier:
             if event_type == "stop"
             else DEFAULT_WEEKLY
             if event_type == "weekly"
+            else DEFAULT_ACHIEVEMENT
+            if event_type == "achievement"
             else DEFAULT_INFO
         )
 
         colors_config = self._cached_discord_colors
         mode = colors_config.get("mode", "default")
 
-        if mode == "platform" and state_obj:
-            active_platform = state_obj.attributes.get("active_platform", "").lower()
+        if mode == "platform" and (state_obj or platform_override):
+            # Achievement notifications have no state_obj -- the unlock
+            # event carries its own platform name instead.
+            active_platform = str(
+                platform_override
+                or state_obj.attributes.get("active_platform", "")
+                or ""
+            ).lower()
             for key in PLATFORM_COLORS:
                 if key in active_platform:
                     return PLATFORM_COLORS[key]
@@ -273,6 +304,10 @@ class GamingNotifier:
                 return self._hex_to_int(hex_color, default_for_type)
 
         if mode == "custom":
+            if event_type == "achievement":
+                return self._hex_to_int(
+                    colors_config.get("color_achievement", ""), DEFAULT_ACHIEVEMENT
+                )
             if event_type == "start":
                 return self._hex_to_int(
                     colors_config.get("color_start", ""), DEFAULT_START
@@ -310,8 +345,17 @@ class GamingNotifier:
         event_type: str = "info",
         state_obj=None,
         game_color: str = None,
+        embed_description: str = None,
+        image_as_thumbnail: bool = False,
+        platform: str = None,
     ) -> bool:
-        """Dispatch a notification to a configured endpoint."""
+        """Dispatch a notification to a configured endpoint.
+
+        embed_description replaces `message` as a Discord embed's text when
+        given (e.g. Markdown-bolded achievement name). image_as_thumbnail
+        puts the image in the embed's small thumbnail slot instead of the
+        full-width image slot (suits square achievement icons). platform
+        feeds the Discord "platform" color mode when there's no state_obj."""
         dest = self._cached_endpoints.get(ep_id)
         if not dest:
             _LOGGER.warning("Gaming Status: endpoint '%s' not found in config", ep_id)
@@ -367,7 +411,10 @@ class GamingNotifier:
                 image_url = None
 
             color = self._resolve_discord_color(
-                event_type, state_obj, game_color_override=game_color
+                event_type,
+                state_obj,
+                game_color_override=game_color,
+                platform_override=platform,
             )
             embed = {"color": color}
 
@@ -378,10 +425,12 @@ class GamingNotifier:
             else:
                 if game_title:
                     embed["title"] = game_title
-                embed["description"] = message
+                embed["description"] = embed_description or message
 
             if image_url:
-                embed["image"] = {"url": image_url}
+                embed["thumbnail" if image_as_thumbnail else "image"] = {
+                    "url": image_url
+                }
 
             service_data["message"] = ""
             service_data["data"] = {"embed": embed}
@@ -389,7 +438,16 @@ class GamingNotifier:
         else:  # Standard Mobile App / SMS
             service_data["message"] = message
 
-            if event_type == "start":
+            if event_type == "achievement":
+                if ep_type == "SMS":
+                    # Many SMS notifiers drop the title, so carry the
+                    # headline in the body instead of losing it.
+                    service_data["message"] = (
+                        f"{game_title}\n{message}" if game_title else message
+                    )
+                else:
+                    service_data["title"] = game_title or "Gaming Status"
+            elif event_type == "start":
                 service_data["title"] = game_title or "Gaming Status"
             elif event_type == "stop":
                 service_data["title"] = (
@@ -934,6 +992,93 @@ class GamingNotifier:
                     state_obj=old_state,
                 )
                 for ep_id in end_dests
+            )
+        )
+
+    # ------------------------------------------------------------------
+    # Achievement / trophy unlocks
+    # ------------------------------------------------------------------
+
+    def _resolve_game_art_fallback(self, player: str, game: str) -> str | None:
+        """Game artwork to show when an unlock has no icon of its own --
+        the master sensor's art if it's still on that game, otherwise
+        whatever the artwork cache holds for it. Honors the Notification
+        Artwork setting, including "none"."""
+        preferred = self._cached_notify_artwork
+        if preferred == "none" or not game:
+            return None
+
+        from .utils import _normalize_game_name, get_cached_remote_url
+
+        master_state = self.hass.states.get(resolve_master_entity_id(self.hass, player))
+        if master_state and _normalize_game_name(
+            master_state.state
+        ) == _normalize_game_name(game):
+            url = (
+                master_state.attributes.get(preferred)
+                or master_state.attributes.get("game_cover_art")
+                or master_state.attributes.get("cached_game_cover")
+            )
+            if url:
+                return url
+
+        for asset_type in dict.fromkeys(
+            (_ART_ATTR_TO_ASSET.get(preferred, "grid"), "grid")
+        ):
+            url = get_cached_remote_url(game, asset_type, require_remote_host=False)
+            if url:
+                return url
+        return None
+
+    async def _handle_achievement_unlocked(self, event) -> None:
+        """Sends one notification per unlock to the player's chosen
+        Achievement/Trophy Notification destinations."""
+        if not self._enable_notifications:
+            return
+        if not self._entry.options.get(
+            OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING
+        ):
+            return
+
+        data = event.data
+        player = data.get("player")
+        name = data.get("achievement")
+        if not player or not name:
+            return
+        dests = self._cached_players.get(player, {}).get(
+            "notify_achievement_destinations", []
+        )
+        if not dests:
+            return
+
+        game = data.get("game")
+        platform = data.get("platform")
+        description = data.get("description")
+        title = messages.notify_achievement_title(player, game, platform)
+        detail = messages.notify_achievement_detail(name, description)
+        description = (description or "").strip()
+        embed_detail = f"**{name}** - {description}" if description else f"**{name}**"
+
+        image_url = data.get("icon_url")
+        is_icon = bool(image_url)
+        if not image_url:
+            image_url = self._resolve_game_art_fallback(player, game)
+        image_url = await self._make_external_url(image_url, game)
+
+        await asyncio.gather(
+            *(
+                self._send_to_endpoint(
+                    ep_id,
+                    message=detail,
+                    image_url=image_url,
+                    game_title=title,
+                    event_type="achievement",
+                    game_color=data.get("game_color"),
+                    embed_description=embed_detail,
+                    image_as_thumbnail=is_icon,
+                    platform=platform,
+                )
+                for ep_id in dests
             )
         )
 

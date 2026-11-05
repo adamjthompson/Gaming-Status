@@ -896,6 +896,16 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         ]
 
         notifications_enabled = self._options.get(OPT_ENABLE_NOTIFICATIONS, False)
+        # Safe to gate on here: Achievements & Ratings is a separate,
+        # already-saved step, not a checkbox on this same form.
+        achievement_tracking_globally_enabled = self._options.get(
+            OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING
+        )
+        show_achievement_notifications = (
+            notifications_enabled
+            and achievement_tracking_globally_enabled
+            and bool(endpoint_options)
+        )
 
         if user_input is not None:
             exclude_raw = user_input.get("exclude_games", "")
@@ -931,9 +941,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 user_input.get("achievement_tracking_section") or {}
             )
             library_section_input = user_input.get("library_scan_section") or {}
-            achievement_tracking_globally_enabled = self._options.get(
-                OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING
-            )
             library_scan_globally_enabled = self._options.get(
                 OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN
             )
@@ -968,6 +975,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 existing["notify_end_destinations"] = user_input.get(
                     "notify_end_destinations", []
                 )
+            if show_achievement_notifications:
+                existing["notify_achievement_destinations"] = user_input.get(
+                    "notify_achievement_destinations", []
+                )
 
             players[name] = existing
             self._options[OPT_PLAYERS] = _dump_json(players)
@@ -994,6 +1005,19 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional(
                     "notify_end_destinations",
                     default=existing.get("notify_end_destinations", []),
+                )
+            ] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=endpoint_options,
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            )
+        if show_achievement_notifications:
+            schema_dict[
+                vol.Optional(
+                    "notify_achievement_destinations",
+                    default=existing.get("notify_achievement_destinations", []),
                 )
             ] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
@@ -1041,9 +1065,6 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         # (OPT_ENABLE_ACHIEVEMENT_TRACKING/OPT_ENABLE_LIBRARY_SCAN) is on --
         # safe to gate on here since that's a genuinely separate,
         # already-saved step (Achievements & Ratings), not this same form.
-        achievement_tracking_globally_enabled = self._options.get(
-            OPT_ENABLE_ACHIEVEMENT_TRACKING, DEFAULT_ENABLE_ACHIEVEMENT_TRACKING
-        )
         library_scan_globally_enabled = self._options.get(
             OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN
         )
@@ -1278,7 +1299,13 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         _HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
         if user_input is not None:
-            for field in ("color_start", "color_end", "color_parental", "color_weekly"):
+            for field in (
+                "color_start",
+                "color_end",
+                "color_parental",
+                "color_weekly",
+                "color_achievement",
+            ):
                 val = user_input.get(field, "").strip()
                 if not _HEX_RE.match(val):
                     errors[field] = "invalid_hex_color"
@@ -1294,6 +1321,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                         ).strip(),
                         "color_weekly": user_input.get(
                             "color_weekly", "#F1C40F"
+                        ).strip(),
+                        "color_achievement": user_input.get(
+                            "color_achievement", "#9B59B6"
                         ).strip(),
                     }
                 )
@@ -1339,6 +1369,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional(
                         "color_weekly",
                         default=colors.get("color_weekly", "#F1C40F"),
+                    ): str,
+                    vol.Optional(
+                        "color_achievement",
+                        default=colors.get("color_achievement", "#9B59B6"),
                     ): str,
                 }
             ),
@@ -2498,7 +2532,11 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         players = _players(self._options)
         changed = False
         for pdata in players.values():
-            for dest_key in ["notify_start_destinations", "notify_end_destinations"]:
+            for dest_key in [
+                "notify_start_destinations",
+                "notify_end_destinations",
+                "notify_achievement_destinations",
+            ]:
                 destinations = pdata.get(dest_key, [])
                 if ep_id in destinations:
                     destinations.remove(ep_id)

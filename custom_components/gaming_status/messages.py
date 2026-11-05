@@ -115,6 +115,24 @@ def notify_ended(player: str, duration: str | None) -> str:
     )
 
 
+def notify_achievement_title(player: str, game: str, platform: str | None) -> str:
+    """e.g. "Erik unlocked an achievement in Borderlands 4 (Steam)" --
+    "a trophy" for PlayStation."""
+    kind = (
+        "a trophy"
+        if str(platform or "").strip().lower() == "playstation"
+        else "an achievement"
+    )
+    suffix = f" ({platform})" if platform else ""
+    return f"{player} unlocked {kind} in {game or 'a game'}{suffix}"
+
+
+def notify_achievement_detail(name: str, description: str | None) -> str:
+    """e.g. "Catch-A-Ride - Collect 10 personal vehicles." """
+    description = (description or "").strip()
+    return f"{name} - {description}" if description else str(name)
+
+
 def notify_screen_time(player: str, limit: int, overage: int, total: int) -> str:
     if overage > 0:
         return (
