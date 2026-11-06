@@ -104,5 +104,14 @@ PC games outside Steam and Xbox are tracked by [Gaming Status Agent](https://git
 - **Check the sensor:** In Home Assistant, `sensor.gsa_<profile name>` should show the game title and a `Launcher` attribute. If it doesn't exist, check the Agent's MQTT settings and that the MQTT integration is set up.
 - **Check the player:** Make sure **Gaming Status Agent** is an enabled platform and that the player's Gaming Status Agent slot points at that `sensor.gsa_*` sensor.
 
+## My Epic achievements aren't showing.
+Epic achievements come from the player's public Epic profile (see [Epic Games Achievements](../getting-started/prerequisites.md#epic-games-achievements)).
+
+- **The game may not use Epic achievements:** Many Epic games have none at all (for example, Marvel's Guardians of the Galaxy). In the Epic Games launcher, a game with Epic achievements has an **Achievements** section on its page.
+- **The profile or its achievements may be private:** Both must be public. Re-saving the player's Epic account under Manage Players reports a private profile.
+- **No achievements unlocked yet:** A game only appears on a public profile after its first unlock, so the current-game counts start showing after that first achievement (within the recheck interval).
+- **The game must come from Gaming Status Agent:** Live Epic achievements only apply when the Agent reports the game with the `Epic` launcher. Epic games seen only through Discord aren't covered.
+- **Renamed titles:** Without the Agent's Epic game ID, the game is matched to the profile by its title. A Title Override changes only what's displayed, so it doesn't affect this.
+
 ## I changed a game's title, but the old name is still showing.
 The Master Sensor caches history and states to prevent drop-outs. If things look stuck, simply restart Home Assistant to flush the cache and force it to rebuild from the current live data.

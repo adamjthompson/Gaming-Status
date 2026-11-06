@@ -52,6 +52,9 @@ STEAM_SCHEMA_CACHE = OrderedDict()
 PSN_TITLE_ID_CACHE = (
     OrderedDict()
 )  # normalized_game_name -> title_id, rare-fallback-path only
+# normalized_game_name -> Epic sandboxId, learned from the player's profile
+# (or the Agent's "Epic Sandbox ID" attribute). Same forever-LRU reasoning.
+EPIC_SANDBOX_CACHE = OrderedDict()
 MAX_ENRICHMENT_CACHE_SIZE = 500
 
 # Cache Settings
@@ -1146,6 +1149,8 @@ def _get_rate_limiter(hass, platform: str):
     integration, or one manual override) across every tracked player, not
     per-player -- the budget has to be shared too."""
     from .const import (
+        EPIC_RATE_LIMIT_CAPACITY,
+        EPIC_RATE_LIMIT_PER_SECOND,
         PSN_RATE_LIMIT_CAPACITY,
         PSN_RATE_LIMIT_PER_SECOND,
         STEAM_RATE_LIMIT_CAPACITY,
@@ -1164,6 +1169,10 @@ def _get_rate_limiter(hass, platform: str):
         elif platform == "psn":
             limiters[platform] = RateLimiter(
                 PSN_RATE_LIMIT_CAPACITY, PSN_RATE_LIMIT_PER_SECOND, name="psn"
+            )
+        elif platform == "epic":
+            limiters[platform] = RateLimiter(
+                EPIC_RATE_LIMIT_CAPACITY, EPIC_RATE_LIMIT_PER_SECOND, name="epic"
             )
         elif platform == "steamgriddb":
             limiters[platform] = RateLimiter(
@@ -1208,6 +1217,36 @@ def _get_psn_client(hass, npsso: str):
             on_reauth_state=lambda expired: _set_psn_reauth_issue(hass, npsso, expired),
         )
     return clients[npsso]
+
+
+def _get_epic_client(hass):
+    """Epic public-profile client -- one shared instance (no credentials;
+    it also holds the per-game achievement-definitions cache)."""
+    from .epic_client import EpicClient
+
+    client = hass.data.get("gaming_status_epic_client")
+    if client is None:
+        client = EpicClient(
+            async_get_clientsession(hass), _get_rate_limiter(hass, "epic")
+        )
+        hass.data["gaming_status_epic_client"] = client
+    return client
+
+
+_EPIC_ACCOUNT_ID_RE = re.compile(r"(?<![0-9a-fA-F])([0-9a-fA-F]{32})(?![0-9a-fA-F])")
+
+
+def parse_epic_account_id(text) -> str | None:
+    """Pull an Epic account ID out of whatever the user pasted: the bare
+    32-character hex ID, or a profile link such as
+    https://store.epicgames.com/u/<id> (any locale/path variant). Returns
+    the lowercased ID, or None if there isn't exactly one recognisable ID."""
+    if not text:
+        return None
+    matches = {m.lower() for m in _EPIC_ACCOUNT_ID_RE.findall(str(text))}
+    if len(matches) != 1:
+        return None
+    return matches.pop()
 
 
 def _set_psn_reauth_issue(hass, npsso, expired):
@@ -1820,6 +1859,169 @@ async def fetch_psn_full_library(hass, npsso, account_id):
             e,
         )
         return [], f"{type(e).__name__}: {e}"
+
+
+def _epic_iso(value):
+    """Epic's unlockDate (e.g. 2023-11-25T22:01:29.670Z) as a UTC ISO string,
+    matching the other platforms' unlocked_at format. None if unparseable."""
+    if not value:
+        return None
+    try:
+        parsed = parser.isoparse(str(value))
+    except (ValueError, OverflowError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC).isoformat()
+
+
+def build_epic_recent_unlocks(definitions, unlocks, limit=RECENT_UNLOCKS_LIMIT):
+    """Join Epic unlock records with their definitions into the shared
+    recent-unlocks shape, newest first. Returns (recent_unlocks,
+    last_achievement_at)."""
+    achievements = (definitions or {}).get("achievements") or {}
+    rows = []
+    for unlock in unlocks or []:
+        meta = achievements.get(unlock.get("name")) or {}
+        rows.append(
+            {
+                "name": meta.get("title") or unlock.get("name"),
+                "description": meta.get("description") or None,
+                "unlocked_at": _epic_iso(unlock.get("unlocked_at")),
+                "icon_url": meta.get("icon_url"),
+            }
+        )
+    rows.sort(key=lambda r: r["unlocked_at"] or "", reverse=True)
+    last = rows[0]["unlocked_at"] if rows else None
+    return rows[:limit], last
+
+
+def _remember_epic_sandbox(game_name, sandbox_id):
+    key = _normalize_game_name(game_name)
+    if not key or not sandbox_id:
+        return
+    EPIC_SANDBOX_CACHE[key] = sandbox_id
+    EPIC_SANDBOX_CACHE.move_to_end(key)
+    if len(EPIC_SANDBOX_CACHE) > MAX_ENRICHMENT_CACHE_SIZE:
+        EPIC_SANDBOX_CACHE.popitem(last=False)
+
+
+def match_epic_profile_game(game_name, profile_games):
+    """Find the running game among the profile's games by normalized title
+    (exact, also trying the display-formatted title). None if no match --
+    deliberately no fuzzy/prefix matching, since sequels (Borderlands 2 vs
+    3) would cross-match."""
+    candidates = {
+        _normalize_game_name(game_name),
+        _normalize_game_name(_format_game_name_for_display(game_name)),
+    }
+    candidates.discard("")
+    for game in profile_games or []:
+        title = game.get("title") or ""
+        if (
+            _normalize_game_name(title) in candidates
+            or _normalize_game_name(_format_game_name_for_display(title)) in candidates
+        ):
+            return game
+    return None
+
+
+async def fetch_epic_achievements(hass, account_id, game_name, sandbox_id=None):
+    """Earned/total counts plus a newest-first recent-unlocks list for the
+    Epic game currently being played. Never raises -- returns None when the
+    account/game can't be resolved, the game has no Epic achievements, or
+    anything fails.
+
+    The game is identified by, in order: an explicit sandbox_id (from the
+    Agent), a previously learned title -> sandbox mapping, or an exact title
+    match against the player's public profile. A game the player hasn't
+    unlocked anything in yet isn't on the profile, so without the Agent's ID
+    it only starts matching after its first unlock -- each recheck re-reads
+    the profile, so that first unlock is still caught.
+    """
+    if not account_id or not game_name:
+        return None
+    try:
+        client = _get_epic_client(hass)
+        key = _normalize_game_name(game_name)
+        if not sandbox_id and key in EPIC_SANDBOX_CACHE:
+            sandbox_id = EPIC_SANDBOX_CACHE[key]
+            EPIC_SANDBOX_CACHE.move_to_end(key)
+
+        profile_game = None
+        if not sandbox_id:
+            profile = await client.async_get_profile(account_id)
+            profile_game = match_epic_profile_game(game_name, profile["games"])
+            if profile_game is None:
+                return None
+            sandbox_id = profile_game["sandbox_id"]
+
+        definitions = await client.async_get_definitions(sandbox_id)
+        if definitions is None:
+            return None
+        _remember_epic_sandbox(game_name, sandbox_id)
+
+        unlocks = await client.async_get_player_unlocks(
+            account_id, definitions["product_id"]
+        )
+        recent, last = build_epic_recent_unlocks(definitions, unlocks)
+        return {
+            "earned": len(unlocks),
+            "total": definitions.get("total") or 0,
+            "recent_unlocks": recent,
+            "last_achievement_at": last,
+        }
+    except ApiError as e:
+        _LOGGER.debug(
+            "[Gaming Status] Epic achievement fetch failed for %s: %s", game_name, e
+        )
+        return None
+    except Exception as e:
+        _LOGGER.debug(
+            "[Gaming Status] Epic achievement fetch failed for %s: %s", game_name, e
+        )
+        return None
+
+
+async def fetch_epic_library(hass, account_id):
+    """Full-library-scan source for Epic -- every game on the public profile
+    with achievement progress. Never raises; returns (games, error) -- see
+    fetch_steam_owned_games for why error matters."""
+    if not account_id:
+        return [], None
+    try:
+        profile = await _get_epic_client(hass).async_get_profile(account_id)
+        return profile["games"], None
+    except ApiError as e:
+        _LOGGER.debug("[Gaming Status] Epic profile fetch failed: %s", e)
+        return [], str(e)
+    except Exception as e:
+        _LOGGER.debug("[Gaming Status] Epic profile fetch failed: %s", e)
+        return [], f"{type(e).__name__}: {e}"
+
+
+async def fetch_epic_game_unlocks(hass, account_id, sandbox_id):
+    """Recent unlocks for one Epic game (library-scan history backfill).
+    Never raises; returns (recent_unlocks, last_achievement_at) or
+    (None, None) on failure / no Epic achievements."""
+    if not account_id or not sandbox_id:
+        return None, None
+    try:
+        client = _get_epic_client(hass)
+        definitions = await client.async_get_definitions(sandbox_id)
+        if definitions is None:
+            return None, None
+        unlocks = await client.async_get_player_unlocks(
+            account_id, definitions["product_id"]
+        )
+        return build_epic_recent_unlocks(definitions, unlocks)
+    except Exception as e:
+        _LOGGER.debug(
+            "[Gaming Status] Epic unlock fetch failed for sandbox %s: %s",
+            sandbox_id,
+            e,
+        )
+        return None, None
 
 
 async def fetch_and_cache_image(hass, remote_url, file_name):

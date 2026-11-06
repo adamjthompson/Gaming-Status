@@ -33,6 +33,7 @@ from .const import (
     OPT_ENABLED_PLATFORMS,
     OPT_PLAYERS,
     OPT_WEEKLY_REPORT,
+    PLAYER_EPIC_ACCOUNT_ID,
 )
 from .device import hub_device_info, player_device_info, safe_owner_slug
 from .sensor import _load_opt_json
@@ -65,8 +66,11 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                         opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN),
                     ),
                 )
-                for p in ("steam", "xbox", "playstation")
-                if p in enabled_platforms and player_data.get(p)
+                for p in ("steam", "xbox", "playstation", "epic")
+                # Epic needs only the player's Epic account ID, not an
+                # enabled platform slot.
+                if (p == "epic" and player_data.get(PLAYER_EPIC_ACCOUNT_ID))
+                or (p in enabled_platforms and player_data.get(p))
             )
             if not has_any_enabled:
                 continue

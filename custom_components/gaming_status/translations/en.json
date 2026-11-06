@@ -82,7 +82,8 @@
           "discord": "Discord member",
           "gsa": "Gaming Status Agent sensor",
           "custom": "Custom sensor",
-          "playnite": "Playnite sensor"
+          "playnite": "Playnite sensor",
+          "epic_account_id": "Epic account (optional)"
         },
         "data_description": {
           "player_name": "e.g. John",
@@ -93,7 +94,8 @@
           "discord": "Select the Discord user from the dropdown.",
           "gsa": "Select this player's Gaming Status Agent sensor, e.g. sensor.gsa_player_one",
           "custom": "Any sensor whose state is the game title (or on/off), e.g. sensor.player_one_active_pc_game",
-          "playnite": "e.g. sensor.playnite_playing_game"
+          "playnite": "e.g. sensor.playnite_playing_game",
+          "epic_account_id": "Paste this player's Epic profile link (e.g. https://store.epicgames.com/u/...) or 32-character account ID. Their Epic profile and achievements must be public. Used for Epic achievements on games Gaming Status Agent reports from the Epic launcher, and for the Epic library scan."
         }
       },
       "edit_player": {
@@ -108,7 +110,8 @@
           "gsa": "Gaming Status Agent sensor",
           "custom": "Custom sensor",
           "playnite": "Playnite sensor",
-          "delete_player": "Delete this player"
+          "delete_player": "Delete this player",
+          "epic_account_id": "Epic account (optional)"
         },
         "data_description": {
           "xbox": "Select the 'Status' sensor — the suffix varies by HA language",
@@ -116,7 +119,8 @@
           "ps3": "Select the PS3 media_player entity for this PSN account",
           "discord": "Select the Discord user from the dropdown.",
           "gsa": "Select this player's Gaming Status Agent sensor (sensor.gsa_*)",
-          "custom": "Any sensor whose state is the game title (or on/off), e.g. a HASS.Agent or template sensor"
+          "custom": "Any sensor whose state is the game title (or on/off), e.g. a HASS.Agent or template sensor",
+          "epic_account_id": "Paste this player's Epic profile link (e.g. https://store.epicgames.com/u/...) or 32-character account ID. Their Epic profile and achievements must be public. Used for Epic achievements on games Gaming Status Agent reports from the Epic launcher, and for the Epic library scan."
         }
       },
       "player_details": {
@@ -147,7 +151,8 @@
             "data": {
               "enable_achievement_tracking_steam": "Steam",
               "enable_achievement_tracking_xbox": "Xbox",
-              "enable_achievement_tracking_playstation": "PlayStation"
+              "enable_achievement_tracking_playstation": "PlayStation",
+              "enable_achievement_tracking_epic": "Epic"
             }
           },
           "library_scan_section": {
@@ -156,7 +161,8 @@
             "data": {
               "enable_library_scan_steam": "Steam",
               "enable_library_scan_xbox": "Xbox",
-              "enable_library_scan_playstation": "PlayStation"
+              "enable_library_scan_playstation": "PlayStation",
+              "enable_library_scan_epic": "Epic"
             }
           }
         }
@@ -422,7 +428,10 @@
       "invalid_hex_color": "Must be a valid 6-digit hex color code, e.g. #FF0000",
       "malformed_override_line": "Each line must be in the form 'Game Name = Override Name'. Fix or remove the invalid line(s) and try again.",
       "malformed_rating_override_line": "Each line must be in the form 'Game Name = RATING' using one of the supported rating codes. Fix or remove the invalid line(s) and try again.",
-      "invalid_npsso": "PlayStation rejected this NPSSO. Sign in at playstation.com, copy a fresh npsso value and try again."
+      "invalid_npsso": "PlayStation rejected this NPSSO. Sign in at playstation.com, copy a fresh npsso value and try again.",
+      "invalid_epic_account_id": "That doesn't look like an Epic account ID. Paste the profile link from store.epicgames.com/u/... or the 32-character ID from your Epic account settings.",
+      "epic_profile_private": "This Epic profile is private. Set the profile and its achievements to public in Epic's privacy settings, then try again.",
+      "epic_account_not_found": "Epic couldn't find an account with that ID. Check the profile link or account ID and try again."
     }
   },
   "issues": {

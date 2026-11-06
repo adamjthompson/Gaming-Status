@@ -192,6 +192,22 @@ GSA_LAUNCHER_ICONS = {
     "playnite": "mdi:controller",
 }
 
+# Epic has no presence sensor of its own: its games arrive through the Agent
+# (Launcher "Epic"), and its achievements come from the player's public Epic
+# profile, keyed by a per-player account ID stored alongside (not as) a
+# platform slot -- the same pattern as "ps3". It is a library-scan platform
+# only, so it lives here rather than in PLATFORM_CONFIG, which would make it
+# a status sensor.
+PLAYER_EPIC_ACCOUNT_ID = "epic_account_id"
+GSA_LAUNCHER_EPIC = "epic"
+# Optional Agent attribute carrying the running Epic game's CatalogNamespace,
+# which equals the sandboxId Epic's achievement queries use. When absent the
+# game is matched to the profile by title.
+GSA_ATTR_EPIC_SANDBOX_ID = "Epic Sandbox ID"
+LIBRARY_ONLY_PLATFORM_CONFIG = {
+    "epic": {"icon": "mdi:alpha-e-box", "name_suffix": "Epic"},
+}
+
 # ---------------------------------------------------------------------------
 # Menu option identifiers
 # ---------------------------------------------------------------------------
@@ -365,6 +381,20 @@ HA_XBOX_DOMAIN = "xbox"
 STEAM_API_BASE = "https://api.steampowered.com"
 STEAM_STORE_API_BASE = "https://store.steampowered.com/api"
 
+# Epic public-profile achievements -- unofficial, undocumented GraphQL used by
+# the Epic Games Store website. No sign-in: it only works for profiles set to
+# public. Full query text is sent (Epic's persisted-query hashes are not
+# accepted on this host). store.epicgames.com/graphql is Cloudflare-gated and
+# deliberately not used.
+EPIC_GRAPHQL_URL = "https://website.graphql.epicgames.com/graphql"
+EPIC_LOCALE = "en-US"
+# Achievement definitions (names, descriptions, icons) rarely change.
+EPIC_DEFINITIONS_CACHE_SECONDS = 24 * 3600
+# Library scan: games whose unlock count rose since the last scan get their
+# individual unlocks fetched (for achievement history), at most this many
+# per scan; the rest catch up on later scans.
+EPIC_LIBRARY_DETAIL_BUDGET = 5
+
 # PSN Trophy/Catalog API -- unofficial but stable, community-documented
 # (https://andshrew.github.io/PlayStation-Trophies/#/APIv2). Base URLs
 # confirmed live against psnawp_api's own endpoints.py (the library HA
@@ -389,6 +419,10 @@ STEAM_RATE_LIMIT_CAPACITY = 20
 STEAM_RATE_LIMIT_PER_SECOND = 4
 PSN_RATE_LIMIT_CAPACITY = 15
 PSN_RATE_LIMIT_PER_SECOND = 250 / 900  # ~250/15min effective ceiling
+# Epic publishes no limits for this endpoint; stay well under anything a
+# website visitor would generate.
+EPIC_RATE_LIMIT_CAPACITY = 5
+EPIC_RATE_LIMIT_PER_SECOND = 0.5
 
 # SteamGridDB pacing for the full-library scan's remote-URL-only art lookup
 # (utils.fetch_game_grid_urls_remote), since a library scan can mean

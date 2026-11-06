@@ -12,7 +12,7 @@ from __future__ import annotations
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import PLATFORM_CONFIG
+from .const import LIBRARY_ONLY_PLATFORM_CONFIG, PLATFORM_CONFIG
 
 
 class TrophyLibrarySummarySensor(CoordinatorEntity, SensorEntity):
@@ -93,7 +93,7 @@ class TrophyLibraryPlatformSensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self._owner_name = owner_name
         self._platform = platform
-        config = PLATFORM_CONFIG[platform]
+        config = PLATFORM_CONFIG.get(platform) or LIBRARY_ONLY_PLATFORM_CONFIG[platform]
         self._attr_icon = config["icon"]
         self._attr_unique_id = f"gaming_status_{safe_owner}_library_{platform}"
         self.entity_id = f"sensor.gaming_status_{safe_owner}_library_{platform}"
@@ -122,6 +122,9 @@ class TrophyLibraryPlatformSensor(CoordinatorEntity, SensorEntity):
         elif self._platform == "xbox":
             attrs["gamerscore_earned"] = pdata.get("gamerscore_earned")
             attrs["gamerscore_total"] = pdata.get("gamerscore_total")
+        elif self._platform == "epic":
+            attrs["xp_earned"] = pdata.get("xp_earned")
+            attrs["xp_total"] = pdata.get("xp_total")
         elif self._platform == "playstation":
             trophies_earned = pdata.get("trophies_earned") or {}
             trophies_total = pdata.get("trophies_total") or {}

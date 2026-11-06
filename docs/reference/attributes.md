@@ -109,10 +109,10 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | calendar_weekly_breakdown_last_week | Same as `calendar_weekly_breakdown`, for the previous calendar week |
 | all_time_total_hours / all_time_session_count / all_time_top_games | Lifetime hours, session count, and top 20 games on this platform |
 | recent_achievements | Cross-game history of achievement/trophy unlocks on this platform (newest first, capped at 30) |
-| current_game_achievements_earned / current_game_achievements_total / achievements_source | *(Achievement tracking only)* Earned/possible counts for the current game and where they came from |
+| current_game_achievements_earned / current_game_achievements_total / achievements_source | *(Achievement tracking only)* Earned/possible counts for the current game and where they came from (`steam`, `xbox`, `psn`, or `epic` on a Gaming Status Agent sensor playing an Epic game) |
 | current_game_gamerscore_earned / current_game_gamerscore_total | *(Xbox only)* Gamerscore for the current game |
 | current_game_trophies_bronze / _silver / _gold / _platinum (+ `_total` variants) | *(PlayStation only)* Trophy counts for the current game |
-| recent_unlocked_achievements / recent_unlocked_trophies | Recent unlocks for the current game (achievements on Steam/Xbox, trophies on PlayStation) |
+| recent_unlocked_achievements / recent_unlocked_trophies | Recent unlocks for the current game (achievements on Steam/Xbox and Epic, trophies on PlayStation) |
 | color_extraction_enabled | Whether automatic vibrant color extraction is on |
 | play_history | Per-day, per-game playtime for this platform: `{"YYYY-MM-DD": {"Game Title": seconds, ...}}` |
 | recent_sessions | List of the most recently completed play sessions on this platform (newest first, capped at 20): `{game, platform, platform_key, duration_seconds, date, start_time, end_time, hero_art_url, game_dominant_color}`. `platform` is a display label (a Gaming Status Agent session shows its launcher); `platform_key` is the internal platform key. A session only appears here once it has ended |
@@ -146,7 +146,7 @@ The sensor's **state** on both the summary and per-platform Library sensors is a
 
 *Steam account check:* Each Steam library remembers which Steam account it was scanned from. If that changes (or on the first scan after updating from a version that didn't record it), games that aren't in the current account's library are dropped instead of kept. This cleans up libraries where an older version mixed in games from the Steam API key owner's account.
 
-**Platform Sensors (`..._library_steam`, `..._library_xbox`, `..._library_playstation`)**
+**Platform Sensors (`..._library_steam`, `..._library_xbox`, `..._library_playstation`, `..._library_epic`)**
 
 | Attribute | Description |
 | --- | --- |
@@ -156,19 +156,21 @@ The sensor's **state** on both the summary and per-platform Library sensors is a
 | playtime_hours | *(Steam only)* Total hours played across every owned Steam game, summed from Steam's own playtime data |
 | gamerscore_earned / gamerscore_total | *(Xbox only)* Total gamerscore earned / possible, summed across all Xbox games |
 | trophies_bronze / trophies_silver / trophies_gold / trophies_platinum (+ `_total` variants) | *(PlayStation only)* Trophy counts earned / possible, per tier, summed across all PlayStation games |
+| xp_earned / xp_total | *(Epic only)* Epic achievement XP earned / possible, summed across all Epic games |
 
 **Each entry in a `games` list**
 
 | Field | Description |
 | --- | --- |
 | title | Game name |
-| platform | `steam`, `xbox`, or `playstation` |
-| id | Platform-specific game identifier (Steam appid, Xbox title_id, or PSN npCommunicationId) |
+| platform | `steam`, `xbox`, `playstation`, or `epic` |
+| id | Platform-specific game identifier (Steam appid, Xbox title_id, PSN npCommunicationId, or Epic sandbox ID) |
 | achievements_earned / achievements_total | Earned / possible achievements or trophies for this game |
 | percent | Completion percentage for this game, `0.0` if the game has no achievements/trophies at all |
 | playtime_hours | *(Steam only)* Hours played, from Steam's own playtime data |
 | gamerscore_earned / gamerscore_total | *(Xbox only)* Gamerscore earned / possible for this game |
 | trophies_earned / trophies_total | *(PlayStation only)* Dicts of `{bronze, silver, gold, platinum}` counts earned / possible |
+| xp_earned / xp_total | *(Epic only)* Epic achievement XP earned / possible for this game |
 | game_cover_art / game_hero_art / game_logo_art / game_icon_art | Artwork URLs from SteamGridDB, if configured |
 
 ## Attributes for Players Online Sensor

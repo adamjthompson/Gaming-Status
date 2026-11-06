@@ -62,7 +62,9 @@ from homeassistant.util import dt as dt_util
 from . import utils
 from .const import (
     DOMAIN,
+    EPIC_LIBRARY_DETAIL_BUDGET,
     LIBRARY_BACKFILL_MAX_ATTEMPTS,
+    LIBRARY_ONLY_PLATFORM_CONFIG,
     PLATFORM_CONFIG,
     PSN_LIBRARY_BACKFILL_BUDGET_PER_CYCLE,
     TARGET_AGGREGATE_STEAM_SCAN_BUDGET,
@@ -401,14 +403,15 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
     async def _async_scan_all_platforms(self):
         previous_platforms = (self.data or {}).get("platforms", {})
         # Each platform has its own API and rate limiter, so they scan
-        # concurrently; results are keyed back in steam/xbox/playstation
-        # order so _aggregate's output order is unchanged.
+        # concurrently; results are keyed back in steam/xbox/playstation/
+        # epic order so _aggregate's output order is unchanged.
         scans = [
             (platform, scan_fn)
             for platform, scan_fn in (
                 ("steam", self._scan_steam),
                 ("xbox", self._scan_xbox),
                 ("playstation", self._scan_psn),
+                ("epic", self._scan_epic),
             )
             if platform in self._platform_sources
         ]
@@ -1130,6 +1133,82 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
 
         return {"games": games, "error": fetch_error}
 
+    async def _scan_epic(self, account_id):
+        """Epic library from the player's public profile: every game with
+        Epic achievement progress, with unlocked/total counts and XP, in one
+        request. (Owned games without progress -- and games that don't use
+        Epic achievements at all -- aren't on a public profile, and the full
+        owned list needs a sign-in, so they're not listed.)
+
+        Unlock history: Epic's summary has no "last unlocked" timestamp, so
+        a game's earned count is the activity signal instead. Any game whose
+        count differs from the one recorded at its last detail fetch (in
+        _activity_cursor["epic"]) gets its individual unlocks fetched and
+        fed into the player's Agent sensor history, at most
+        EPIC_LIBRARY_DETAIL_BUDGET per scan -- the rest catch up on later
+        scans. That includes a first scan, which seeds real history (Epic
+        reports true unlock times, and the unlock event only fires for
+        recent ones, so old unlocks never notify)."""
+        games_raw, fetch_error = await utils.fetch_epic_library(self.hass, account_id)
+        if fetch_error and not games_raw:
+            return {"games": [], "error": fetch_error}
+
+        epic_cursor = self._activity_cursor.setdefault("epic", {})
+        target_sensor = _target_sensor(self.hass, self._owner_name, "gsa")
+        label = LIBRARY_ONLY_PLATFORM_CONFIG["epic"]["name_suffix"]
+        details_left = EPIC_LIBRARY_DETAIL_BUDGET
+        games = []
+        for item in games_raw:
+            sandbox_id = item.get("sandbox_id")
+            name = item.get("title") or ""
+            if not sandbox_id or not name:
+                continue
+            if _normalize_game_name(name) in self._excluded_normalized:
+                continue
+            name = utils._format_game_name_for_display(name)
+            earned = int(item.get("earned") or 0)
+            total = int(item.get("total") or 0)
+            art = await self._async_art_for(name)
+
+            if (
+                target_sensor is not None
+                and details_left > 0
+                and earned > 0
+                and epic_cursor.get(sandbox_id) != earned
+            ):
+                details_left -= 1
+                recent, _last = await utils.fetch_epic_game_unlocks(
+                    self.hass, account_id, sandbox_id
+                )
+                if recent:
+                    target_sensor._ingest_recent_unlocks(
+                        recent,
+                        game_name=name,
+                        platform_label=label,
+                        hero_art_url=art.get("hero"),
+                        game_dominant_color=_dominant_color_for(target_sensor, name),
+                    )
+                    epic_cursor[sandbox_id] = earned
+                # else: failed -- cursor untouched, retried next scan.
+
+            games.append(
+                {
+                    "title": name,
+                    "platform": "epic",
+                    "id": sandbox_id,
+                    "achievements_earned": earned,
+                    "achievements_total": total,
+                    "xp_earned": int(item.get("xp_earned") or 0),
+                    "xp_total": int(item.get("xp_total") or 0),
+                    "percent": _percent(earned, total),
+                    "game_cover_art": art.get("grid"),
+                    "game_hero_art": art.get("hero"),
+                    "game_logo_art": art.get("logo"),
+                    "game_icon_art": art.get("icon"),
+                }
+            )
+        return {"games": games, "error": fetch_error, "account_id": account_id}
+
     async def _scan_psn(self, source_entity_id):
         npsso, account_id = utils.resolve_psn_credentials(self.hass, source_entity_id)
         if not npsso or not account_id:
@@ -1731,6 +1810,9 @@ def _aggregate(raw_by_platform):
             summary["gamerscore_total"] = sum(
                 g.get("gamerscore_total", 0) for g in games
             )
+        elif platform == "epic":
+            summary["xp_earned"] = sum(g.get("xp_earned", 0) for g in games)
+            summary["xp_total"] = sum(g.get("xp_total", 0) for g in games)
         elif platform == "playstation":
             summary["trophies_earned"] = {
                 k: sum(g.get("trophies_earned", {}).get(k, 0) for g in games)

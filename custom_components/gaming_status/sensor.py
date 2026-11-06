@@ -63,6 +63,8 @@ from .const import (
     DISCORD_XBOX_CONNECTION_APP_ID,
     DOMAIN,
     EVENT_ACHIEVEMENT_UNLOCKED,
+    GSA_ATTR_EPIC_SANDBOX_ID,
+    GSA_LAUNCHER_EPIC,
     GSA_LAUNCHER_ICONS,
     GSA_NATIVE_LAUNCHERS,
     MASTER_RECENT_ACHIEVEMENTS_RESERVED_PER_PLATFORM,
@@ -100,6 +102,7 @@ from .const import (
     OPT_USE_CACHE,
     PLATFORM_CONFIG,
     PLATFORM_PRIORITY,
+    PLAYER_EPIC_ACCOUNT_ID,
     PLAYER_PLATFORMS,
     TARGET_AGGREGATE_STEAM_SCAN_BUDGET,
     ZOMBIE_ATTRIBUTES,
@@ -282,6 +285,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         config_entry=None,
         achievement_tracking_enabled=True,
         multi_steam_account_household=False,
+        epic_account_id=None,
     ):
 
         # --- SILENT AUTO-CORRECTION FOR CONSOLES ---
@@ -441,6 +445,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._achievements_fetch_attempted = False
         self._last_achievements_check_dt = None
         self._cached_steam_appid = None
+        # Gaming Status Agent only: the player's public Epic profile (set
+        # only when Epic achievement tracking is on for this player), and
+        # the current Epic game's sandboxId when the Agent reports it plus
+        # the raw title used to look it up, reused by the periodic recheck.
+        self._epic_account_id = epic_account_id
+        self._cached_epic_sandbox_id = None
+        self._epic_query_title = None
 
         # Resolved once in async_added_to_hass from the owning steam_online/
         # playstation_network config entry (or the manual override), reused
@@ -1153,6 +1164,17 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 launcher = self._cached_launcher
         return _platform_display_name(self._gaming_type, launcher)
 
+    def _is_epic_session(self):
+        """Whether this Agent sensor is tracking a game from the Epic launcher
+        for a player with Epic achievement tracking set up."""
+        if self._gaming_type != "gsa" or not self._epic_account_id:
+            return False
+        game = self._current_game
+        launcher = (
+            self._launcher_by_game.get(_normalize_game_name(game)) if game else None
+        ) or self._cached_launcher
+        return str(launcher or "").strip().lower() == GSA_LAUNCHER_EPIC
+
     def _platform_key_for(self, game=None, fallback_to_last=True):
         """Platform key recorded on a session (see _effective_platform_key)."""
         if self._gaming_type != "gsa":
@@ -1525,6 +1547,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 data["current_game"] = gsa_game
                 if launcher and launcher.lower() != "none":
                     data["launcher"] = launcher
+                data["epic_sandbox_id"] = (
+                    str(attrs.get(GSA_ATTR_EPIC_SANDBOX_ID) or "").strip() or None
+                )
 
         elif self._gaming_type == "discord":
             # Allow Discord to track games if an application_id is present
@@ -1925,6 +1950,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._achievements_fetch_attempted = False
             self._last_achievements_check_dt = None
             self._cached_steam_appid = None
+            self._cached_epic_sandbox_id = None
+            self._epic_query_title = None
             self._cached_achievements_earned = None
             self._cached_achievements_total = None
             self._cached_achievements_source = None
@@ -2388,7 +2415,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._attr_extra_state_attributes["recent_unlocked_achievements"] = (
                 self._cached_recent_unlocks
             )
-        elif self._gaming_type == "steam":
+        elif self._gaming_type == "steam" or (
+            self._gaming_type == "gsa" and self._epic_account_id
+        ):
             self._attr_extra_state_attributes["recent_unlocked_achievements"] = (
                 self._cached_recent_unlocks
             )
@@ -3898,6 +3927,30 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         }
         self.hass.async_create_task(self._unified_update(state, attrs))
 
+    async def _async_fetch_epic_achievements(self, game_name_normalized):
+        """Fetch the current Epic game's achievements from the player's public
+        profile into the current-game caches. Returns True when fresh data
+        was stored (the game is still the one being played). Matching uses
+        the Agent's sandboxId when it sends one, else the game's title -- a
+        game with nothing unlocked yet isn't on the profile, so it only
+        starts matching after its first unlock (each recheck tries again)."""
+        result = await utils.fetch_epic_achievements(
+            self.hass,
+            self._epic_account_id,
+            self._epic_query_title or self._current_game,
+            sandbox_id=self._cached_epic_sandbox_id,
+        )
+        if (
+            not result
+            or _normalize_game_name(self._current_game) != game_name_normalized
+        ):
+            return False
+        self._cached_achievements_earned = result.get("earned")
+        self._cached_achievements_total = result.get("total")
+        self._cached_achievements_source = "epic"
+        self._cached_recent_unlocks = result.get("recent_unlocks") or []
+        return True
+
     @callback
     async def _recheck_achievements(self):
         """Periodic mid-session recheck for newly-earned achievements/
@@ -4001,6 +4054,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         (result.get("total") or {}).values()
                     )
                     self._cached_recent_unlocks = result.get("recent_unlocks") or []
+                    self._ingest_recent_unlocks(self._cached_recent_unlocks)
+                    self._write_common_attributes()
+                    self.async_write_ha_state()
+            elif self._is_epic_session():
+                if await self._async_fetch_epic_achievements(game_name_normalized):
                     self._ingest_recent_unlocks(self._cached_recent_unlocks)
                     self._write_common_attributes()
                     self.async_write_ha_state()
@@ -4173,9 +4231,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         now_dt,
                     )
 
-                    if self._achievement_tracking_enabled and self._gaming_type in (
-                        "steam",
-                        "playstation",
+                    if self._achievement_tracking_enabled and (
+                        self._gaming_type in ("steam", "playstation")
+                        or self._is_epic_session()
                     ):
                         due = (
                             self._last_achievements_check_dt is None
@@ -4578,7 +4636,10 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     normalized_new
                     and self._achievement_tracking_enabled
                     and not self._achievements_fetch_attempted
-                    and self._gaming_type in ("steam", "xbox", "playstation")
+                    and (
+                        self._gaming_type in ("steam", "xbox", "playstation")
+                        or self._is_epic_session()
+                    )
                 ):
                     self._achievements_fetch_attempted = True
                     self._last_achievements_check_dt = now_dt
@@ -4667,6 +4728,19 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                                 self._cached_recent_unlocks = (
                                     result.get("recent_unlocks") or []
                                 )
+                                self._ingest_recent_unlocks(self._cached_recent_unlocks)
+                        elif self._is_epic_session():
+                            # Raw Agent title (before any title override) is
+                            # what matches the Epic profile's product name.
+                            self._epic_query_title = (
+                                platform_data.get("current_game") or game_name_display
+                            )
+                            self._cached_epic_sandbox_id = platform_data.get(
+                                "epic_sandbox_id"
+                            )
+                            if await self._async_fetch_epic_achievements(
+                                current_game_normalized
+                            ):
                                 self._ingest_recent_unlocks(self._cached_recent_unlocks)
                     except Exception as e:
                         _LOGGER.error(
@@ -6536,7 +6610,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             f"gaming_status_{new_safe}_library_summary",
             f"sensor.gaming_status_{new_safe}_library_summary",
         )
-        for platform in ("steam", "xbox", "playstation"):
+        for platform in ("steam", "xbox", "playstation", "epic"):
             _migrate_uid(
                 "sensor",
                 f"gaming_status_{old_safe}_library_{platform}",
@@ -6883,7 +6957,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     "enable_achievement_tracking", utils.ENABLE_ACHIEVEMENT_TRACKING
                 ),
             )
-            for p in ("steam", "xbox", "playstation")
+            for p in ("steam", "xbox", "playstation", "epic")
         }
         player_library_scan_by_platform = {
             p: player_data.get(
@@ -6893,8 +6967,14 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN),
                 ),
             )
-            for p in ("steam", "xbox", "playstation")
+            for p in ("steam", "xbox", "playstation", "epic")
         }
+        # Epic isn't a platform slot: it needs the player's Epic account ID,
+        # and its live achievements ride on the Agent (gsa) sensor.
+        epic_account_id = player_data.get(PLAYER_EPIC_ACCOUNT_ID)
+        if not epic_account_id:
+            player_achievement_tracking_by_platform["epic"] = False
+            player_library_scan_by_platform["epic"] = False
         # Fallback value for platforms with no per-platform achievement
         # concept at all (gsa/playnite/discord) -- mirrors the old flat
         # value's own fallback chain, just without a platform key to look
@@ -6939,6 +7019,21 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 ps3_entity_id = (
                     player_data.get("ps3") if platform == "playstation" else None
                 )
+                epic_for_sensor = (
+                    epic_account_id
+                    if platform == "gsa"
+                    and player_achievement_tracking_by_platform["epic"]
+                    else None
+                )
+                # The Agent sensor's only native achievement source is Epic,
+                # so its own toggle is the Epic one when an account is set.
+                tracking_enabled = (
+                    player_achievement_tracking_by_platform["epic"]
+                    if platform == "gsa" and epic_account_id
+                    else player_achievement_tracking_by_platform.get(
+                        platform, player_achievement_tracking_fallback
+                    )
+                )
                 sensor_entity = PersistentStatusSensor(
                     hass,
                     entity_id,
@@ -6953,10 +7048,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     device_info=device_info,
                     clear_achievements_requested=clear_achievements_requested,
                     config_entry=config_entry,
-                    achievement_tracking_enabled=player_achievement_tracking_by_platform.get(
-                        platform, player_achievement_tracking_fallback
-                    ),
+                    achievement_tracking_enabled=tracking_enabled,
                     multi_steam_account_household=multi_steam_account_household,
+                    epic_account_id=epic_for_sensor,
                 )
                 ents.append(sensor_entity)
                 # Resolve the real, already-registered entity_id via the
@@ -6985,6 +7079,12 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     "playstation",
                 ) and player_library_scan_by_platform.get(platform):
                     library_platform_sources[platform] = entity_id
+
+        # Epic's library comes from the player's public profile, not a
+        # sensor -- its "source" is the account ID itself, so changing the
+        # account triggers a rescan through the coordinator's scope check.
+        if player_library_scan_by_platform["epic"]:
+            library_platform_sources["epic"] = epic_account_id
 
         # Spawn PC Sub-Master if any PC platforms exist
         if pc_platforms_present:
@@ -7079,7 +7179,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             # A platform whose library scan was turned off for this player
             # (while others stay on) isn't recreated above -- remove its
             # leftover registry entry rather than leaving it "unavailable".
-            for platform in ("steam", "xbox", "playstation"):
+            for platform in ("steam", "xbox", "playstation", "epic"):
                 if platform in library_platform_sources:
                     continue
                 target_id = f"sensor.gaming_status_{safe_owner}_library_{platform}"
@@ -7097,7 +7197,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             # reloads the whole config entry.
             hass.async_create_task(coordinator.async_schedule_or_refresh())
         else:
-            for platform in ("steam", "xbox", "playstation"):
+            for platform in ("steam", "xbox", "playstation", "epic"):
                 target_id = f"sensor.gaming_status_{safe_owner}_library_{platform}"
                 if registry.async_get(target_id):
                     registry.async_remove(target_id)

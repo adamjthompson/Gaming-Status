@@ -29,3 +29,12 @@ To display beautiful, high-resolution game covers on your dashboard, this integr
 If you plan to use the **Content Rating Limit** parental control, enable **Enable Native Content Ratings** (either under the **Achievements & Ratings** menu or on the main **Parental Controls** screen). It's the same setting, shown in both places for convenience. This looks up each game's ESRB rating directly from Steam, Xbox, or PlayStation, reusing whatever credentials you already have configured on the official integrations. No separate API key or account needed. This is independent from achievement/trophy tracking, so you don't need to enable that (or its heavier credential/polling requirements) just to get ratings working. Content Rating Limit's own fields only appear on a player's screen once this is on, since there's nothing for the rule to check against otherwise.
 
 *Note: native rating coverage isn't complete for every title. If a game comes back unrated, you can manually assign it a rating using the Content Rating Overrides field under [Overrides & Exclusions](../configuration/overrides-exclusions.md).*
+
+### Epic Games Achievements
+Epic achievements are read from a player's **public Epic profile**, so no Epic sign-in or API key is needed. They cover the Epic game a player is currently playing (as reported by [Gaming Status Agent](../setup/pc-tracking.md)) and the [Full Game Library Scan](../configuration/achievements-ratings.md).
+
+1. Make the profile public: sign in at [epicgames.com](https://www.epicgames.com/), open your account's privacy settings, and set your profile and its achievements to public.
+2. Copy the profile link: open your profile in the Epic Games Store (it looks like `https://store.epicgames.com/u/<32 characters>`). The 32-character account ID shown in your Epic account settings also works.
+3. Paste it into the player's **Epic account** field under [Manage Players](../configuration/manage-players.md). Gaming Status checks the profile when you save and tells you if it's private or can't be found.
+
+*Note: only games that use Epic's own achievement system have Epic achievements; many Epic games don't (for example, Marvel's Guardians of the Galaxy), and those simply show none. A game also only appears on a public profile after its first achievement is unlocked.*

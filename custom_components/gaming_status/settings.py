@@ -41,6 +41,7 @@ from .const import (
     OPT_PARENTAL,
     OPT_PLAYERS,
     OPT_WEEKLY_REPORT,
+    PLAYER_EPIC_ACCOUNT_ID,
 )
 from .device import safe_owner_slug
 
@@ -61,7 +62,18 @@ PARENTAL_DEFAULTS: dict[str, dict[str, Any]] = {
     "ratings": {"enabled": False, "max_age_floor": 13},
 }
 
-LIBRARY_PLATFORMS = ("steam", "xbox", "playstation")
+# Platforms with per-player achievement tracking / library scan settings.
+# Epic has no status sensor; its "source" is the player's Epic account ID.
+LIBRARY_PLATFORMS = ("steam", "xbox", "playstation", "epic")
+
+
+def player_has_platform_source(player_data: dict, platform: str) -> bool:
+    """Whether a player has what a platform's achievements/library need:
+    its sensor for Steam/Xbox/PlayStation, an Epic account ID for Epic."""
+    if platform == "epic":
+        return bool(player_data.get(PLAYER_EPIC_ACCOUNT_ID))
+    return bool(player_data.get(platform))
+
 
 # Configure's "action frequency" choices (config_flow REPEAT_OPTIONS) --
 # the reminder-interval select entities offer exactly these, so a value set

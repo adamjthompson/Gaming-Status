@@ -31,12 +31,18 @@ from .settings import (
     async_sync_parental_entities,
     load_json_option,
     player_achievement_tracking,
+    player_has_platform_source,
     player_library_scan,
     players,
     ratings_available,
 )
 
-_PLATFORM_LABELS = {"steam": "Steam", "xbox": "Xbox", "playstation": "PlayStation"}
+_PLATFORM_LABELS = {
+    "steam": "Steam",
+    "xbox": "Xbox",
+    "playstation": "PlayStation",
+    "epic": "Epic",
+}
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -78,7 +84,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 ParentalRuleSwitch(config_entry, name, device_info, "ratings")
             )
         for platform in LIBRARY_PLATFORMS:
-            if not player_data.get(platform):
+            if not player_has_platform_source(player_data, platform):
                 continue
             if tracking_on:
                 entities.append(

@@ -82,11 +82,13 @@ from .const import (
     OPT_TRANSITION_GRACE,
     OPT_USE_CACHE,
     OPT_WEEKLY_REPORT,
+    PLAYER_EPIC_ACCOUNT_ID,
     PLAYER_PLATFORMS,
     RATING_OVERRIDE_CODES,
     RATING_THRESHOLD_OPTIONS,
 )
 from .device import safe_owner_slug
+from .settings import LIBRARY_PLATFORMS, player_has_platform_source
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -503,6 +505,32 @@ async def _async_validate_psn_npsso(hass, npsso):
     return None
 
 
+async def _async_validate_epic_account(hass, raw):
+    """Parse (profile link or bare ID) and check a newly entered Epic account.
+
+    Returns (account_id, error_key). An empty value is (None, None) -- the
+    field is optional. A private profile or unknown account blocks saving,
+    since nothing would ever work for it; a network/rate-limit failure
+    doesn't, as it says nothing about the account itself."""
+    from .platform_exceptions import ApiError, EpicProfilePrivateError, NotFoundError
+
+    raw = str(raw or "").strip()
+    if not raw:
+        return None, None
+    account_id = utils.parse_epic_account_id(raw)
+    if not account_id:
+        return None, "invalid_epic_account_id"
+    try:
+        await utils._get_epic_client(hass).async_get_profile(account_id)
+    except EpicProfilePrivateError:
+        return account_id, "epic_profile_private"
+    except NotFoundError:
+        return account_id, "epic_account_not_found"
+    except ApiError as err:
+        _LOGGER.debug("Gaming Status: couldn't verify the Epic account: %s", err)
+    return account_id, None
+
+
 class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self._config_entry = config_entry
@@ -793,10 +821,19 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 elif _custom_duplicates_gsa(user_input):
                     errors["custom"] = "custom_duplicates_gsa"
                 else:
-                    players[name] = self._player_data_from_input(user_input)
-                    self._options[OPT_PLAYERS] = _dump_json(players)
-                    self._editing_player = name
-                    return await self.async_step_player_details()
+                    epic_id, epic_error = await _async_validate_epic_account(
+                        self.hass, user_input.get(PLAYER_EPIC_ACCOUNT_ID)
+                    )
+                    if epic_error:
+                        errors[PLAYER_EPIC_ACCOUNT_ID] = epic_error
+                    else:
+                        data = self._player_data_from_input(user_input)
+                        if epic_id:
+                            data[PLAYER_EPIC_ACCOUNT_ID] = epic_id
+                        players[name] = data
+                        self._options[OPT_PLAYERS] = _dump_json(players)
+                        self._editing_player = name
+                        return await self.async_step_player_details()
 
         return self.async_show_form(
             step_id="add_player",
@@ -817,6 +854,15 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         ):
             errors["custom"] = "custom_duplicates_gsa"
             user_input = None
+
+        epic_id = None
+        if user_input is not None and not user_input.get("delete_player"):
+            epic_id, epic_error = await _async_validate_epic_account(
+                self.hass, user_input.get(PLAYER_EPIC_ACCOUNT_ID)
+            )
+            if epic_error:
+                errors[PLAYER_EPIC_ACCOUNT_ID] = epic_error
+                user_input = None
 
         if user_input is not None:
             if user_input.get("delete_player"):
@@ -864,6 +910,14 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     existing["ps3"] = updated_platforms["ps3"]
                 elif "ps3" in existing:
                     del existing["ps3"]
+
+            # The Epic account field is always shown, so an empty value means
+            # it was cleared: drop the ID and its library sensor.
+            if epic_id:
+                existing[PLAYER_EPIC_ACCOUNT_ID] = epic_id
+            elif PLAYER_EPIC_ACCOUNT_ID in existing:
+                del existing[PLAYER_EPIC_ACCOUNT_ID]
+                await self._cleanup_player_entities(name, ["epic"])
 
             players[name] = existing
             self._options[OPT_PLAYERS] = _dump_json(players)
@@ -944,8 +998,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             library_scan_globally_enabled = self._options.get(
                 OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN
             )
-            for platform in ("steam", "xbox", "playstation"):
-                if not existing.get(platform):
+            for platform in LIBRARY_PLATFORMS:
+                if not player_has_platform_source(existing, platform):
                     continue
                 if achievement_tracking_globally_enabled:
                     existing[f"enable_achievement_tracking_{platform}"] = (
@@ -1070,8 +1124,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         )
         achievement_fields = {}
         library_fields = {}
-        for platform in ("steam", "xbox", "playstation"):
-            if not existing.get(platform):
+        for platform in LIBRARY_PLATFORMS:
+            if not player_has_platform_source(existing, platform):
                 continue
             if achievement_tracking_globally_enabled:
                 achievement_fields[
@@ -2451,6 +2505,12 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 selector.EntitySelectorConfig(domain="sensor")
             )
 
+        # Not a platform slot (no sensor of its own): the player's public
+        # Epic profile, used for Epic achievements on games the Agent
+        # reports from the Epic launcher and for the Epic library scan.
+        # Always shown -- it works with any combination of platforms.
+        schema[_field(PLAYER_EPIC_ACCOUNT_ID)] = str
+
         if not is_new:
             schema[vol.Optional("delete_player", default=False)] = bool
 
@@ -2594,7 +2654,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         entity_ids += [
             f"sensor.gaming_status_{safe_owner}_library_{p}"
             for p in platforms
-            if p in ("steam", "xbox", "playstation")
+            if p in LIBRARY_PLATFORMS
         ]
 
         for entity_id in entity_ids:

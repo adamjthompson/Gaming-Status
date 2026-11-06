@@ -49,6 +49,11 @@ class PsnTrophyListPrivateError(ApiError):
     (friendship/privacy settings), not a single public/private toggle."""
 
 
+class EpicProfilePrivateError(ApiError):
+    """Epic: the account's profile (or its achievements) isn't public, so the
+    unauthenticated profile queries can't see it."""
+
+
 class GameDetailsPrivateError(ApiError):
     """Steam: the account's own "Game details" privacy toggle is set to
     Private, independent of the overall profile visibility -- GetOwnedGames

@@ -97,12 +97,16 @@ def _library_coordinators(hass: HomeAssistant) -> dict[str, Any]:
             else None,
             "update_interval": str(coordinator.update_interval),
             "last_synced": data.get("last_synced"),
+            # Redacted: each platform summary carries the scanned account's
+            # ID (Steam ID, Epic account ID, ...).
             "platforms": {
-                platform: {
-                    k: v
-                    for k, v in (pdata or {}).items()
-                    if k != "games" and not isinstance(v, list | dict)
-                }
+                platform: _redact(
+                    {
+                        k: v
+                        for k, v in (pdata or {}).items()
+                        if k != "games" and not isinstance(v, list | dict)
+                    }
+                )
                 | {"game_count": len((pdata or {}).get("games") or [])}
                 for platform, pdata in (data.get("platforms") or {}).items()
             },
