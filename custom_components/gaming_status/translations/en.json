@@ -95,7 +95,7 @@
           "gsa": "Select this player's Gaming Status Agent sensor, e.g. sensor.gsa_player_one",
           "custom": "Any sensor whose state is the game title (or on/off), e.g. sensor.player_one_active_pc_game",
           "playnite": "e.g. sensor.playnite_playing_game",
-          "epic_account_id": "Paste this player's Epic profile link (e.g. https://store.epicgames.com/u/...) or 32-character account ID. Their Epic profile and achievements must be public. Used for Epic achievements on games Gaming Status Agent reports from the Epic launcher, and for the Epic library scan."
+          "epic_account_id": "Paste the link to this player's Epic Games Store profile, or their 32-character Epic account ID. Their Epic profile and achievements must be public. Used for Epic achievements on games Gaming Status Agent reports from the Epic launcher, and for the Epic library scan."
         }
       },
       "edit_player": {
@@ -120,7 +120,7 @@
           "discord": "Select the Discord user from the dropdown.",
           "gsa": "Select this player's Gaming Status Agent sensor (sensor.gsa_*)",
           "custom": "Any sensor whose state is the game title (or on/off), e.g. a HASS.Agent or template sensor",
-          "epic_account_id": "Paste this player's Epic profile link (e.g. https://store.epicgames.com/u/...) or 32-character account ID. Their Epic profile and achievements must be public. Used for Epic achievements on games Gaming Status Agent reports from the Epic launcher, and for the Epic library scan."
+          "epic_account_id": "Paste the link to this player's Epic Games Store profile, or their 32-character Epic account ID. Their Epic profile and achievements must be public. Used for Epic achievements on games Gaming Status Agent reports from the Epic launcher, and for the Epic library scan."
         }
       },
       "player_details": {
@@ -429,7 +429,7 @@
       "malformed_override_line": "Each line must be in the form 'Game Name = Override Name'. Fix or remove the invalid line(s) and try again.",
       "malformed_rating_override_line": "Each line must be in the form 'Game Name = RATING' using one of the supported rating codes. Fix or remove the invalid line(s) and try again.",
       "invalid_npsso": "PlayStation rejected this NPSSO. Sign in at playstation.com, copy a fresh npsso value and try again.",
-      "invalid_epic_account_id": "That doesn't look like an Epic account ID. Paste the profile link from store.epicgames.com/u/... or the 32-character ID from your Epic account settings.",
+      "invalid_epic_account_id": "That doesn't look like an Epic account ID. Paste the link to your Epic Games Store profile, or the 32-character ID from your Epic account settings.",
       "epic_profile_private": "This Epic profile is private. Set the profile and its achievements to public in Epic's privacy settings, then try again.",
       "epic_account_not_found": "Epic couldn't find an account with that ID. Check the profile link or account ID and try again."
     }
