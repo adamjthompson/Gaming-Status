@@ -337,11 +337,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         try:
             import nextcord
 
-            # Used only to scope on_ready's full-guild sweep below to
-            # players Gaming Status actually tracks -- a server can have far
-            # more members than that, and firing an event per member on
-            # every gateway reconnect for everyone else is pure waste (no
+            # Scopes every dispatched event (live presence updates and
+            # on_ready's full-guild sweep) to players Gaming Status actually
+            # tracks -- a server can have far more members than that, and
+            # firing an event for everyone else is pure waste (no
             # PersistentStatusSensor is ever listening for their id anyway).
+            # Players only change via the options flow, which reloads the
+            # entry and rebuilds this set.
             try:
                 raw_players = json.loads(entry.options.get(OPT_PLAYERS) or "{}")
             except (TypeError, ValueError):
@@ -359,6 +361,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             bot = nextcord.Client(intents=intents)
 
             def _dispatch(member):
+                # Only tracked players have a sensor listening for their
+                # event; firing one for every other member of every server
+                # the bot shares would just fill the recorder's events
+                # table with strangers' usernames and avatars.
+                if str(member.id) not in tracked_discord_ids:
+                    return
                 activity_name = None
                 app_id = None
                 for activity in member.activities:
@@ -406,8 +414,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.info("Gaming Status Discord Bot Connected!")
                 for guild in bot.guilds:
                     for member in guild.members:
-                        if str(member.id) in tracked_discord_ids:
-                            _dispatch(member)
+                        _dispatch(member)
 
             def _discord_start_done(task):
                 if task.cancelled():
