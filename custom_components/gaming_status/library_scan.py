@@ -55,7 +55,10 @@ import time
 from datetime import timedelta
 
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.event import (
+    async_call_later,
+    async_track_state_change_event,
+)
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
@@ -260,6 +263,10 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         # a new message rebuilds just the Ubisoft part of the library.
         self._ubisoft_base = None
         self._unsub_ubisoft = None
+        # Set while the Agent sensor hasn't advertised a Ubisoft topic yet
+        # (e.g. Home Assistant started before the Agent): watches that sensor
+        # so the library fills in as soon as it does, not at the next scan.
+        self._unsub_ubisoft_source = None
 
     async def async_shutdown(self):
         """Stops this coordinator's own timer and any in-flight backfill
@@ -269,6 +276,9 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         if self._unsub_ubisoft is not None:
             self._unsub_ubisoft()
             self._unsub_ubisoft = None
+        if self._unsub_ubisoft_source is not None:
+            self._unsub_ubisoft_source()
+            self._unsub_ubisoft_source = None
         if self._unsub_resume is not None:
             self._unsub_resume()
             self._unsub_resume = None
@@ -1230,6 +1240,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         state = self.hass.states.get(gsa_entity_id)
         base = state.attributes.get(GSA_ATTR_UBISOFT_TOPIC) if state else None
         if not ubisoft_feed.valid_base(base):
+            self._watch_ubisoft_source(gsa_entity_id)
             return {
                 "games": [],
                 "error": "No Ubisoft data from Gaming Status Agent -- update the Agent "
@@ -1278,6 +1289,26 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             "error": None,
             "owned_game_count": library["owned_game_count"],
         }
+
+    def _watch_ubisoft_source(self, gsa_entity_id):
+        if self._unsub_ubisoft_source is not None or self._shut_down:
+            return
+
+        def _on_source_change(event):
+            new_state = event.data.get("new_state")
+            base = (
+                new_state.attributes.get(GSA_ATTR_UBISOFT_TOPIC) if new_state else None
+            )
+            if not ubisoft_feed.valid_base(base) or self._shut_down:
+                return
+            if self._unsub_ubisoft_source is not None:
+                self._unsub_ubisoft_source()
+                self._unsub_ubisoft_source = None
+            self.hass.async_create_task(self.async_refresh_ubisoft())
+
+        self._unsub_ubisoft_source = async_track_state_change_event(
+            self.hass, [gsa_entity_id], _on_source_change
+        )
 
     def _watch_ubisoft(self, base):
         if self._ubisoft_base == base or self._shut_down:
