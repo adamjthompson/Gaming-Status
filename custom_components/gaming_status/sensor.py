@@ -1547,8 +1547,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 data["current_game"] = gsa_game
                 if launcher and launcher.lower() != "none":
                     data["launcher"] = launcher
+                # The Agent fills empty fields with the text "None".
+                epic_sandbox_id = str(attrs.get(GSA_ATTR_EPIC_SANDBOX_ID) or "").strip()
                 data["epic_sandbox_id"] = (
-                    str(attrs.get(GSA_ATTR_EPIC_SANDBOX_ID) or "").strip() or None
+                    epic_sandbox_id
+                    if epic_sandbox_id.lower() not in ("", "none", "unknown")
+                    else None
                 )
 
         elif self._gaming_type == "discord":
