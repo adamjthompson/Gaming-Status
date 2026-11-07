@@ -33,7 +33,7 @@ from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
 
-from . import utils
+from . import ubisoft_feed, utils
 
 # Fixed precedence for picking a cached local art file when several
 # extensions exist for the same asset.
@@ -64,8 +64,11 @@ from .const import (
     DOMAIN,
     EVENT_ACHIEVEMENT_UNLOCKED,
     GSA_ATTR_EPIC_SANDBOX_ID,
+    GSA_ATTR_UBISOFT_GAME_ID,
+    GSA_ATTR_UBISOFT_TOPIC,
     GSA_LAUNCHER_EPIC,
     GSA_LAUNCHER_ICONS,
+    GSA_LAUNCHER_UBISOFT,
     GSA_NATIVE_LAUNCHERS,
     MASTER_RECENT_ACHIEVEMENTS_RESERVED_PER_PLATFORM,
     MAX_RECENT_ACHIEVEMENT_UNLOCKS,
@@ -172,6 +175,13 @@ def _parse_day(value):
         return date.fromisoformat(value)
     except ValueError:
         return parser.parse(value).date()
+
+
+def _agent_attr(attrs, name):
+    """A Gaming Status Agent attribute, or None when absent -- the Agent fills
+    empty fields with the text "None"."""
+    value = str(attrs.get(name) or "").strip()
+    return value if value.lower() not in ("", "none", "unknown") else None
 
 
 def _gsa_native_platform(launcher):
@@ -286,6 +296,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         achievement_tracking_enabled=True,
         multi_steam_account_household=False,
         epic_account_id=None,
+        ubisoft_tracking_enabled=False,
     ):
 
         # --- SILENT AUTO-CORRECTION FOR CONSOLES ---
@@ -452,6 +463,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._epic_account_id = epic_account_id
         self._cached_epic_sandbox_id = None
         self._epic_query_title = None
+        # Gaming Status Agent only: Ubisoft achievements pushed by the Agent
+        # over MQTT (see ubisoft_feed.py) -- the topic base it advertises, and
+        # the running Ubisoft game's ID.
+        self._ubisoft_tracking_enabled = ubisoft_tracking_enabled
+        self._ubisoft_topic = None
+        self._ubisoft_game_id = None
+        self._unsub_ubisoft = None
 
         # Resolved once in async_added_to_hass from the owning steam_online/
         # playstation_network config entry (or the manual override), reused
@@ -1175,6 +1193,83 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         ) or self._cached_launcher
         return str(launcher or "").strip().lower() == GSA_LAUNCHER_EPIC
 
+    def _is_ubisoft_session(self):
+        """Whether this Agent sensor is tracking a game from Ubisoft Connect
+        for a player with Ubisoft achievement tracking on."""
+        if self._gaming_type != "gsa" or not self._ubisoft_tracking_enabled:
+            return False
+        game = self._current_game
+        launcher = (
+            self._launcher_by_game.get(_normalize_game_name(game)) if game else None
+        ) or self._cached_launcher
+        return str(launcher or "").strip().lower() == GSA_LAUNCHER_UBISOFT
+
+    @callback
+    def _async_set_ubisoft_topic(self, base):
+        """Attach to (or switch) the Agent's Ubisoft feed when it advertises a
+        topic. Subscribing is async, so it's scheduled, not awaited."""
+        if not self._ubisoft_tracking_enabled or base == self._ubisoft_topic:
+            return
+        self._ubisoft_topic = base
+        self._detach_ubisoft()
+        if ubisoft_feed.valid_base(base):
+            self.hass.async_create_task(self._async_attach_ubisoft(base))
+
+    async def _async_attach_ubisoft(self, base):
+        feed = await ubisoft_feed.async_ensure(self.hass, base)
+        if feed is None or base != self._ubisoft_topic:
+            return
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+
+        self._detach_ubisoft()
+        self._unsub_ubisoft = async_dispatcher_connect(
+            self.hass, ubisoft_feed.signal_for(base), self._on_ubisoft_update
+        )
+        if feed.library is not None:
+            self._on_ubisoft_update()
+
+    @callback
+    def _detach_ubisoft(self):
+        if self._unsub_ubisoft is not None:
+            self._unsub_ubisoft()
+            self._unsub_ubisoft = None
+
+    def _apply_ubisoft_current(self, library):
+        """Current-game counts and recent unlocks for the running Ubisoft
+        game, matched by any of its store copies' IDs. Returns True if set."""
+        if not self._is_ubisoft_session():
+            return False
+        game = ubisoft_feed.find_game(library, self._ubisoft_game_id)
+        if game is None:
+            return False
+        self._cached_achievements_earned = game["achievements_earned"]
+        self._cached_achievements_total = game["achievements_total"]
+        self._cached_achievements_source = "ubisoft"
+        self._cached_recent_unlocks = ubisoft_feed.recent_unlocks_for(game)
+        return True
+
+    @callback
+    def _on_ubisoft_update(self):
+        """New Ubisoft data from the Agent: feed every game's recent unlocks
+        into the achievement history (which fires the unlock event for new
+        ones -- older unlocks are recorded silently), and refresh the
+        current game's counts."""
+        feed = ubisoft_feed.get_feed(self.hass, self._ubisoft_topic)
+        library = feed.library if feed else None
+        if not library or self.hass is None:
+            return
+        for game in library["games"]:
+            unlocks = ubisoft_feed.recent_unlocks_for(game)
+            if unlocks:
+                self._ingest_recent_unlocks(
+                    unlocks,
+                    game_name=_format_game_name_for_display(game["title"]),
+                    platform_label="Ubisoft",
+                )
+        self._apply_ubisoft_current(library)
+        self._write_common_attributes()
+        self.async_write_ha_state()
+
     def _platform_key_for(self, game=None, fallback_to_last=True):
         """Platform key recorded on a session (see _effective_platform_key)."""
         if self._gaming_type != "gsa":
@@ -1526,6 +1621,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             # repeats it in "Game Title", alongside "Profile Name" (the
             # launcher account name, or the Windows user) and "Launcher".
             data["gamertag"] = attrs.get("Profile Name") or None
+            # Sent in every payload, offline too, so the Ubisoft library
+            # stays reachable while the PC is off.
+            data["ubisoft_topic"] = _agent_attr(attrs, GSA_ATTR_UBISOFT_TOPIC)
             launcher = str(attrs.get("Launcher") or "").strip()
             gsa_game = attrs.get("Game Title") or state
             norm_gsa_game = _normalize_game_name(gsa_game)
@@ -1547,13 +1645,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 data["current_game"] = gsa_game
                 if launcher and launcher.lower() != "none":
                     data["launcher"] = launcher
-                # The Agent fills empty fields with the text "None".
-                epic_sandbox_id = str(attrs.get(GSA_ATTR_EPIC_SANDBOX_ID) or "").strip()
-                data["epic_sandbox_id"] = (
-                    epic_sandbox_id
-                    if epic_sandbox_id.lower() not in ("", "none", "unknown")
-                    else None
-                )
+                data["epic_sandbox_id"] = _agent_attr(attrs, GSA_ATTR_EPIC_SANDBOX_ID)
+                data["ubisoft_game_id"] = _agent_attr(attrs, GSA_ATTR_UBISOFT_GAME_ID)
 
         elif self._gaming_type == "discord":
             # Allow Discord to track games if an application_id is present
@@ -2420,7 +2513,8 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 self._cached_recent_unlocks
             )
         elif self._gaming_type == "steam" or (
-            self._gaming_type == "gsa" and self._epic_account_id
+            self._gaming_type == "gsa"
+            and (self._epic_account_id or self._ubisoft_tracking_enabled)
         ):
             self._attr_extra_state_attributes["recent_unlocked_achievements"] = (
                 self._cached_recent_unlocks
@@ -3769,6 +3863,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # through async_on_remove like everything else here. Cancels whatever
         # pending-confirmation one-shot happens to be armed at the time.
         self.async_on_remove(self._cancel_pending_recheck)
+        self.async_on_remove(self._detach_ubisoft)
 
         if self._gaming_type == "discord":
             self.async_on_remove(
@@ -4335,6 +4430,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._cached_gamertag = (
                 platform_data.get("gamertag") or self._cached_gamertag
             )
+            if self._gaming_type == "gsa":
+                self._async_set_ubisoft_topic(platform_data.get("ubisoft_topic"))
+                self._ubisoft_game_id = platform_data.get("ubisoft_game_id")
             if platform_data.get("launcher"):
                 self._cached_launcher = platform_data["launcher"]
                 if platform_data.get("current_game"):
@@ -4634,6 +4732,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     )
                     self._cached_gamerscore_earned = gs_earned
                     self._cached_gamerscore_total = gs_total
+
+                # Ubisoft: pushed by the Agent, so just read the latest data.
+                if normalized_new and self._is_ubisoft_session():
+                    feed = ubisoft_feed.get_feed(self.hass, self._ubisoft_topic)
+                    self._apply_ubisoft_current(feed.library if feed else None)
 
                 # --- Native achievement/trophy enrichment (steam/xbox/playstation, opt-in) ---
                 if (
@@ -6614,7 +6717,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             f"gaming_status_{new_safe}_library_summary",
             f"sensor.gaming_status_{new_safe}_library_summary",
         )
-        for platform in ("steam", "xbox", "playstation", "epic"):
+        for platform in ("steam", "xbox", "playstation", "epic", "ubisoft"):
             _migrate_uid(
                 "sensor",
                 f"gaming_status_{old_safe}_library_{platform}",
@@ -6961,7 +7064,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     "enable_achievement_tracking", utils.ENABLE_ACHIEVEMENT_TRACKING
                 ),
             )
-            for p in ("steam", "xbox", "playstation", "epic")
+            for p in ("steam", "xbox", "playstation", "epic", "ubisoft")
         }
         player_library_scan_by_platform = {
             p: player_data.get(
@@ -6971,7 +7074,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN),
                 ),
             )
-            for p in ("steam", "xbox", "playstation", "epic")
+            for p in ("steam", "xbox", "playstation", "epic", "ubisoft")
         }
         # Epic isn't a platform slot: it needs the player's Epic account ID
         # (used only while Epic is checked under Platforms to Track), and its
@@ -6984,6 +7087,16 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         if not epic_account_id:
             player_achievement_tracking_by_platform["epic"] = False
             player_library_scan_by_platform["epic"] = False
+        # Ubisoft has no sensor either: its data comes from the player's
+        # Gaming Status Agent, which pushes it over MQTT.
+        ubisoft_source = (
+            player_data.get("gsa")
+            if "ubisoft" in enabled_platforms and "gsa" in enabled_platforms
+            else None
+        )
+        if not ubisoft_source:
+            player_achievement_tracking_by_platform["ubisoft"] = False
+            player_library_scan_by_platform["ubisoft"] = False
         # Fallback value for platforms with no per-platform achievement
         # concept at all (gsa/playnite/discord) -- mirrors the old flat
         # value's own fallback chain, just without a platform key to look
@@ -7060,6 +7173,10 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     achievement_tracking_enabled=tracking_enabled,
                     multi_steam_account_household=multi_steam_account_household,
                     epic_account_id=epic_for_sensor,
+                    ubisoft_tracking_enabled=(
+                        platform == "gsa"
+                        and player_achievement_tracking_by_platform["ubisoft"]
+                    ),
                 )
                 ents.append(sensor_entity)
                 # Resolve the real, already-registered entity_id via the
@@ -7094,6 +7211,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         # account triggers a rescan through the coordinator's scope check.
         if player_library_scan_by_platform["epic"]:
             library_platform_sources["epic"] = epic_account_id
+        if player_library_scan_by_platform["ubisoft"]:
+            library_platform_sources["ubisoft"] = ubisoft_source
 
         # Spawn PC Sub-Master if any PC platforms exist
         if pc_platforms_present:
@@ -7188,7 +7307,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             # A platform whose library scan was turned off for this player
             # (while others stay on) isn't recreated above -- remove its
             # leftover registry entry rather than leaving it "unavailable".
-            for platform in ("steam", "xbox", "playstation", "epic"):
+            for platform in ("steam", "xbox", "playstation", "epic", "ubisoft"):
                 if platform in library_platform_sources:
                     continue
                 target_id = f"sensor.gaming_status_{safe_owner}_library_{platform}"
@@ -7206,7 +7325,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             # reloads the whole config entry.
             hass.async_create_task(coordinator.async_schedule_or_refresh())
         else:
-            for platform in ("steam", "xbox", "playstation", "epic"):
+            for platform in ("steam", "xbox", "playstation", "epic", "ubisoft"):
                 target_id = f"sensor.gaming_status_{safe_owner}_library_{platform}"
                 if registry.async_get(target_id):
                     registry.async_remove(target_id)
@@ -7232,6 +7351,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         domain_data.get("library_coordinators", {}).pop(stale_key, None)
 
     ents.append(GlobalOnlineCountSensor(hass, players))
+    # Ubisoft feeds are shared MQTT subscriptions; drop them on unload/reload.
+    config_entry.async_on_unload(lambda: ubisoft_feed.async_stop_all(hass))
     async_add_entities(ents)
 
 

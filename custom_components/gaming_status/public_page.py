@@ -147,8 +147,8 @@ PUBLIC_CARD_CATALOG: dict[str, tuple[str, bool, str | None]] = {
 # layout adds one copy per platform the player has a library for.
 _PER_PLATFORM_CARDS = {"gaming-status-gamercard-card"}
 # Platforms the per-platform gamercards are added for. Epic isn't one (the
-# gamercard has no Epic view); the library card shows an Epic tab by itself
-# whenever the player's library has Epic games.
+# gamercard has no Epic view, nor Ubisoft); the library card shows those tabs
+# by itself whenever the player's library has games on them.
 _LIBRARY_PLATFORMS = ("steam", "xbox", "playstation")
 
 # Extra config for general cards on the default layout. The slideshow stays
@@ -696,6 +696,7 @@ def _build_layout(
                     for p in _LIBRARY_PLATFORMS
                 }
                 tabs["show_platform_epic"] = _library_earned(hass, name, "epic")
+                tabs["show_platform_ubisoft"] = _library_earned(hass, name, "ubisoft")
                 group.append(
                     {
                         "type": card_type,

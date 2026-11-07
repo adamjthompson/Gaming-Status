@@ -44,6 +44,7 @@ _PLATFORM_LABELS = {
     "xbox": "Xbox",
     "playstation": "PlayStation",
     "epic": "Epic",
+    "ubisoft": "Ubisoft",
 }
 
 

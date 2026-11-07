@@ -206,8 +206,16 @@ GSA_LAUNCHER_EPIC = "epic"
 # which equals the sandboxId Epic's achievement queries use. When absent the
 # game is matched to the profile by title.
 GSA_ATTR_EPIC_SANDBOX_ID = "Epic Sandbox ID"
+# Ubisoft, like Epic, is a "Platforms to Track" toggle without a status
+# sensor. Its data comes from Gaming Status Agent, which reads Ubisoft
+# Connect's local cache and publishes it over MQTT (see ubisoft_feed.py):
+# the running game's ID, and the topic base the library/icons live under.
+GSA_LAUNCHER_UBISOFT = "ubisoft"
+GSA_ATTR_UBISOFT_GAME_ID = "Ubisoft Game ID"
+GSA_ATTR_UBISOFT_TOPIC = "Ubisoft Topic"
 LIBRARY_ONLY_PLATFORM_CONFIG = {
     "epic": {"icon": "mdi:alpha-e-box", "name_suffix": "Epic"},
+    "ubisoft": {"icon": "mdi:alpha-u-box", "name_suffix": "Ubisoft"},
 }
 
 # ---------------------------------------------------------------------------
@@ -247,6 +255,7 @@ DEFAULT_ENABLED_PLATFORMS = [
     "xbox",
     "playstation",
     "epic",
+    "ubisoft",
     "discord",
     "gsa",
     "custom",

@@ -1,7 +1,7 @@
 {
   "domain": "gaming_status",
   "name": "Gaming Status",
-  "after_dependencies": ["playstation_network", "xbox", "steam_online"],
+  "after_dependencies": ["playstation_network", "xbox", "steam_online", "mqtt"],
   "codeowners": ["@adamjthompson"],
   "config_flow": true,
   "dependencies": ["http"],

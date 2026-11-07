@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.loader import async_get_integration
 
+from . import ubisoft_feed
 from .const import DOMAIN
 
 REDACTED = "**REDACTED**"
@@ -146,5 +147,8 @@ async def async_get_config_entry_diagnostics(
         "entities": entities,
         "library_scans": _library_coordinators(hass),
         "rate_limiters": _rate_limiters(hass),
+        # Gaming Status Agent's pushed Ubisoft data, per Agent (keyed by its
+        # MQTT topic, which only carries the PC's device name).
+        "ubisoft_feeds": ubisoft_feed.all_status(hass),
         "repairs_issues": issues,
     }

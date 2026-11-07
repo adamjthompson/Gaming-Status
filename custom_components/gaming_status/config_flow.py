@@ -543,6 +543,7 @@ _PLATFORM_CHOICES = [
     selector.SelectOptionDict(value="xbox", label="Xbox"),
     selector.SelectOptionDict(value="playstation", label="PlayStation"),
     selector.SelectOptionDict(value="epic", label="Epic Games"),
+    selector.SelectOptionDict(value="ubisoft", label="Ubisoft"),
     selector.SelectOptionDict(value="discord", label="Discord"),
     selector.SelectOptionDict(value="gsa", label="Gaming Status Agent"),
     selector.SelectOptionDict(value="custom", label="Custom"),

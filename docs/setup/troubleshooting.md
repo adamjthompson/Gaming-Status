@@ -113,5 +113,13 @@ Epic achievements come from the player's public Epic profile (see [Epic Games Ac
 - **The game must come from Gaming Status Agent:** Epic online status and live Epic achievements only apply when the Agent reports the game with the `Epic` launcher. Epic games seen only through Discord aren't covered. The Epic library sensor works without the Agent, but its unlocks only reach the achievement history when the player has an Agent sensor.
 - **Renamed titles:** Without the Agent's Epic game ID, the game is matched to the profile by its title. A Title Override changes only what's displayed, so it doesn't affect this.
 
+## My Ubisoft achievements aren't showing.
+Ubisoft achievements come from Gaming Status Agent (see [Ubisoft Achievements](../getting-started/prerequisites.md#ubisoft-achievements)).
+
+- **Check the Agent:** Right-click its tray icon, choose **Run Diagnostics**, and look at the **UBISOFT ACHIEVEMENTS & LIBRARY** section. It lists the games with achievement data it found, when it last scanned and published, and any read errors. If it says *Off*, tick Ubisoft and **Send Ubisoft achievements and library to Home Assistant** under the Agent's **Platforms**.
+- **Check the sensor:** `sensor.gsa_<profile name>` should have a `Ubisoft Topic` attribute. If it's missing or `None`, the Agent is too old or the option is off.
+- **Only games played on that PC** have Ubisoft achievement data, and only games launched from Ubisoft Connect get the live current-game counts.
+- **Diagnostics:** Gaming Status's own diagnostics download has a `ubisoft_feeds` section showing whether it's receiving the Agent's data.
+
 ## I changed a game's title, but the old name is still showing.
 The Master Sensor caches history and states to prevent drop-outs. If things look stuck, simply restart Home Assistant to flush the cache and force it to rebuild from the current live data.

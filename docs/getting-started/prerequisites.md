@@ -48,3 +48,18 @@ Without the Agent, the Epic library sensor still works on its own; it just has n
 4. Paste it into the player's **Epic account** field under [Manage Players](../configuration/manage-players.md). Gaming Status checks the profile when you save and tells you if it's private or can't be found.
 
 *Note: only games that use Epic's own achievement system have Epic achievements; many Epic games don't (for example, Marvel's Guardians of the Galaxy), and those simply show none. A game also only appears on a public profile after its first achievement is unlocked.*
+
+### Ubisoft Achievements
+Ubisoft keeps achievement data only on the gaming PC, inside Ubisoft Connect, so it comes entirely from [Gaming Status Agent](../setup/pc-tracking.md). The Agent reads Ubisoft Connect's local files (read-only) and sends the library and unlocks to Home Assistant over MQTT, including each achievement's real icon.
+
+| What | Needs |
+| --- | --- |
+| Ubisoft library (games with achievements, completion) via the [Full Game Library Scan](../configuration/achievements-ratings.md) | Gaming Status Agent with Ubisoft ticked and **Send Ubisoft achievements and library to Home Assistant** on (both under the Agent's **Platforms**) |
+| Live achievement counts for the Ubisoft game being played | The same, plus the game launched from Ubisoft Connect |
+| Ubisoft unlocks in the player's achievement history and unlock notifications | The same; unlocks arrive within seconds |
+
+1. Update Gaming Status Agent to a version with Ubisoft achievements, and make sure Ubisoft and **Send Ubisoft achievements and library to Home Assistant** are ticked under its **Platforms**.
+2. Check **Ubisoft** under **Platforms to Track** in [Global Settings](../configuration/global-settings.md). There's no account to enter: the player's Gaming Status Agent sensor is the source.
+3. Turn on Ubisoft for the player under Achievement/Trophy Tracking and/or Full Game Library Scan in their Player Details.
+
+*Notes: only games played on that PC have achievement data, so games played elsewhere don't appear until they're played there. Copies of a game from other stores (e.g. its Steam copy) are merged into one entry. Ubisoft games launched through Steam still count toward the library, but only games launched from Ubisoft Connect get the live current-game view.*

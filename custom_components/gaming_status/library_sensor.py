@@ -125,6 +125,8 @@ class TrophyLibraryPlatformSensor(CoordinatorEntity, SensorEntity):
         elif self._platform == "epic":
             attrs["xp_earned"] = pdata.get("xp_earned")
             attrs["xp_total"] = pdata.get("xp_total")
+        elif self._platform == "ubisoft":
+            attrs["owned_game_count"] = pdata.get("owned_game_count")
         elif self._platform == "playstation":
             trophies_earned = pdata.get("trophies_earned") or {}
             trophies_total = pdata.get("trophies_total") or {}

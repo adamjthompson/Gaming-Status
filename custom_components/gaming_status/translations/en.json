@@ -159,7 +159,8 @@
               "enable_achievement_tracking_steam": "Steam",
               "enable_achievement_tracking_xbox": "Xbox",
               "enable_achievement_tracking_playstation": "PlayStation",
-              "enable_achievement_tracking_epic": "Epic"
+              "enable_achievement_tracking_epic": "Epic",
+              "enable_achievement_tracking_ubisoft": "Ubisoft"
             }
           },
           "library_scan_section": {
@@ -169,7 +170,8 @@
               "enable_library_scan_steam": "Steam",
               "enable_library_scan_xbox": "Xbox",
               "enable_library_scan_playstation": "PlayStation",
-              "enable_library_scan_epic": "Epic"
+              "enable_library_scan_epic": "Epic",
+              "enable_library_scan_ubisoft": "Ubisoft"
             }
           }
         }
@@ -325,9 +327,9 @@
         },
         "data_description": {
           "enable_native_ratings": "Looks up each game's ESRB rating directly from Steam/Xbox/PlayStation -- feeds the game_content_rating sensor attribute and Parental Controls' Content Rating Limit rule. Independent of achievement tracking below: Steam and Xbox ratings need no credential at all, PlayStation reuses the same session achievement tracking uses. Off by default. Also shown on the per-player Parental Controls screen (same setting, shown in both places for convenience).",
-          "enable_achievement_tracking": "Adds achievement/trophy counts and unlock details to the current game's Steam/Xbox/PlayStation sensor, reusing credentials already configured on the official integrations where possible, and to the Gaming Status Agent sensor for Epic games when Epic is checked under Platforms to Track and the player has an Epic account set (read from their public Epic profile, no sign-in). Off by default. The recheck interval, credential overrides, and library scan fields below only take effect once this is on.",
-          "achievement_recheck_seconds": "How often to re-check for newly-earned achievements/trophies while a game keeps running (Steam, PlayStation and Epic). Default 900 (15 min), minimum 300 (5 min).",
-          "enable_library_scan": "Adds a Game Library sensor (plus one per tracked platform) with your full game collection -- total achievements/trophies, completion percentage, and per-game details -- scanned periodically in the background. Only created for platforms you already track, plus Epic for players with an Epic account set (listing the games with at least one Epic achievement unlocked). Off by default.",
+          "enable_achievement_tracking": "Adds achievement/trophy counts and unlock details to the current game's Steam/Xbox/PlayStation sensor, reusing credentials already configured on the official integrations where possible, and to the Gaming Status Agent sensor for Epic and Ubisoft games when those are checked under Platforms to Track (Epic needs the player's Epic account, read from their public Epic profile; Ubisoft is sent by the Agent itself). Off by default. The recheck interval, credential overrides, and library scan fields below only take effect once this is on.",
+          "achievement_recheck_seconds": "How often to re-check for newly-earned achievements/trophies while a game keeps running (Steam, PlayStation and Epic; Ubisoft unlocks arrive within seconds, pushed by Gaming Status Agent). Default 900 (15 min), minimum 300 (5 min).",
+          "enable_library_scan": "Adds a Game Library sensor (plus one per tracked platform) with your full game collection -- total achievements/trophies, completion percentage, and per-game details -- scanned periodically in the background. Only created for platforms you already track, plus Epic for players with an Epic account set (listing the games with at least one Epic achievement unlocked) and Ubisoft for players with a Gaming Status Agent sensor (listing the games with achievement data on that PC). Off by default.",
           "library_scan_interval_hours": "How often to rescan your full game library. Default 12 hours, range 1-24."
         }
       },
@@ -369,7 +371,7 @@
           "enable_ps3_tracking": "Enable PS3 Tracking"
         },
         "data_description": {
-          "enabled_platforms": "Select which platforms should appear in the player configuration menus. Epic Games works differently from the others: it adds an Epic account field to each player instead of a sensor. That account alone powers the Epic library scan; Epic online status and live Epic achievements come from Gaming Status Agent.",
+          "enabled_platforms": "Select which platforms should appear in the player configuration menus. Epic Games and Ubisoft work differently from the others: neither has a sensor of its own. Epic Games adds an Epic account field to each player; that account alone powers the Epic library scan, while Epic online status and live Epic achievements come from Gaming Status Agent. Ubisoft's achievements and library come entirely from Gaming Status Agent, which reads them from Ubisoft Connect on the gaming PC.",
           "use_local_cache": "Downloads artwork to your local storage. Disable this to use raw web URLs (recommended if you use Discord notifications without remote HA access).",
           "extract_colors": "Automatically calculates the dominant vibrant color of game artwork for use in dashboard cards. *Note: This will be automatically ignored if Local Caching is disabled.*",
           "cache_max_files": "The maximum number of images to keep on your drive. Set to 0 for unlimited. Default: 200",

@@ -54,15 +54,17 @@ import logging
 import time
 from datetime import timedelta
 
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
-from . import utils
+from . import ubisoft_feed, utils
 from .const import (
     DOMAIN,
     EPIC_LIBRARY_DETAIL_BUDGET,
+    GSA_ATTR_UBISOFT_TOPIC,
     LIBRARY_BACKFILL_MAX_ATTEMPTS,
     LIBRARY_ONLY_PLATFORM_CONFIG,
     PLATFORM_CONFIG,
@@ -254,12 +256,19 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         # replaces it) -- see async_shutdown.
         self._unsub_resume = None
         self._shut_down = False
+        # Ubisoft data is pushed by Gaming Status Agent (see ubisoft_feed.py);
+        # a new message rebuilds just the Ubisoft part of the library.
+        self._ubisoft_base = None
+        self._unsub_ubisoft = None
 
     async def async_shutdown(self):
         """Stops this coordinator's own timer and any in-flight backfill
         pass. After an options reload a new coordinator owns the same
         storage file, so this one must stop calling APIs and saving."""
         self._shut_down = True
+        if self._unsub_ubisoft is not None:
+            self._unsub_ubisoft()
+            self._unsub_ubisoft = None
         if self._unsub_resume is not None:
             self._unsub_resume()
             self._unsub_resume = None
@@ -412,6 +421,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 ("xbox", self._scan_xbox),
                 ("playstation", self._scan_psn),
                 ("epic", self._scan_epic),
+                ("ubisoft", self._scan_ubisoft),
             )
             if platform in self._platform_sources
         ]
@@ -1209,6 +1219,116 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             )
         return {"games": games, "error": fetch_error, "account_id": account_id}
 
+    async def _scan_ubisoft(self, gsa_entity_id):
+        """Ubisoft library from Gaming Status Agent's pushed data -- no
+        network calls. The Agent advertises where it publishes in its
+        sensor's "Ubisoft Topic" attribute (kept while the PC is offline, so
+        the library still shows). Only games with achievement data are
+        listed; how many games the account owns comes along as a count.
+        Unlock history and events are handled by the Agent sensor itself,
+        which receives the same data (see PersistentStatusSensor)."""
+        state = self.hass.states.get(gsa_entity_id)
+        base = state.attributes.get(GSA_ATTR_UBISOFT_TOPIC) if state else None
+        if not ubisoft_feed.valid_base(base):
+            return {
+                "games": [],
+                "error": "No Ubisoft data from Gaming Status Agent -- update the Agent "
+                "and tick Ubisoft and 'Send Ubisoft achievements' in its Platforms",
+            }
+        feed = await ubisoft_feed.async_ensure(self.hass, base)
+        if feed is None:
+            return {"games": [], "error": "MQTT isn't available"}
+        self._watch_ubisoft(base)
+        library = feed.library
+        if library is None:
+            # Retained data usually arrives within a second of subscribing;
+            # the feed's signal then refreshes this platform.
+            return {
+                "games": [],
+                "error": "Waiting for Gaming Status Agent's Ubisoft data",
+            }
+
+        games = []
+        for game in library["games"]:
+            name = game["title"]
+            if _normalize_game_name(name) in self._excluded_normalized:
+                continue
+            name = utils._format_game_name_for_display(name)
+            earned = game["achievements_earned"]
+            total = game["achievements_total"]
+            art = await self._async_art_for(name)
+            games.append(
+                {
+                    "title": name,
+                    "platform": "ubisoft",
+                    "id": game["id"],
+                    "achievements_earned": earned,
+                    "achievements_total": total or 0,
+                    "percent": _percent(earned, total) if total else 0.0,
+                    "game_cover_art": art.get("grid"),
+                    "game_hero_art": art.get("hero"),
+                    "game_logo_art": art.get("logo"),
+                    "game_icon_art": art.get("icon"),
+                    # Last unlock -- the library card's "Recently Played" sort.
+                    "_activity_ts": game["last_unlock"],
+                }
+            )
+        return {
+            "games": games,
+            "error": None,
+            "owned_game_count": library["owned_game_count"],
+        }
+
+    def _watch_ubisoft(self, base):
+        if self._ubisoft_base == base or self._shut_down:
+            return
+        if self._unsub_ubisoft is not None:
+            self._unsub_ubisoft()
+        self._ubisoft_base = base
+        self._unsub_ubisoft = async_dispatcher_connect(
+            self.hass, ubisoft_feed.signal_for(base), self._on_ubisoft_update
+        )
+
+    def _on_ubisoft_update(self):
+        if not self._shut_down:
+            self.hass.async_create_task(self.async_refresh_ubisoft())
+
+    async def async_refresh_ubisoft(self):
+        """Rebuild only the Ubisoft part of the library from the latest pushed
+        data, keeping every other platform's last scan as-is -- a Ubisoft
+        unlock shouldn't cost a Steam/Xbox/PlayStation rescan."""
+        source = self._platform_sources.get("ubisoft")
+        if not source or self._shut_down:
+            return
+        if not self.data:
+            await self.async_request_refresh()
+            return
+        previous = self.data.get("platforms", {})
+        errors = self.data.get("platform_errors")
+        errors = errors if isinstance(errors, dict) else {}
+        raw_by_platform = {
+            platform: {
+                "games": summary.get("games") or [],
+                "error": errors.get(platform),
+                "account_id": summary.get("account_id"),
+                "owned_game_count": summary.get("owned_game_count"),
+            }
+            for platform, summary in previous.items()
+            if platform != "ubisoft"
+        }
+        raw_by_platform["ubisoft"] = await self._scan_platform_safely(
+            "ubisoft", self._scan_ubisoft, source, previous
+        )
+        if self._shut_down:
+            return
+        result = _aggregate(raw_by_platform)
+        # Not async_set_updated_data: that would also reset the scan timer,
+        # so frequent Ubisoft unlocks could keep postponing the other
+        # platforms' scheduled scans (same approach as the backfill pass).
+        self.data = result
+        self.async_update_listeners()
+        await self._store.async_save(self._store_payload(result))
+
     async def _scan_psn(self, source_entity_id):
         npsso, account_id = utils.resolve_psn_credentials(self.hass, source_entity_id)
         if not npsso or not account_id:
@@ -1813,6 +1933,8 @@ def _aggregate(raw_by_platform):
         elif platform == "epic":
             summary["xp_earned"] = sum(g.get("xp_earned", 0) for g in games)
             summary["xp_total"] = sum(g.get("xp_total", 0) for g in games)
+        elif platform == "ubisoft":
+            summary["owned_game_count"] = raw.get("owned_game_count")
         elif platform == "playstation":
             summary["trophies_earned"] = {
                 k: sum(g.get("trophies_earned", {}).get(k, 0) for g in games)

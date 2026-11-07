@@ -17,6 +17,7 @@ Upon restart, the integration will instantly read your settings and generate the
 | sensor.gaming_status_XXXXX_library_steam | Sensor | *(Requires Full Game Library Scan)* Steam-specific Game Library sensor |
 | sensor.gaming_status_XXXXX_library_xbox | Sensor | *(Requires Full Game Library Scan)* Xbox-specific Game Library sensor |
 | sensor.gaming_status_XXXXX_library_playstation | Sensor | *(Requires Full Game Library Scan)* PlayStation-specific Game Library sensor |
+| sensor.gaming_status_XXXXX_library_ubisoft | Sensor | *(Requires Full Game Library Scan and [Ubisoft achievements from Gaming Status Agent](../getting-started/prerequisites.md#ubisoft-achievements))* Ubisoft-specific Game Library sensor |
 | sensor.gaming_status_XXXXX_library_epic | Sensor | *(Requires Full Game Library Scan and an [Epic account](../getting-started/prerequisites.md#epic-games-achievements))* Epic-specific Game Library sensor |
 | event.gaming_status_XXXXX_session | Event | **Gaming Activity**: the player's latest event. Its `event_type` attribute is `started`, `switched`, `stopped`, `screen_time_warning`, `screen_time_exceeded`, `curfew_exceeded`, `rating_exceeded` or `achievement_unlocked`, and its other attributes are that event's data. See [Events](events.md) |
 | image.gaming_status_XXXXX_game_art | Image | Cover art of the game the player is playing, or last played. Works in picture cards and notifications |

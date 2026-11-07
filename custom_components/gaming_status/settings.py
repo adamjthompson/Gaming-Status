@@ -64,19 +64,27 @@ PARENTAL_DEFAULTS: dict[str, dict[str, Any]] = {
 
 # Platforms with per-player achievement tracking / library scan settings.
 # Epic has no status sensor; its "source" is the player's Epic account ID.
-LIBRARY_PLATFORMS = ("steam", "xbox", "playstation", "epic")
+# Ubisoft's source is the player's Gaming Status Agent sensor.
+LIBRARY_PLATFORMS = ("steam", "xbox", "playstation", "epic", "ubisoft")
 
 
 def player_has_platform_source(
     player_data: dict, platform: str, enabled_platforms
 ) -> bool:
     """Whether a player has what a platform's achievements/library need:
-    its sensor for Steam/Xbox/PlayStation, an Epic account ID for Epic --
-    the latter only while Epic is checked under Platforms to Track (a saved
-    ID is kept, unused, while it's off)."""
+    its sensor for Steam/Xbox/PlayStation, an Epic account ID for Epic, a
+    Gaming Status Agent sensor for Ubisoft -- Epic and Ubisoft only while
+    checked under Platforms to Track (a saved Epic ID is kept, unused, while
+    Epic is off)."""
     if platform == "epic":
         return "epic" in enabled_platforms and bool(
             player_data.get(PLAYER_EPIC_ACCOUNT_ID)
+        )
+    if platform == "ubisoft":
+        return (
+            "ubisoft" in enabled_platforms
+            and "gsa" in enabled_platforms
+            and bool(player_data.get("gsa"))
         )
     return bool(player_data.get(platform))
 
