@@ -202,6 +202,15 @@ GSA_LAUNCHER_ICONS = {
     "playnite": "gaming-status:playnite",
     "epic": "gaming-status:epic",
     "ubisoft": "gaming-status:ubisoft",
+    "battle.net": "gaming-status:battlenet",
+    "gog": "gaming-status:gog",
+    "riot games": "gaming-status:riot",
+    "ea": "gaming-status:ea",
+    "amazon games": "gaming-status:amazongames",
+    "roblox": "gaming-status:roblox",
+    "rockstar games": "gaming-status:rockstar",
+    "lutris": "gaming-status:lutris",
+    "minecraft": "mdi:minecraft",
 }
 
 # Epic has no presence sensor of its own: its games arrive through the Agent
