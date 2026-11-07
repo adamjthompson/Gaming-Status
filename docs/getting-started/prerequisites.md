@@ -33,7 +33,7 @@ If you plan to use the **Content Rating Limit** parental control, enable **Enabl
 ### Epic Games Achievements
 Epic achievements are read from a player's **public Epic profile**, so no Epic sign-in or API key is needed. Epic works a little differently from the other platforms, because there's no Epic status sensor:
 
-| What | Needs |
+| Feature | Requirement(s) |
 | --- | --- |
 | Epic library (games, completion, XP) via the [Full Game Library Scan](../configuration/achievements-ratings.md) | The player's Epic account only |
 | Online status and the Epic game being played | [Gaming Status Agent](../setup/pc-tracking.md), which reports games from the Epic launcher |
@@ -52,7 +52,7 @@ Without the Agent, the Epic library sensor still works on its own; it just has n
 ### Ubisoft Achievements
 Ubisoft keeps achievement data only on the gaming PC, inside Ubisoft Connect, so it comes entirely from [Gaming Status Agent](../setup/pc-tracking.md). The Agent reads Ubisoft Connect's local files (read-only) and sends the library and unlocks to Home Assistant over MQTT, including each achievement's real icon.
 
-| What | Needs |
+| Feature | Requirement(s) |
 | --- | --- |
 | Ubisoft library (games with achievements, completion) via the [Full Game Library Scan](../configuration/achievements-ratings.md) | Gaming Status Agent with Ubisoft ticked and **Send Ubisoft achievements and library to Home Assistant** on (both under the Agent's **Platforms**) |
 | Live achievement counts for the Ubisoft game being played | The same, plus the game launched from Ubisoft Connect |
