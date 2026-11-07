@@ -330,7 +330,7 @@
           "enable_achievement_tracking": "Adds achievement/trophy counts and unlock details to the current game's Steam/Xbox/PlayStation sensor, reusing credentials already configured on the official integrations where possible, and to the Gaming Status Agent sensor for Epic and Ubisoft games when those are checked under Platforms to Track (Epic needs the player's Epic account, read from their public Epic profile; Ubisoft is sent by the Agent itself). Off by default. The recheck interval, credential overrides, and library scan fields below only take effect once this is on.",
           "achievement_recheck_seconds": "How often to re-check for newly-earned achievements/trophies while a game keeps running (Steam, PlayStation and Epic; Ubisoft unlocks arrive within seconds, pushed by Gaming Status Agent). Default 900 (15 min), minimum 300 (5 min).",
           "enable_library_scan": "Adds a Game Library sensor (plus one per tracked platform) with your full game collection -- total achievements/trophies, completion percentage, and per-game details -- scanned periodically in the background. Only created for platforms you already track, plus Epic for players with an Epic account set (listing the games with at least one Epic achievement unlocked) and Ubisoft for players with a Gaming Status Agent sensor (listing the games with achievement data on that PC). Off by default.",
-          "library_scan_interval_hours": "How often to rescan your full game library. Default 12 hours, range 1-24."
+          "library_scan_interval_hours": "How often to rescan your full game library. Default 12 hours, range 1-24. Doesn't apply to Ubisoft: its library updates as soon as Gaming Status Agent sends new data."
         }
       },
       "advanced": {
