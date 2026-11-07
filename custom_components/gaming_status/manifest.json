@@ -4,7 +4,7 @@
   "after_dependencies": ["playstation_network", "xbox", "steam_online", "mqtt"],
   "codeowners": ["@adamjthompson"],
   "config_flow": true,
-  "dependencies": ["http"],
+  "dependencies": ["frontend", "http"],
   "documentation": "https://github.com/adamjthompson/Gaming-Status",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/adamjthompson/Gaming-Status/issues",

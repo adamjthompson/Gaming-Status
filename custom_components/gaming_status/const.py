@@ -135,7 +135,11 @@ LIBRARY_BACKFILL_MAX_ATTEMPTS = 5
 ZOMBIE_ATTRIBUTES = ["grace_period_active", "xbox_last_seen_game", "debug_sync"]
 
 PLATFORM_CONFIG = {
-    "playnite": {"icon": "mdi:controller", "name_suffix": "Playnite", "group": "PC"},
+    "playnite": {
+        "icon": "gaming-status:playnite",
+        "name_suffix": "Playnite",
+        "group": "PC",
+    },
     "gsa": {
         "icon": "mdi:gamepad-square",
         "name_suffix": "GSA",
@@ -154,7 +158,11 @@ PLATFORM_CONFIG = {
         "name_suffix": "PlayStation",
         "group": "PlayStation",
     },
-    "discord": {"icon": "mdi:gamepad-variant", "name_suffix": "Discord", "group": "PC"},
+    "discord": {
+        "icon": "gaming-status:discord",
+        "name_suffix": "Discord",
+        "group": "PC",
+    },
 }
 
 PLATFORM_PRIORITY = [
@@ -186,10 +194,14 @@ PLAYER_PLATFORMS = [
 # and the Agent yields to the native sensor when both see the same game.
 GSA_NATIVE_LAUNCHERS = ("steam", "xbox")
 
+# "gaming-status:" icons are brand logos MDI lacks, from the integration's
+# own icon set (see frontend_icons.py).
 GSA_LAUNCHER_ICONS = {
     "steam": "mdi:steam",
     "xbox": "mdi:microsoft-xbox",
-    "playnite": "mdi:controller",
+    "playnite": "gaming-status:playnite",
+    "epic": "gaming-status:epic",
+    "ubisoft": "gaming-status:ubisoft",
 }
 
 # Epic has no presence sensor of its own: its games arrive through the Agent
@@ -214,8 +226,8 @@ GSA_LAUNCHER_UBISOFT = "ubisoft"
 GSA_ATTR_UBISOFT_GAME_ID = "Ubisoft Game ID"
 GSA_ATTR_UBISOFT_TOPIC = "Ubisoft Topic"
 LIBRARY_ONLY_PLATFORM_CONFIG = {
-    "epic": {"icon": "mdi:alpha-e-box", "name_suffix": "Epic"},
-    "ubisoft": {"icon": "mdi:alpha-u-box", "name_suffix": "Ubisoft"},
+    "epic": {"icon": "gaming-status:epic", "name_suffix": "Epic"},
+    "ubisoft": {"icon": "gaming-status:ubisoft", "name_suffix": "Ubisoft"},
 }
 
 # ---------------------------------------------------------------------------

@@ -907,6 +907,16 @@ _HANDLER_HASHES = " ".join(
 )
 
 
+def _icon_set_script_tag(hass: HomeAssistant) -> str:
+    """The integration's "gaming-status:" icon set (Epic, Ubisoft, Discord,
+    Playnite logos), which the cards use like MDI icons. Same-origin, so the
+    page's script-src 'self' allows it."""
+    from .frontend_icons import icon_set_url
+
+    url = icon_set_url(hass)
+    return f'<script type="module" src="{html.escape(url)}"></script>' if url else ""
+
+
 def _content_security_policy(nonce: str, cards_url: str) -> str:
     """Scripts only from this page (by nonce), Home Assistant, jsDelivr and
     the cards script's own host. Images may come from anywhere (artwork
@@ -974,6 +984,7 @@ class GamingStatusPublicPageView(HomeAssistantView):
             .replace("__JSON_URL__", html.escape(with_key(PUBLIC_JSON_URL, entry)))
             .replace("__ICON_URL__", html.escape(with_key(PUBLIC_ICON_URL, entry)))
             .replace("__MDI_CSS__", MDI_FONT_CSS)
+            .replace("__ICON_SET_SCRIPT__", _icon_set_script_tag(hass))
             .replace("__THEME_MODE__", theme_mode(entry)),
             content_type="text/html",
             headers={
@@ -1026,6 +1037,7 @@ PAGE_HTML = r"""<!doctype html>
 <meta name="twitter:card" content="summary">
 <link rel="icon" type="image/png" href="__ICON_URL__">
 <link rel="stylesheet" href="__MDI_CSS__">
+__ICON_SET_SCRIPT__
 <style>
 /* Home Assistant's default theme variables, which the cards read. */
 :root{
@@ -1104,8 +1116,22 @@ if(!customElements.get("ha-icon")){
     static get observedAttributes(){return["icon"]}
     attributeChangedCallback(_,__,v){this._set(v)}
     set icon(v){this.setAttribute("icon",v||"")} get icon(){return this.getAttribute("icon")}
-    _set(v){const s=this.shadowRoot.querySelector("span");const n=(v||"").replace(/^mdi:/,"");
-      s.className=n?"mdi mdi-"+n:"mdi"}
+    _set(v){const s=this.shadowRoot.querySelector("span");v=v||"";
+      // "prefix:name" icons other than mdi come from a registered custom
+      // icon set (the integration's "gaming-status:" logos), drawn inline
+      // in the current text color like Home Assistant does.
+      const i=v.indexOf(":"),pre=i>0?v.slice(0,i):"mdi",name=i>0?v.slice(i+1):v;
+      if(pre==="mdi"){s.innerHTML="";s.className=name?"mdi mdi-"+name:"mdi";return}
+      s.className="";s.innerHTML="";
+      const set=(window.customIcons||{})[pre];
+      if(!set){addEventListener("gaming-status-icons-registered",()=>{
+        if(this.getAttribute("icon")===v)this._set(v)},{once:true});return}
+      set.getIcon(name).then(ic=>{if(this.getAttribute("icon")!==v||!ic||!ic.path)return;
+        const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
+        svg.setAttribute("viewBox",ic.viewBox||"0 0 24 24");svg.setAttribute("fill","currentColor");
+        svg.style.cssText="width:var(--mdc-icon-size,24px);height:var(--mdc-icon-size,24px);display:block";
+        const path=document.createElementNS("http://www.w3.org/2000/svg","path");
+        path.setAttribute("d",ic.path);svg.append(path);s.replaceChildren(svg)})}
   });
 }
 

@@ -288,6 +288,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async_register_public_views(hass)
     async_invalidate_public_cache(hass)
 
+    # Brand logos MDI lacks (Epic, Ubisoft, Discord, Playnite), as the
+    # "gaming-status:" icon set. Never fatal: icons just fall back to blank.
+    from .frontend_icons import async_register_icon_set
+
+    try:
+        await async_register_icon_set(hass)
+    except Exception as err:
+        _LOGGER.warning("Gaming Status couldn't register its icon set: %s", err)
+
     # An expired-NPSSO Repairs issue is keyed to the old cookie, which a
     # replaced NPSSO never touches again -- drop them here (a reload follows
     # any options save) and let the next PSN call re-raise one still dead.
