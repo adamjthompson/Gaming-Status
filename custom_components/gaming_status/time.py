@@ -46,4 +46,5 @@ class CurfewTime(PlayerParentalMixin, TimeEntity):
             return None
 
     async def async_set_value(self, value: time) -> None:
+        await self._async_check_admin()
         self._set_rule_value(self._key, value.strftime("%H:%M"))

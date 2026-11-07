@@ -31,6 +31,7 @@ class _ParentalNumber(PlayerParentalMixin, NumberEntity):
         return float(self._rule_value(self._key) or 0)
 
     async def async_set_native_value(self, value: float) -> None:
+        await self._async_check_admin()
         self._set_rule_value(self._key, int(value))
 
 

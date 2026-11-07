@@ -39,8 +39,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import gzip
 import hashlib
+import hmac
 import html
+import ipaddress
 import json
 import logging
 import re
@@ -91,15 +94,24 @@ PUBLIC_JSON_URL = "/api/gaming_status/public.json"
 # Under the page's own path, so a proxy/tunnel rule allowing the page
 # allows its icon too.
 PUBLIC_ICON_URL = f"{PUBLIC_PAGE_URL}/icon.png"
+PUBLIC_AVATAR_URL = f"{PUBLIC_PAGE_URL}/avatar"
 _ICON_PATH = Path(__file__).parent / "brand" / "icon.png"
 PLAYER_OPT_PUBLIC = "show_on_public_page"
 
-# Fallback when the cards aren't installed as a Lovelace resource. Tracks
-# the latest cards release, which ships alongside each Gaming Status
-# release; jsDelivr re-resolves @latest about every 12 hours.
+# Fallback when the cards aren't installed as a Lovelace resource. Pinned
+# to one cards release and loaded with its Subresource Integrity hash: the
+# page is served from Home Assistant's own origin, so a script swapped in
+# upstream could read a logged-in owner's HA session. Bump the tag and hash
+# together when releasing new cards (scripts/check_cards_pin.py, run in CI,
+# fails if they don't match). Hash: `curl -sL <url> | openssl dgst -sha384
+# -binary | base64`.
+CARDS_CDN_TAG = "2026.11.3.2"
 CARDS_CDN_FALLBACK = (
-    "https://cdn.jsdelivr.net/gh/adamjthompson/Gaming-Status-Cards@latest/"
+    f"https://cdn.jsdelivr.net/gh/adamjthompson/Gaming-Status-Cards@{CARDS_CDN_TAG}/"
     "gaming-status-cards.js"
+)
+CARDS_CDN_INTEGRITY = (
+    "sha384-XNPR2MBIJoxuIP7xEJ4+uLVQHGIciRbYnfMnYPpp+OA1hfbBjiUD2w7kbHbUB8DR"
 )
 MDI_FONT_CSS = (
     "https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css"
@@ -109,7 +121,9 @@ _VIEWS_REGISTERED_KEY = f"{DOMAIN}_public_views_registered"
 _CACHE_KEY = f"{DOMAIN}_public_cache"
 _CACHE_LOCK_KEY = f"{DOMAIN}_public_cache_lock"
 _CACHE_BODY_KEY = f"{DOMAIN}_public_cache_body"
+_CACHE_ENCODE_LOCK_KEY = f"{DOMAIN}_public_cache_encode_lock"
 CACHE_SECONDS = 30
+_QVALUE_RE = re.compile(r"\bq\s*=\s*([0-9.]+)", re.IGNORECASE)
 
 # type -> (label for the options menu, per_player, data requirement)
 # per_player cards are rendered once per public player via single_entity;
@@ -185,7 +199,10 @@ _DENY_ATTR_RE = re.compile(
     r"(token|npsso|oauth|password|secret|api_key|xuid|account|config_entry|"
     r"discord_user|discord_data|user_id|steam_?id|online_id|"
     r"internal|blocked|limit|remaining|parental|snooze|"
-    r"rating_exceeded|source_entit|debug|backup)",
+    r"rating_exceeded|source_entit|debug|backup|"
+    # Raw API error text (e.g. the library sensor's platform_errors) can
+    # quote request URLs and messages containing account ids/XUIDs.
+    r"error)",
     re.IGNORECASE,
 )
 # Real account names: removed unless Show gamertags is on.
@@ -211,6 +228,7 @@ def async_register_public_views(hass: HomeAssistant) -> None:
     hass.http.register_view(GamingStatusPublicJsonView())
     hass.http.register_view(GamingStatusPublicPageView())
     hass.http.register_view(GamingStatusPublicIconView())
+    hass.http.register_view(GamingStatusPublicAvatarView())
     hass.data[_VIEWS_REGISTERED_KEY] = True
 
 
@@ -292,12 +310,26 @@ def _rate_limited(hass: HomeAssistant, request: web.Request) -> bool:
         if len(hits) > 10000:
             hits.clear()
         hass.data[_RATE_PRUNED_KEY] = now
-    ip = request.remote or ""
+    ip = _rate_limit_bucket(request.remote or "")
     start, count = hits.get(ip, (now, 0))
     if now - start > _RATE_LIMIT_WINDOW_SECONDS:
         start, count = now, 0
     hits[ip] = (start, count + 1)
     return count + 1 > _RATE_LIMIT_MAX_REQUESTS
+
+
+def _rate_limit_bucket(remote: str) -> str:
+    """Counts a public IPv6 client by its /64: one home or host is handed a
+    whole /64 and can rotate through it freely, which would otherwise dodge
+    the per-address cap. IPv4 and local/LAN addresses stay per address, so
+    devices on your own network don't share a limit."""
+    try:
+        addr = ipaddress.ip_address(remote)
+    except ValueError:
+        return remote
+    if addr.version == 6 and addr.is_global:
+        return str(ipaddress.ip_network(f"{addr}/64", strict=False))
+    return remote
 
 
 def _request_allowed(request: web.Request, entry) -> bool:
@@ -448,25 +480,69 @@ def _public_url_ok(value: str) -> bool:
     return value.startswith("/api/image_proxy/") and "token=" in value
 
 
+# The Xbox/PlayStation integrations name their gamerpic image entities
+# after the gamertag (image.<gamertag>_gamerpic / image.<online_id>_avatar),
+# so an image_proxy URL would reveal it even with Show gamertags off. Those
+# are swapped for an opaque /gaming_status/public/avatar/<alias> URL that
+# GamingStatusPublicAvatarView serves the same image bytes from.
+_IMAGE_PROXY_RE = re.compile(r"^/api/image_proxy/(image\.[a-z0-9_]+)\?")
+_AVATAR_HMAC_DATA = "gaming_status_public_avatar_hmac"
+_AVATAR_ALIASES_KEY = "gaming_status_public_avatar_aliases"
+_AVATAR_TIMEOUT_SECONDS = 10
+
+
+class _AvatarAliases:
+    """Maps image entities seen while filtering to opaque aliases. Aliases
+    are an HMAC of the entity id under a per-run secret, so they're stable
+    across payload rebuilds (a page loaded earlier keeps working) but can't
+    be reversed or guessed."""
+
+    def __init__(self, hass: HomeAssistant, entry) -> None:
+        secret = hass.data.get(_AVATAR_HMAC_DATA)
+        if secret is None:
+            secret = hass.data[_AVATAR_HMAC_DATA] = secrets.token_bytes(32)
+        self._secret = secret
+        self._entry = entry
+        self.by_alias: dict[str, str] = {}
+
+    def url_for(self, proxy_url: str) -> str | None:
+        match = _IMAGE_PROXY_RE.match(proxy_url)
+        if not match:
+            return None
+        entity_id = match.group(1)
+        alias = hmac.new(self._secret, entity_id.encode(), hashlib.sha256).hexdigest()[
+            :32
+        ]
+        self.by_alias[alias] = entity_id
+        return with_key(f"{PUBLIC_AVATAR_URL}/{alias}", self._entry)
+
+
 _DROP = object()
 
 
-def _filter_value(value, show_gamertags: bool):
+def _filter_value(value, show_gamertags: bool, avatars: _AvatarAliases | None = None):
     """Filters nested dicts/lists the same way as top-level attributes, so
     a sensitive field can't slip through inside another one."""
     if isinstance(value, dict):
-        return _filter_attrs(value, show_gamertags)
+        return _filter_attrs(value, show_gamertags, avatars)
     if isinstance(value, (list, tuple)):
-        items = (_filter_value(v, show_gamertags) for v in value)
+        items = (_filter_value(v, show_gamertags, avatars) for v in value)
         return [v for v in items if v is not _DROP]
-    if isinstance(value, str) and value.startswith("/") and not _public_url_ok(value):
-        # e.g. /api/camera_proxy/... needs a login; drop rather than hand
-        # the card a URL that renders as a broken image.
-        return _DROP
+    if isinstance(value, str) and value.startswith("/"):
+        if not _public_url_ok(value):
+            # e.g. /api/camera_proxy/... needs a login; drop rather than
+            # hand the card a URL that renders as a broken image.
+            return _DROP
+        if not show_gamertags and value.startswith("/api/image_proxy/"):
+            if avatars is None:
+                return _DROP
+            return avatars.url_for(value) or _DROP
     return value
 
 
-def _filter_attrs(attrs: dict, show_gamertags: bool) -> dict:
+def _filter_attrs(
+    attrs: dict, show_gamertags: bool, avatars: _AvatarAliases | None = None
+) -> dict:
     out = {}
     for key, value in attrs.items():
         key_str = str(key)
@@ -474,7 +550,7 @@ def _filter_attrs(attrs: dict, show_gamertags: bool) -> dict:
             continue
         if not show_gamertags and _GAMERTAG_RE.search(key_str):
             continue
-        filtered = _filter_value(value, show_gamertags)
+        filtered = _filter_value(value, show_gamertags, avatars)
         if filtered is not _DROP:
             out[key] = filtered
     return out
@@ -767,6 +843,7 @@ async def _build_public_payload(hass: HomeAssistant, now: float) -> dict | None:
         return None
     names = public_players(entry)
     show_gamertags = entry.options.get(OPT_PUBLIC_PAGE_SHOW_GAMERTAGS, False)
+    avatars = _AvatarAliases(hass, entry)
 
     states: dict[str, dict] = {}
     masters: dict[str, str] = {}
@@ -779,7 +856,7 @@ async def _build_public_payload(hass: HomeAssistant, now: float) -> dict | None:
             if st is None:
                 continue
             states[entity_id] = _state_dict(
-                st, _filter_attrs(dict(st.attributes), show_gamertags)
+                st, _filter_attrs(dict(st.attributes), show_gamertags, avatars)
             )
             if entity_id == master_id:
                 masters[name] = master_id
@@ -832,17 +909,26 @@ async def _build_public_payload(hass: HomeAssistant, now: float) -> dict | None:
     if theme_name == PUBLIC_PAGE_THEME_DEFAULT:
         theme_name = (view or {}).get("theme")
 
+    cards_url = await _cards_script_url(hass, entry)
     payload = {
         "title": entry.options.get(OPT_PUBLIC_PAGE_TITLE) or DEFAULT_PUBLIC_PAGE_TITLE,
         "theme_mode": theme_mode(entry),
         "theme": _theme_vars(hass, theme_name),
-        "cards_url": await _cards_script_url(hass, entry),
+        "cards_url": cards_url,
+        # Only the pinned fallback has a known hash; a Lovelace resource or
+        # a Cards script URL override is the owner's own choice of script.
+        "cards_integrity": (
+            CARDS_CDN_INTEGRITY if cards_url == CARDS_CDN_FALLBACK else None
+        ),
         "generated_at": dt_util.now().isoformat(),
         "refresh_seconds": CACHE_SECONDS * 2,
         "layout": layout,
         "notice": notice,
         "states": states,
     }
+    # Only images the current snapshot actually references can be served
+    # by the avatar view; replaced together with the payload.
+    hass.data[_AVATAR_ALIASES_KEY] = avatars.by_alias
     hass.data[_CACHE_KEY] = (now, payload)
     return payload
 
@@ -866,30 +952,72 @@ class GamingStatusPublicJsonView(HomeAssistantView):
         payload = await build_public_payload(hass)
         if payload is None:
             return web.json_response({"error": "not_enabled"}, status=404)
-        # Serialized once per cache rebuild rather than once per visitor:
-        # the payload can be large and every open page polls it.
-        cached_body = hass.data.get(_CACHE_BODY_KEY)
-        if cached_body and cached_body[0] is payload:
-            body = cached_body[1]
-        else:
-            body = json_bytes(payload)
-            hass.data[_CACHE_BODY_KEY] = (payload, body)
-        resp = web.Response(
+        body, gz = await _encoded_payload(hass, payload)
+        headers = {
+            # A key-protected snapshot must not sit in shared caches.
+            "Cache-Control": (
+                f"{'private' if page_key(_loaded_entry(hass)) else 'public'}, "
+                f"max-age={CACHE_SECONDS}"
+            ),
+            "Referrer-Policy": "no-referrer",
+            "X-Robots-Tag": "noindex",
+            "Vary": "Accept-Encoding",
+        }
+        if _accepts_gzip(request):
+            headers["Content-Encoding"] = "gzip"
+            body = gz
+        return web.Response(
             body=body,
             content_type="application/json",
             charset="utf-8",
-            headers={
-                # A key-protected snapshot must not sit in shared caches.
-                "Cache-Control": (
-                    f"{'private' if page_key(_loaded_entry(hass)) else 'public'}, "
-                    f"max-age={CACHE_SECONDS}"
-                ),
-                "Referrer-Policy": "no-referrer",
-                "X-Robots-Tag": "noindex",
-            },
+            headers=headers,
         )
-        resp.enable_compression()  # library "games" lists can be large
-        return resp
+
+
+async def _encoded_payload(hass: HomeAssistant, payload: dict) -> tuple[bytes, bytes]:
+    """The payload as JSON bytes and gzipped, made once per cache rebuild
+    rather than once per visitor: library "games" lists can make it several
+    MB and every open page polls it. Compression runs in the executor --
+    aiohttp's enable_compression() would redo it per request, on the event
+    loop. The payload is never mutated after it's built, so sharing the
+    encoded bytes is safe."""
+    cached = hass.data.get(_CACHE_BODY_KEY)
+    if cached and cached[0] is payload:
+        return cached[1], cached[2]
+    lock = hass.data.setdefault(_CACHE_ENCODE_LOCK_KEY, asyncio.Lock())
+    async with lock:
+        cached = hass.data.get(_CACHE_BODY_KEY)
+        if cached and cached[0] is payload:
+            return cached[1], cached[2]
+        body = json_bytes(payload)
+        gz = await hass.async_add_executor_job(_gzip, body)
+        # Keyed by payload identity, so if the cache is invalidated while
+        # compressing, the next request just encodes the new payload.
+        hass.data[_CACHE_BODY_KEY] = (payload, body, gz)
+        return body, gz
+
+
+def _gzip(body: bytes) -> bytes:
+    # Level 6 (zlib's default) is far cheaper than gzip's 9 for a near-
+    # identical size on JSON; mtime=0 keeps the output deterministic.
+    return gzip.compress(body, compresslevel=6, mtime=0)
+
+
+def _accepts_gzip(request: web.Request) -> bool:
+    """Whether the client's Accept-Encoding allows gzip (every browser's
+    fetch() sends it and decodes transparently)."""
+    for part in request.headers.get("Accept-Encoding", "").split(","):
+        coding, _, params = part.partition(";")
+        if coding.strip().lower() not in ("gzip", "x-gzip", "*"):
+            continue
+        q = _QVALUE_RE.search(params)
+        if q is None:
+            return True
+        try:
+            return float(q.group(1)) > 0  # "gzip;q=0" means "not gzip"
+        except ValueError:
+            return False
+    return False
 
 
 # The cards' one inline image-fallback handler (onerror=...), allowed by
@@ -917,14 +1045,24 @@ def _icon_set_script_tag(hass: HomeAssistant) -> str:
     return f'<script type="module" src="{html.escape(url)}"></script>' if url else ""
 
 
+# Characters that would end or split a CSP source expression.
+_CSP_UNSAFE_RE = re.compile(r"[\s;,'\"]")
+
+
 def _content_security_policy(nonce: str, cards_url: str) -> str:
-    """Scripts only from this page (by nonce), Home Assistant, jsDelivr and
-    the cards script's own host. Images may come from anywhere (artwork
-    hosts vary); the page itself makes no requests except to HA."""
-    script_hosts = {"'self'", "https://cdn.jsdelivr.net"}
+    """Scripts only from this page (by nonce), Home Assistant, and the cards
+    script itself -- the exact file, not its whole host, when it's off-site
+    (a shared CDN like jsDelivr serves anyone's code). Images may come from
+    anywhere (artwork hosts vary); the page itself makes no requests except
+    to HA."""
+    script_hosts = {"'self'"}
     parts = urlsplit(cards_url)
     if parts.scheme in ("http", "https") and parts.netloc:
-        script_hosts.add(f"{parts.scheme}://{parts.netloc}")
+        source = f"{parts.scheme}://{parts.netloc}"
+        if parts.path and not _CSP_UNSAFE_RE.search(parts.path):
+            source += parts.path
+        if not _CSP_UNSAFE_RE.search(source):
+            script_hosts.add(source)
     return "; ".join(
         [
             "default-src 'self'",
@@ -1014,6 +1152,58 @@ class GamingStatusPublicIconView(HomeAssistantView):
             return web.Response(status=404, text="Not found")
         return web.FileResponse(
             _ICON_PATH, headers={"Cache-Control": "public, max-age=86400"}
+        )
+
+
+class GamingStatusPublicAvatarView(HomeAssistantView):
+    """Serves a gamerpic image entity's bytes under an opaque alias (see
+    _AvatarAliases), so the page can show avatars without its image URLs
+    naming the gamertag. Only images the current public snapshot
+    references are served."""
+
+    url = PUBLIC_AVATAR_URL + "/{alias}"
+    name = "gaming_status:public_avatar"
+    requires_auth = False
+
+    async def get(self, request: web.Request, alias: str) -> web.Response:
+        hass = request.app["hass"]
+        if _rate_limited(hass, request):
+            return web.Response(status=429, text="Too many requests")
+        entry = _loaded_entry(hass)
+        if not _request_allowed(request, entry):
+            return web.Response(status=404, text="Not found")
+        # Refreshes the alias map if the snapshot is stale, so a player who
+        # just left the public page stops being served (cached otherwise).
+        if await build_public_payload(hass) is None:
+            return web.Response(status=404, text="Not found")
+        entity_id = (hass.data.get(_AVATAR_ALIASES_KEY) or {}).get(alias)
+        component = hass.data.get("image")
+        entity = component.get_entity(entity_id) if entity_id and component else None
+        if entity is None:
+            return web.Response(status=404, text="Not found")
+        try:
+            async with asyncio.timeout(_AVATAR_TIMEOUT_SECONDS):
+                content = await entity.async_image()
+        except Exception:
+            _LOGGER.debug(
+                "[Gaming Status] Public avatar %s failed", entity_id, exc_info=True
+            )
+            content = None
+        content_type = entity.content_type or ""
+        if not content or not content_type.startswith("image/"):
+            return web.Response(status=404, text="Not found")
+        return web.Response(
+            body=content,
+            content_type=content_type,
+            headers={
+                "Cache-Control": (
+                    f"{'private' if page_key(entry) else 'public'}, "
+                    f"max-age={CACHE_SECONDS}"
+                ),
+                "Referrer-Policy": "no-referrer",
+                "X-Robots-Tag": "noindex",
+                "X-Content-Type-Options": "nosniff",
+            },
         )
 
 
@@ -1163,9 +1353,10 @@ function makeHass(states){
 }
 
 let cards=[], layoutKey="", scriptUrl=null;
-function loadScript(url){return new Promise((ok,fail)=>{
+function loadScript(url,integrity){return new Promise((ok,fail)=>{
   if(scriptUrl===url)return ok(); const s=document.createElement("script");
-  s.type="module";s.src=url;s.onload=()=>{scriptUrl=url;ok()};s.onerror=()=>{s.remove();fail(new Error("cards script failed to load: "+url))};
+  s.type="module";if(integrity){s.integrity=integrity;s.crossOrigin="anonymous"}
+  s.src=url;s.onload=()=>{scriptUrl=url;ok()};s.onerror=()=>{s.remove();fail(new Error("cards script failed to load: "+url))};
   document.head.append(s)})}
 
 function msg(text){document.getElementById("cards").replaceChildren(
@@ -1216,7 +1407,7 @@ async function refresh(){
     document.getElementById("updated").textContent=isNaN(at)?"":
       `Updated ${at.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})} · `;
     step="script";
-    await loadScript(d.cards_url);
+    await loadScript(d.cards_url,d.cards_integrity);
     step="render";
     const hass=makeHass(d.states); const key=JSON.stringify(d.layout);
     if(d.notice){layoutKey="";cards=[];msg(d.notice)}

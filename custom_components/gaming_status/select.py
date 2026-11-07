@@ -42,6 +42,7 @@ class _ParentalSelect(PlayerParentalMixin, SelectEntity):
             return None
 
     async def async_select_option(self, option: str) -> None:
+        await self._async_check_admin()
         value = next(v for v, label in self._choices.items() if label == option)
         self._set_rule_value(self._key, value)
 
