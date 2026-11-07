@@ -110,7 +110,7 @@ Epic achievements come from the player's public Epic profile (see [Epic Games Ac
 - **The game may not use Epic achievements:** Many Epic games have none at all (for example, Marvel's Guardians of the Galaxy). In the Epic Games launcher, a game with Epic achievements has an **Achievements** section on its page.
 - **The profile or its achievements may be private:** Both must be public. Re-saving the player's Epic account under Manage Players reports a private profile.
 - **No achievements unlocked yet:** A game only appears on a public profile after its first unlock, so the current-game counts start showing after that first achievement (within the recheck interval).
-- **The game must come from Gaming Status Agent:** Live Epic achievements only apply when the Agent reports the game with the `Epic` launcher. Epic games seen only through Discord aren't covered.
+- **The game must come from Gaming Status Agent:** Epic online status and live Epic achievements only apply when the Agent reports the game with the `Epic` launcher. Epic games seen only through Discord aren't covered. The Epic library sensor works without the Agent, but its unlocks only reach the achievement history when the player has an Agent sensor.
 - **Renamed titles:** Without the Agent's Epic game ID, the game is matched to the profile by its title. A Title Override changes only what's displayed, so it doesn't affect this.
 
 ## I changed a game's title, but the old name is still showing.

@@ -34,13 +34,20 @@
           "discord": "Discord Profile",
           "playnite": "Playnite Sensor",
           "gsa": "Gaming Status Agent Sensor",
-          "custom": "Custom Sensor"
+          "custom": "Custom Sensor",
+          "epic_account_id": "Epic Account (optional)"
+        },
+        "data_description": {
+          "epic_account_id": "Paste the link to this player's Epic Games Store profile, or their 32-character Epic account ID. Their Epic profile and achievements must be public. This alone is enough for the Epic library scan. Epic online status, the current game, and live Epic achievements need Gaming Status Agent, which reports games from the Epic launcher."
         }
       }
     },
     "error": {
       "name_required": "You must provide a name for this player.",
-      "custom_duplicates_gsa": "The Custom sensor can't be the same entity as the Gaming Status Agent sensor."
+      "custom_duplicates_gsa": "The Custom sensor can't be the same entity as the Gaming Status Agent sensor.",
+      "invalid_epic_account_id": "That doesn't look like an Epic account ID. Paste the link to your Epic Games Store profile, or the 32-character ID from your Epic account settings.",
+      "epic_profile_private": "This Epic profile is private. Set the profile and its achievements to public in Epic's privacy settings, then try again.",
+      "epic_account_not_found": "Epic couldn't find an account with that ID. Check the profile link or account ID and try again."
     },
     "abort": {
       "single_instance_allowed": "Only one instance of Gaming Status can be configured."
@@ -95,7 +102,7 @@
           "gsa": "Select this player's Gaming Status Agent sensor, e.g. sensor.gsa_player_one",
           "custom": "Any sensor whose state is the game title (or on/off), e.g. sensor.player_one_active_pc_game",
           "playnite": "e.g. sensor.playnite_playing_game",
-          "epic_account_id": "Paste the link to this player's Epic Games Store profile, or their 32-character Epic account ID. Their Epic profile and achievements must be public. Used for Epic achievements on games Gaming Status Agent reports from the Epic launcher, and for the Epic library scan."
+          "epic_account_id": "Paste the link to this player's Epic Games Store profile, or their 32-character Epic account ID. Their Epic profile and achievements must be public. This alone is enough for the Epic library scan. Epic online status, the current game, and live Epic achievements need Gaming Status Agent, which reports games from the Epic launcher."
         }
       },
       "edit_player": {
@@ -120,7 +127,7 @@
           "discord": "Select the Discord user from the dropdown.",
           "gsa": "Select this player's Gaming Status Agent sensor (sensor.gsa_*)",
           "custom": "Any sensor whose state is the game title (or on/off), e.g. a HASS.Agent or template sensor",
-          "epic_account_id": "Paste the link to this player's Epic Games Store profile, or their 32-character Epic account ID. Their Epic profile and achievements must be public. Used for Epic achievements on games Gaming Status Agent reports from the Epic launcher, and for the Epic library scan."
+          "epic_account_id": "Paste the link to this player's Epic Games Store profile, or their 32-character Epic account ID. Their Epic profile and achievements must be public. This alone is enough for the Epic library scan. Epic online status, the current game, and live Epic achievements need Gaming Status Agent, which reports games from the Epic launcher."
         }
       },
       "player_details": {
@@ -308,7 +315,7 @@
       },
       "achievements_ratings": {
         "title": "Achievements & Ratings",
-        "description": "Native achievement/trophy/rating enrichment and full game library scanning, reusing credentials already configured on the official  integrations where possible.",
+        "description": "Native achievement/trophy/rating enrichment and full game library scanning, reusing credentials already configured on the official integrations where possible.",
         "data": {
           "enable_native_ratings": "Enable Native Content Ratings",
           "enable_achievement_tracking": "Enable Achievement/Trophy Tracking",
@@ -318,9 +325,9 @@
         },
         "data_description": {
           "enable_native_ratings": "Looks up each game's ESRB rating directly from Steam/Xbox/PlayStation -- feeds the game_content_rating sensor attribute and Parental Controls' Content Rating Limit rule. Independent of achievement tracking below: Steam and Xbox ratings need no credential at all, PlayStation reuses the same session achievement tracking uses. Off by default. Also shown on the per-player Parental Controls screen (same setting, shown in both places for convenience).",
-          "enable_achievement_tracking": "Adds achievement/trophy counts and unlock details to the current game's Steam/Xbox/PlayStation sensor, reusing credentials already configured on the official  integrations where possible. Off by default. The recheck interval, credential overrides, and library scan fields below only take effect once this is on.",
-          "achievement_recheck_seconds": "How often to re-check for newly-earned achievements/trophies while a game keeps running. Default 900 (15 min), minimum 300 (5 min).",
-          "enable_library_scan": "Adds a Game Library sensor (plus one per tracked platform) with your full game collection -- total achievements/trophies, completion percentage, and per-game details -- scanned periodically in the background. Only created for platforms you already track. Off by default.",
+          "enable_achievement_tracking": "Adds achievement/trophy counts and unlock details to the current game's Steam/Xbox/PlayStation sensor, reusing credentials already configured on the official integrations where possible, and to the Gaming Status Agent sensor for Epic games when Epic is checked under Platforms to Track and the player has an Epic account set (read from their public Epic profile, no sign-in). Off by default. The recheck interval, credential overrides, and library scan fields below only take effect once this is on.",
+          "achievement_recheck_seconds": "How often to re-check for newly-earned achievements/trophies while a game keeps running (Steam, PlayStation and Epic). Default 900 (15 min), minimum 300 (5 min).",
+          "enable_library_scan": "Adds a Game Library sensor (plus one per tracked platform) with your full game collection -- total achievements/trophies, completion percentage, and per-game details -- scanned periodically in the background. Only created for platforms you already track, plus Epic for players with an Epic account set (listing the games with at least one Epic achievement unlocked). Off by default.",
           "library_scan_interval_hours": "How often to rescan your full game library. Default 12 hours, range 1-24."
         }
       },
@@ -362,7 +369,7 @@
           "enable_ps3_tracking": "Enable PS3 Tracking"
         },
         "data_description": {
-          "enabled_platforms": "Select which platforms should appear in the player configuration menus.",
+          "enabled_platforms": "Select which platforms should appear in the player configuration menus. Epic Games works differently from the others: it adds an Epic account field to each player instead of a sensor. That account alone powers the Epic library scan; Epic online status and live Epic achievements come from Gaming Status Agent.",
           "use_local_cache": "Downloads artwork to your local storage. Disable this to use raw web URLs (recommended if you use Discord notifications without remote HA access).",
           "extract_colors": "Automatically calculates the dominant vibrant color of game artwork for use in dashboard cards. *Note: This will be automatically ignored if Local Caching is disabled.*",
           "cache_max_files": "The maximum number of images to keep on your drive. Set to 0 for unlimited. Default: 200",

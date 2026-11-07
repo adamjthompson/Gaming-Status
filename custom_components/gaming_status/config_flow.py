@@ -249,25 +249,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         OPT_ENABLED_PLATFORMS, default=smart_platforms
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
-                            options=[
-                                selector.SelectOptionDict(value="steam", label="Steam"),
-                                selector.SelectOptionDict(value="xbox", label="Xbox"),
-                                selector.SelectOptionDict(
-                                    value="playstation", label="PlayStation"
-                                ),
-                                selector.SelectOptionDict(
-                                    value="discord", label="Discord"
-                                ),
-                                selector.SelectOptionDict(
-                                    value="gsa", label="Gaming Status Agent"
-                                ),
-                                selector.SelectOptionDict(
-                                    value="custom", label="Custom"
-                                ),
-                                selector.SelectOptionDict(
-                                    value="playnite", label="Playnite"
-                                ),
-                            ],
+                            options=_PLATFORM_CHOICES,
                             multiple=True,
                             mode=selector.SelectSelectorMode.LIST,
                         )
@@ -318,6 +300,12 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["player_name"] = "name_required"
             elif _custom_duplicates_gsa(user_input):
                 errors["custom"] = "custom_duplicates_gsa"
+            elif (
+                epic_result := await _async_validate_epic_account(
+                    self.hass, user_input.get(PLAYER_EPIC_ACCOUNT_ID)
+                )
+            )[1]:
+                errors[PLAYER_EPIC_ACCOUNT_ID] = epic_result[1]
             else:
                 player_data = {}
                 platforms = [
@@ -335,6 +323,8 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         val = str(val).strip()
                         if val and val.lower() != "none":
                             player_data[platform] = val
+                if epic_result[0]:
+                    player_data[PLAYER_EPIC_ACCOUNT_ID] = epic_result[0]
 
                 from .const import OPT_PLAYERS
 
@@ -375,19 +365,7 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             options.append(entry.entity_id)
             except Exception:
                 pass
-            options = sorted(list(set(options)))
-            options.insert(0, "none")
-            if len(options) > 1:
-                return selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=options,
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                        custom_value=True,
-                    )
-                )
-            return selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=domain, integration=integration)
-            )
+            return _entity_dropdown(options)
 
         if "steam" in enabled_platforms:
             schema[vol.Optional("steam")] = _get_filtered_selector(
@@ -399,6 +377,8 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             schema[vol.Optional("playstation")] = _get_filtered_selector(
                 "playstation_network", "_now_playing"
             )
+        if "epic" in enabled_platforms:
+            schema[vol.Optional(PLAYER_EPIC_ACCOUNT_ID)] = str
         if "discord" in enabled_platforms:
             token = self._temp_user_input.get(CONF_DISCORD_TOKEN)
             server_id = self._temp_user_input.get(CONF_DISCORD_SERVER)
@@ -418,16 +398,14 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
             )
         if "playnite" in enabled_platforms:
-            schema[vol.Optional("playnite")] = selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain="binary_sensor", integration="mqtt"
-                )
+            schema[vol.Optional("playnite")] = _get_filtered_selector(
+                "mqtt", domain="binary_sensor"
             )
         if "gsa" in enabled_platforms:
             schema[vol.Optional("gsa")] = _get_filtered_selector("mqtt", prefix="gsa_")
         if "custom" in enabled_platforms:
-            schema[vol.Optional("custom")] = selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor")
+            schema[vol.Optional("custom")] = _entity_dropdown(
+                _custom_sensor_options(self.hass)
             )
 
         return self.async_show_form(
@@ -529,6 +507,47 @@ async def _async_validate_epic_account(hass, raw):
     except ApiError as err:
         _LOGGER.debug("Gaming Status: couldn't verify the Epic account: %s", err)
     return account_id, None
+
+
+def _entity_dropdown(options, current_val: str = ""):
+    """The one picker used for every sensor slot (Steam, Xbox, PlayStation,
+    Gaming Status Agent, Playnite, Custom), so they all look alike -- label
+    inside the field -- whether or not any matching entities exist (HA's
+    entity picker renders its label as a heading above the field instead).
+    custom_value lets an entity ID that isn't listed be typed in; "none"
+    clears the slot."""
+    values = set(options)
+    if current_val and current_val.lower() != "none":
+        values.add(current_val)
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=["none", *sorted(values)],
+            mode=selector.SelectSelectorMode.DROPDOWN,
+            custom_value=True,
+        )
+    )
+
+
+def _custom_sensor_options(hass) -> list[str]:
+    """Every sensor except Gaming Status's own -- the Custom slot accepts
+    any sensor whose state is the game title (or on/off)."""
+    return [
+        entity_id
+        for entity_id in hass.states.async_entity_ids("sensor")
+        if not entity_id.startswith("sensor.gaming_status_")
+    ]
+
+
+_PLATFORM_CHOICES = [
+    selector.SelectOptionDict(value="steam", label="Steam"),
+    selector.SelectOptionDict(value="xbox", label="Xbox"),
+    selector.SelectOptionDict(value="playstation", label="PlayStation"),
+    selector.SelectOptionDict(value="epic", label="Epic Games"),
+    selector.SelectOptionDict(value="discord", label="Discord"),
+    selector.SelectOptionDict(value="gsa", label="Gaming Status Agent"),
+    selector.SelectOptionDict(value="custom", label="Custom"),
+    selector.SelectOptionDict(value="playnite", label="Playnite"),
+]
 
 
 class GamingStatusOptionsFlow(config_entries.OptionsFlow):
@@ -653,19 +672,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 default=opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS),
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=[
-                        selector.SelectOptionDict(value="steam", label="Steam"),
-                        selector.SelectOptionDict(value="xbox", label="Xbox"),
-                        selector.SelectOptionDict(
-                            value="playstation", label="PlayStation"
-                        ),
-                        selector.SelectOptionDict(value="discord", label="Discord"),
-                        selector.SelectOptionDict(
-                            value="gsa", label="Gaming Status Agent"
-                        ),
-                        selector.SelectOptionDict(value="custom", label="Custom"),
-                        selector.SelectOptionDict(value="playnite", label="Playnite"),
-                    ],
+                    options=_PLATFORM_CHOICES,
                     multiple=True,
                     mode=selector.SelectSelectorMode.LIST,
                 )
@@ -911,13 +918,15 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 elif "ps3" in existing:
                     del existing["ps3"]
 
-            # The Epic account field is always shown, so an empty value means
-            # it was cleared: drop the ID and its library sensor.
-            if epic_id:
-                existing[PLAYER_EPIC_ACCOUNT_ID] = epic_id
-            elif PLAYER_EPIC_ACCOUNT_ID in existing:
-                del existing[PLAYER_EPIC_ACCOUNT_ID]
-                await self._cleanup_player_entities(name, ["epic"])
+            # Like PS3: only touch the Epic ID while its field is shown (Epic
+            # checked under Platforms to Track), so turning Epic off doesn't
+            # wipe a saved ID. Shown and empty means it was cleared.
+            if "epic" in enabled_platforms:
+                if epic_id:
+                    existing[PLAYER_EPIC_ACCOUNT_ID] = epic_id
+                elif PLAYER_EPIC_ACCOUNT_ID in existing:
+                    del existing[PLAYER_EPIC_ACCOUNT_ID]
+                    await self._cleanup_player_entities(name, ["epic"])
 
             players[name] = existing
             self._options[OPT_PLAYERS] = _dump_json(players)
@@ -931,11 +940,18 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         )
 
     async def async_step_player_details(self, user_input=None):
-        from .const import OPT_ENABLE_NOTIFICATIONS
+        from .const import (
+            DEFAULT_ENABLED_PLATFORMS,
+            OPT_ENABLE_NOTIFICATIONS,
+            OPT_ENABLED_PLATFORMS,
+        )
 
         players = _players(self._options)
         name = self._editing_player or ""
         existing = players.get(name, {})
+        enabled_platforms = self._options.get(
+            OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS
+        )
 
         endpoints = _endpoints(self._options)
         endpoint_options = [
@@ -999,7 +1015,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN
             )
             for platform in LIBRARY_PLATFORMS:
-                if not player_has_platform_source(existing, platform):
+                if not player_has_platform_source(
+                    existing, platform, enabled_platforms
+                ):
                     continue
                 if achievement_tracking_globally_enabled:
                     existing[f"enable_achievement_tracking_{platform}"] = (
@@ -1125,7 +1143,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         achievement_fields = {}
         library_fields = {}
         for platform in LIBRARY_PLATFORMS:
-            if not player_has_platform_source(existing, platform):
+            if not player_has_platform_source(existing, platform, enabled_platforms):
                 continue
             if achievement_tracking_globally_enabled:
                 achievement_fields[
@@ -2404,28 +2422,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             except Exception:
                 pass
 
-            if (
-                current_val
-                and current_val not in options
-                and current_val.lower() != "none"
-            ):
-                options.append(current_val)
-
-            options = sorted(list(set(options)))
-            options.insert(0, "none")
-
-            if len(options) > 1:
-                return selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=options,
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                        custom_value=True,
-                    )
-                )
-
-            return selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=domain, integration=integration)
-            )
+            return _entity_dropdown(options, current_val)
 
         def _field(platform: str):
             current = existing.get(platform, "")
@@ -2460,6 +2457,12 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 domain="media_player",
             )
 
+        if "epic" in enabled_platforms:
+            # Not a sensor slot: the player's public Epic profile, used for
+            # Epic achievements on games the Agent reports from the Epic
+            # launcher and for the Epic library scan.
+            schema[_field(PLAYER_EPIC_ACCOUNT_ID)] = str
+
         if "discord" in enabled_platforms:
             if self._discord_members:
                 dc_options = [
@@ -2489,10 +2492,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 schema[_field("discord")] = str
 
         if "playnite" in enabled_platforms:
-            schema[_field("playnite")] = selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain="binary_sensor", integration="mqtt"
-                )
+            schema[_field("playnite")] = _get_filtered_selector(
+                "mqtt", None, existing.get("playnite", ""), domain="binary_sensor"
             )
 
         if "gsa" in enabled_platforms:
@@ -2501,15 +2502,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             )
 
         if "custom" in enabled_platforms:
-            schema[_field("custom")] = selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor")
+            schema[_field("custom")] = _entity_dropdown(
+                _custom_sensor_options(self.hass), existing.get("custom", "")
             )
-
-        # Not a platform slot (no sensor of its own): the player's public
-        # Epic profile, used for Epic achievements on games the Agent
-        # reports from the Epic launcher and for the Epic library scan.
-        # Always shown -- it works with any combination of platforms.
-        schema[_field(PLAYER_EPIC_ACCOUNT_ID)] = str
 
         if not is_new:
             schema[vol.Optional("delete_player", default=False)] = bool

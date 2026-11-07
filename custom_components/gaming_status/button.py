@@ -67,10 +67,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     ),
                 )
                 for p in ("steam", "xbox", "playstation", "epic")
-                # Epic needs only the player's Epic account ID, not an
-                # enabled platform slot.
-                if (p == "epic" and player_data.get(PLAYER_EPIC_ACCOUNT_ID))
-                or (p in enabled_platforms and player_data.get(p))
+                # Epic's "source" is the player's Epic account ID.
+                if p in enabled_platforms
+                and player_data.get(PLAYER_EPIC_ACCOUNT_ID if p == "epic" else p)
             )
             if not has_any_enabled:
                 continue

@@ -31,10 +31,20 @@ If you plan to use the **Content Rating Limit** parental control, enable **Enabl
 *Note: native rating coverage isn't complete for every title. If a game comes back unrated, you can manually assign it a rating using the Content Rating Overrides field under [Overrides & Exclusions](../configuration/overrides-exclusions.md).*
 
 ### Epic Games Achievements
-Epic achievements are read from a player's **public Epic profile**, so no Epic sign-in or API key is needed. They cover the Epic game a player is currently playing (as reported by [Gaming Status Agent](../setup/pc-tracking.md)) and the [Full Game Library Scan](../configuration/achievements-ratings.md).
+Epic achievements are read from a player's **public Epic profile**, so no Epic sign-in or API key is needed. Epic works a little differently from the other platforms, because there's no Epic status sensor:
 
-1. Make the profile public: sign in at [epicgames.com](https://www.epicgames.com/), open your account's privacy settings, and set your profile and its achievements to public.
-2. Copy the profile link: open your profile in the Epic Games Store (it looks like `https://store.epicgames.com/u/<32 characters>`). The 32-character account ID shown in your Epic account settings also works.
-3. Paste it into the player's **Epic account** field under [Manage Players](../configuration/manage-players.md). Gaming Status checks the profile when you save and tells you if it's private or can't be found.
+| What | Needs |
+| --- | --- |
+| Epic library (games, completion, XP) via the [Full Game Library Scan](../configuration/achievements-ratings.md) | The player's Epic account only |
+| Online status and the Epic game being played | [Gaming Status Agent](../setup/pc-tracking.md), which reports games from the Epic launcher |
+| Live achievement counts and unlocks for the current Epic game | Gaming Status Agent plus the Epic account |
+| Epic unlocks in the player's achievement history and unlock notifications | Gaming Status Agent plus the Epic account (the history is kept on the Agent sensor) |
+
+Without the Agent, the Epic library sensor still works on its own; it just has no live status or unlock history to go with it.
+
+1. Check **Epic Games** under **Platforms to Track** in [Global Settings](../configuration/global-settings.md). This adds the **Epic account** field to each player.
+2. Make the profile public: sign in at [epicgames.com](https://www.epicgames.com/), open your account's privacy settings, and set your profile and its achievements to public.
+3. Copy the profile link: open your profile in the Epic Games Store (it looks like `https://store.epicgames.com/u/<32 characters>`). The 32-character account ID shown in your Epic account settings also works.
+4. Paste it into the player's **Epic account** field under [Manage Players](../configuration/manage-players.md). Gaming Status checks the profile when you save and tells you if it's private or can't be found.
 
 *Note: only games that use Epic's own achievement system have Epic achievements; many Epic games don't (for example, Marvel's Guardians of the Galaxy), and those simply show none. A game also only appears on a public profile after its first achievement is unlocked.*

@@ -6969,9 +6969,14 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             )
             for p in ("steam", "xbox", "playstation", "epic")
         }
-        # Epic isn't a platform slot: it needs the player's Epic account ID,
-        # and its live achievements ride on the Agent (gsa) sensor.
-        epic_account_id = player_data.get(PLAYER_EPIC_ACCOUNT_ID)
+        # Epic isn't a platform slot: it needs the player's Epic account ID
+        # (used only while Epic is checked under Platforms to Track), and its
+        # live achievements ride on the Agent (gsa) sensor.
+        epic_account_id = (
+            player_data.get(PLAYER_EPIC_ACCOUNT_ID)
+            if "epic" in enabled_platforms
+            else None
+        )
         if not epic_account_id:
             player_achievement_tracking_by_platform["epic"] = False
             player_library_scan_by_platform["epic"] = False

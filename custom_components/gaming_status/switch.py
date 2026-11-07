@@ -14,10 +14,12 @@ from homeassistant.components.switch import SwitchEntity
 from .const import (
     DEFAULT_ENABLE_ACHIEVEMENT_TRACKING,
     DEFAULT_ENABLE_LIBRARY_SCAN,
+    DEFAULT_ENABLED_PLATFORMS,
     OPT_ENABLE_ACHIEVEMENT_TRACKING,
     OPT_ENABLE_LIBRARY_SCAN,
     OPT_ENABLE_NOTIFICATIONS,
     OPT_ENABLE_PARENTAL,
+    OPT_ENABLED_PLATFORMS,
     OPT_PLAYERS,
     OPT_PUBLIC_PAGE_ENABLED,
     OPT_WEEKLY_REPORT,
@@ -54,6 +56,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     library_on = tracking_on and opts.get(
         OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN
     )
+    enabled_platforms = opts.get(OPT_ENABLED_PLATFORMS, DEFAULT_ENABLED_PLATFORMS)
 
     hub = hub_device_info()
     entities: list[SwitchEntity] = [
@@ -84,7 +87,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 ParentalRuleSwitch(config_entry, name, device_info, "ratings")
             )
         for platform in LIBRARY_PLATFORMS:
-            if not player_has_platform_source(player_data, platform):
+            if not player_has_platform_source(player_data, platform, enabled_platforms):
                 continue
             if tracking_on:
                 entities.append(

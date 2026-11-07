@@ -195,9 +195,11 @@ GSA_LAUNCHER_ICONS = {
 # Epic has no presence sensor of its own: its games arrive through the Agent
 # (Launcher "Epic"), and its achievements come from the player's public Epic
 # profile, keyed by a per-player account ID stored alongside (not as) a
-# platform slot -- the same pattern as "ps3". It is a library-scan platform
-# only, so it lives here rather than in PLATFORM_CONFIG, which would make it
-# a status sensor.
+# platform slot -- the same pattern as "ps3". "epic" is a "Platforms to
+# Track" toggle (it gates the Epic account field and everything using it),
+# but deliberately not in PLAYER_PLATFORMS/PLATFORM_CONFIG, which would make
+# it a status sensor; players store the ID under PLAYER_EPIC_ACCOUNT_ID, so
+# the many `player_data.get(platform)` loops over enabled platforms skip it.
 PLAYER_EPIC_ACCOUNT_ID = "epic_account_id"
 GSA_LAUNCHER_EPIC = "epic"
 # Optional Agent attribute carrying the running Epic game's CatalogNamespace,
@@ -244,6 +246,7 @@ DEFAULT_ENABLED_PLATFORMS = [
     "steam",
     "xbox",
     "playstation",
+    "epic",
     "discord",
     "gsa",
     "custom",
