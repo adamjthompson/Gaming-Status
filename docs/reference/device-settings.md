@@ -26,6 +26,6 @@ Common settings can also be changed from each player's device page (**Configurat
 
 Turning a rule on or off in Configure shows or hides its controls straight away. Turning it on or off from its own switch takes about 30 seconds, because Home Assistant briefly reloads Gaming Status to add or remove them. If you disable one of these controls yourself (for example, to keep it out of reach of other people in your home), Gaming Status leaves it disabled.
 
-> **Who can change these:** anyone who can use your Home Assistant dashboards can change an enabled control, while Configure is limited to administrators. If players have their own Home Assistant accounts, disable any parental control you don't want them to change, or keep it off your dashboards.
+> **Who can change these:** Configure is limited to administrators. By default, anyone who can use your Home Assistant dashboards can also change an enabled parental control. If players have their own Home Assistant accounts, turn on **Restrict history edits and parental settings to admins** in Configure → Advanced Settings: non-admin users then get an error if they try to change a parental control (or the hub's Parental controls switch), while automations keep working.
 
 Notification destinations, and the action each parental rule takes, are only set in Configure.

@@ -22,6 +22,7 @@ from collections.abc import Callable
 from typing import Any
 
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import Unauthorized
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import (
     async_dispatcher_connect,
@@ -40,6 +41,7 @@ from .const import (
     OPT_ENABLE_PARENTAL,
     OPT_PARENTAL,
     OPT_PLAYERS,
+    OPT_RESTRICT_HISTORY_EDITS,
     OPT_WEEKLY_REPORT,
     PLAYER_EPIC_ACCOUNT_ID,
 )
@@ -315,6 +317,31 @@ class SettingEntityMixin:
     hass: HomeAssistant
     _attr_should_poll = False
     _attr_entity_category = EntityCategory.CONFIG
+    # Parental settings: limited to admins while "Restrict history edits
+    # and parental settings to admins" is on (see _async_check_admin).
+    _admin_only = False
+
+    async def _async_check_admin(self) -> None:
+        """Enforces the opt-in admin restriction on this entity's writes,
+        the same way __init__._admin_gate does for the history services.
+        Read at call time, so toggling the option needs no reload. A call
+        with no user (automations, scripts run by them) is trusted; a script
+        a non-admin starts from a dashboard carries their user and is gated,
+        so it can't be used to get around this. The option itself can only
+        be changed in Configure (admins only)."""
+        if not self._admin_only or not self._entry.options.get(
+            OPT_RESTRICT_HISTORY_EDITS
+        ):
+            return
+        # Home Assistant sets the calling service's context on the entity
+        # before invoking its turn_on/set_value/... method.
+        context = getattr(self, "_context", None)
+        user_id = context.user_id if context else None
+        if not user_id:
+            return
+        user = await self.hass.auth.async_get_user(user_id)
+        if user is None or not user.is_admin:
+            raise Unauthorized(context=context)
 
     def _setup_setting(
         self,
@@ -353,6 +380,7 @@ class PlayerParentalMixin(SettingEntityMixin):
 
     _rule: str
     _suffix: str
+    _admin_only = True
 
     def _setup_parental(
         self, entry, player_name: str, name: str, device_info, icon=None
