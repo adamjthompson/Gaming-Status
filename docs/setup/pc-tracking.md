@@ -41,6 +41,7 @@ The Agent's sensor reports the following, which Gaming Status reads directly:
 | `Game Title` | The current game, or `Offline` |
 | `Launcher` | Launcher Name or None. Shown as the platform (`active_platform`) on the PC and Master sensors and recorded on each session, so a game played through Epic shows as "Epic" rather than a generic PC entry. Steam and Xbox games are attributed to Steam and Xbox (see below) |
 | `Profile Name` | Shown as the player's `gamertag` for this sensor |
+| `Epic Sandbox ID` | *(Windows Agent)* The running Epic game's catalog ID. Lets [Epic achievements](../getting-started/prerequisites.md#epic-games-achievements) find the game exactly, so a game shows its achievement total from the start rather than only after its first unlock. Without it (older or Linux Agents), the game is matched by title |
 
 **Steam and Xbox games from the Agent:** the Agent's Steam and Xbox detection is optional and off by default. It's meant for people who want to track those platforms without installing the Steam or Xbox integrations in Home Assistant. Games it reports on those launchers are treated as Steam or Xbox games, not GSA: they show as Steam or Xbox and are recorded on sessions with `platform_key` `steam` or `xbox`. If the native Steam or Xbox sensor is also set up and reports the same game, the Agent steps aside so that sensor's gamertag, achievements, and ratings are used.
 
