@@ -36,7 +36,7 @@ Epic achievements are read from a player's **public Epic profile**, so no Epic s
 | Feature | Requirement(s) |
 | --- | --- |
 | Epic library (games, completion, XP) via the [Full Game Library Scan](../configuration/achievements-ratings.md) | The player's Epic account only |
-| Online status and the Epic game being played | [Gaming Status Agent](../setup/pc-tracking.md), which reports games from the Epic launcher |
+| Online status and the Epic game being played | [Gaming Status Agent](../setup/pc-tracking.md) with Epic Games anabled |
 | Live achievement counts and unlocks for the current Epic game | Gaming Status Agent plus the Epic account |
 | Epic unlocks in the player's achievement history and unlock notifications | Gaming Status Agent plus the Epic account (the history is kept on the Agent sensor) |
 
@@ -54,7 +54,7 @@ Ubisoft keeps achievement data only on the gaming PC, inside Ubisoft Connect, so
 
 | Feature | Requirement(s) |
 | --- | --- |
-| Ubisoft library (games with achievements, completion) via the [Full Game Library Scan](../configuration/achievements-ratings.md) | Gaming Status Agent with Ubisoft ticked and **Send Ubisoft achievements and library to Home Assistant** on (both under the Agent's **Platforms**) |
+| Ubisoft library (games with achievements, completion) via the [Full Game Library Scan](../configuration/achievements-ratings.md) | Gaming Status Agent with **Send Ubisoft achievements and library to Home Assistant** enabled |
 | Live achievement counts for the Ubisoft game being played | The same, plus the game launched from Ubisoft Connect |
 | Ubisoft unlocks in the player's achievement history and unlock notifications | The same; unlocks arrive within seconds |
 

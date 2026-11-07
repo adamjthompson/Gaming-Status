@@ -1071,13 +1071,14 @@ main>*{break-inside:avoid;display:block;margin-bottom:16px}
 .group:not(:has(>:not([style*="display: none"]))){display:none}
 .msg{color:var(--secondary-text-color);column-span:all}
 footer{text-align:center;color:var(--secondary-text-color);font-size:12px;padding-bottom:24px}
+footer a{color:inherit}
 </style>
 </head>
 <body>
 <header><img class="icon" src="__ICON_URL__" alt="">
 <div><h1 id="title">__PAGE_TITLE__</h1><p id="sub">Loading…</p></div></header>
 <main id="cards" aria-live="polite"></main>
-<footer><span id="updated"></span>Powered by Gaming Status for Home Assistant</footer>
+<footer><span id="updated"></span>Powered by <a href="https://github.com/adamjthompson/Gaming-Status/" target="_blank" rel="noopener noreferrer">Gaming Status</a> for Home Assistant</footer>
 <script nonce="__NONCE__">
 const JSON_URL="__JSON_URL__", MDI_CSS="__MDI_CSS__";
 
