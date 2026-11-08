@@ -443,15 +443,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # (needed for the cross-player stagger below) and already runs after
     # async_forward_entry_setups, by which point hass.data[DOMAIN]
     # ["library_coordinators"] is guaranteed fully populated.
+    #
+    # A pass waits on the PSN/Xbox rate limiters and staggers players, so it
+    # can outlast the tick interval; the next tick is skipped rather than
+    # overlapping, which would spend each coordinator's per-cycle request
+    # budget twice. Skipped work just runs on the following tick.
+    backfill_lock = asyncio.Lock()
+
     async def _library_backfill_tick(_now=None):
-        coordinators = list(
-            hass.data.get(DOMAIN, {}).get("library_coordinators", {}).values()
-        )
-        for i, coordinator in enumerate(coordinators):
-            if i:
-                await asyncio.sleep(LIBRARY_BACKFILL_STAGGER_SECONDS)
-            if has_pending_library_backfill(coordinator):
-                await coordinator.async_run_backfill_pass()
+        if backfill_lock.locked():
+            _LOGGER.debug("Library backfill still running; skipping this tick")
+            return
+        async with backfill_lock:
+            coordinators = list(
+                hass.data.get(DOMAIN, {}).get("library_coordinators", {}).values()
+            )
+            for i, coordinator in enumerate(coordinators):
+                if i:
+                    await asyncio.sleep(LIBRARY_BACKFILL_STAGGER_SECONDS)
+                if has_pending_library_backfill(coordinator):
+                    await coordinator.async_run_backfill_pass()
 
     entry.async_on_unload(
         async_call_later(
