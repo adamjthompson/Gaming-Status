@@ -98,21 +98,16 @@ PUBLIC_AVATAR_URL = f"{PUBLIC_PAGE_URL}/avatar"
 _ICON_PATH = Path(__file__).parent / "brand" / "icon.png"
 PLAYER_OPT_PUBLIC = "show_on_public_page"
 
-# Fallback when the cards aren't installed as a Lovelace resource. Pinned
-# to one cards release and loaded with its Subresource Integrity hash: the
-# page is served from Home Assistant's own origin, so a script swapped in
-# upstream could read a logged-in owner's HA session. Bump the tag and hash
-# together when releasing new cards (scripts/check_cards_pin.py, run in CI,
-# fails if they don't match). Hash: `curl -sL <url> | openssl dgst -sha384
-# -binary | base64`.
-CARDS_CDN_TAG = "2026.11.3.2"
-CARDS_CDN_FALLBACK = (
-    f"https://cdn.jsdelivr.net/gh/adamjthompson/Gaming-Status-Cards@{CARDS_CDN_TAG}/"
-    "gaming-status-cards.js"
+# Shown instead of the cards when no Gaming Status Cards script can be found.
+# There's deliberately no CDN fallback: the page is served from Home
+# Assistant's own origin, so any script it runs could read a logged-in
+# owner's HA session -- it only runs the copy the owner installed (or chose
+# with Cards script URL). Worded for visitors, with the fix for the owner.
+CARDS_MISSING_NOTICE = (
+    "This page isn’t set up yet. (Owner: install Gaming Status Cards as a "
+    "dashboard resource, or set Cards script URL in the public page settings.)"
 )
-CARDS_CDN_INTEGRITY = (
-    "sha384-XNPR2MBIJoxuIP7xEJ4+uLVQHGIciRbYnfMnYPpp+OA1hfbBjiUD2w7kbHbUB8DR"
-)
+_EXTRA_MODULE_URL_KEY = "frontend_extra_module_url"
 MDI_FONT_CSS = (
     "https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css"
 )
@@ -800,7 +795,10 @@ def _build_layout(
     return out, None
 
 
-async def _cards_script_url(hass, entry) -> str:
+async def _cards_script_url(hass, entry) -> str | None:
+    """The Gaming Status Cards script the owner installed: the Cards script
+    URL option, else a Lovelace resource, else a frontend extra_module_url
+    from configuration.yaml. None if there isn't one."""
     override = (entry.options.get(OPT_PUBLIC_PAGE_CARDS_URL) or "").strip()
     if override:
         return override
@@ -819,7 +817,14 @@ async def _cards_script_url(hass, entry) -> str:
                     return url
     except Exception:
         _LOGGER.debug("[Gaming Status] Couldn't read Lovelace resources", exc_info=True)
-    return CARDS_CDN_FALLBACK
+    try:
+        extra = hass.data.get(_EXTRA_MODULE_URL_KEY)
+        for url in getattr(extra, "urls", None) or ():
+            if "gaming-status-cards" in str(url):
+                return str(url)
+    except Exception:
+        _LOGGER.debug("[Gaming Status] Couldn't read extra_module_url", exc_info=True)
+    return None
 
 
 async def build_public_payload(hass: HomeAssistant) -> dict | None:
@@ -910,16 +915,13 @@ async def _build_public_payload(hass: HomeAssistant, now: float) -> dict | None:
         theme_name = (view or {}).get("theme")
 
     cards_url = await _cards_script_url(hass, entry)
+    if cards_url is None:
+        notice = CARDS_MISSING_NOTICE
     payload = {
         "title": entry.options.get(OPT_PUBLIC_PAGE_TITLE) or DEFAULT_PUBLIC_PAGE_TITLE,
         "theme_mode": theme_mode(entry),
         "theme": _theme_vars(hass, theme_name),
         "cards_url": cards_url,
-        # Only the pinned fallback has a known hash; a Lovelace resource or
-        # a Cards script URL override is the owner's own choice of script.
-        "cards_integrity": (
-            CARDS_CDN_INTEGRITY if cards_url == CARDS_CDN_FALLBACK else None
-        ),
         "generated_at": dt_util.now().isoformat(),
         "refresh_seconds": CACHE_SECONDS * 2,
         "layout": layout,
@@ -1093,7 +1095,9 @@ class GamingStatusPublicPageView(HomeAssistantView):
         if not _request_allowed(request, entry):
             return web.Response(status=404, text="Not found")
         nonce = secrets.token_urlsafe(16)
-        csp = _content_security_policy(nonce, await _cards_script_url(hass, entry))
+        csp = _content_security_policy(
+            nonce, await _cards_script_url(hass, entry) or ""
+        )
         # Link previews (Discord, iMessage, Slack...) read these server-side,
         # so they're filled in here rather than by the page's script.
         # request.url reflects the proxy's public host once trusted_proxies
@@ -1353,10 +1357,9 @@ function makeHass(states){
 }
 
 let cards=[], layoutKey="", scriptUrl=null;
-function loadScript(url,integrity){return new Promise((ok,fail)=>{
+function loadScript(url){return new Promise((ok,fail)=>{
   if(scriptUrl===url)return ok(); const s=document.createElement("script");
-  s.type="module";if(integrity){s.integrity=integrity;s.crossOrigin="anonymous"}
-  s.src=url;s.onload=()=>{scriptUrl=url;ok()};s.onerror=()=>{s.remove();fail(new Error("cards script failed to load: "+url))};
+  s.type="module";s.src=url;s.onload=()=>{scriptUrl=url;ok()};s.onerror=()=>{s.remove();fail(new Error("cards script failed to load: "+url))};
   document.head.append(s)})}
 
 function msg(text){document.getElementById("cards").replaceChildren(
@@ -1407,7 +1410,7 @@ async function refresh(){
     document.getElementById("updated").textContent=isNaN(at)?"":
       `Updated ${at.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})} · `;
     step="script";
-    await loadScript(d.cards_url,d.cards_integrity);
+    if(d.cards_url)await loadScript(d.cards_url);
     step="render";
     const hass=makeHass(d.states); const key=JSON.stringify(d.layout);
     if(d.notice){layoutKey="";cards=[];msg(d.notice)}

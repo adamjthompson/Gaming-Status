@@ -10,6 +10,7 @@ from datetime import timedelta
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import Unauthorized
 from homeassistant.helpers import entity_registry as er
@@ -427,6 +428,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             discord_start_task = hass.loop.create_task(bot.start(discord_token))
             discord_start_task.add_done_callback(_discord_start_done)
+
+            # Config entries aren't unloaded when Home Assistant stops, so
+            # async_unload_entry's close() never runs then; without this the
+            # bot's connection is left open and aiohttp logs "Unclosed client
+            # session" at every shutdown.
+            async def _close_discord_bot(_event):
+                try:
+                    await bot.close()
+                except Exception as err:
+                    _LOGGER.debug("Discord bot close at shutdown failed: %s", err)
+
+            entry.async_on_unload(
+                hass.bus.async_listen(EVENT_HOMEASSISTANT_STOP, _close_discord_bot)
+            )
             hass.data[DOMAIN]["discord_bot"] = bot
             hass.data[DOMAIN]["discord_bot_task"] = discord_start_task
         except Exception as e:
@@ -443,15 +458,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # (needed for the cross-player stagger below) and already runs after
     # async_forward_entry_setups, by which point hass.data[DOMAIN]
     # ["library_coordinators"] is guaranteed fully populated.
+    #
+    # A pass waits on the PSN/Xbox rate limiters and staggers players, so it
+    # can outlast the tick interval; the next tick is skipped rather than
+    # overlapping, which would spend each coordinator's per-cycle request
+    # budget twice. Skipped work just runs on the following tick.
+    backfill_lock = asyncio.Lock()
+
     async def _library_backfill_tick(_now=None):
-        coordinators = list(
-            hass.data.get(DOMAIN, {}).get("library_coordinators", {}).values()
-        )
-        for i, coordinator in enumerate(coordinators):
-            if i:
-                await asyncio.sleep(LIBRARY_BACKFILL_STAGGER_SECONDS)
-            if has_pending_library_backfill(coordinator):
-                await coordinator.async_run_backfill_pass()
+        if backfill_lock.locked():
+            _LOGGER.debug("Library backfill still running; skipping this tick")
+            return
+        async with backfill_lock:
+            coordinators = list(
+                hass.data.get(DOMAIN, {}).get("library_coordinators", {}).values()
+            )
+            for i, coordinator in enumerate(coordinators):
+                if i:
+                    await asyncio.sleep(LIBRARY_BACKFILL_STAGGER_SECONDS)
+                if has_pending_library_backfill(coordinator):
+                    await coordinator.async_run_backfill_pass()
 
     entry.async_on_unload(
         async_call_later(
