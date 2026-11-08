@@ -1234,6 +1234,15 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._unsub_ubisoft()
             self._unsub_ubisoft = None
 
+    @callback
+    def _async_ubisoft_removed(self):
+        """Entity removal. Clearing the topic also stops an attach still
+        awaiting async_ensure from connecting afterwards (its
+        base != self._ubisoft_topic check), which would otherwise leave a
+        dispatcher listener on a removed entity."""
+        self._ubisoft_topic = None
+        self._detach_ubisoft()
+
     def _apply_ubisoft_current(self, library):
         """Current-game counts and recent unlocks for the running Ubisoft
         game, matched by any of its store copies' IDs. Returns True if set."""
@@ -3863,7 +3872,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # through async_on_remove like everything else here. Cancels whatever
         # pending-confirmation one-shot happens to be armed at the time.
         self.async_on_remove(self._cancel_pending_recheck)
-        self.async_on_remove(self._detach_ubisoft)
+        self.async_on_remove(self._async_ubisoft_removed)
 
         if self._gaming_type == "discord":
             self.async_on_remove(
@@ -6104,19 +6113,17 @@ class PCGamingSensor(RestoreSensor):
         await self._update_pc_state_safe()
 
         # FORCE UPDATE: Wait for HA to finish booting, pause 5 seconds, then check platforms again
-        from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
+        from homeassistant.helpers.start import async_at_started
 
-        async def _force_delayed_update(event=None):
+        async def _force_delayed_update(_hass=None):
             await asyncio.sleep(5)
             await self._update_pc_state_safe()
 
-        # OPTIMIZATION: Allow Hot-Reloads to work without full system reboots
-        if self.hass.is_running:
-            self.hass.async_create_task(_force_delayed_update())
-        else:
-            self.hass.bus.async_listen_once(
-                EVENT_HOMEASSISTANT_STARTED, _force_delayed_update
-            )
+        # Runs right away on a reload (HA already started), otherwise once HA
+        # has started. Unlike a bare async_listen_once, the listener is
+        # removed if this sensor is removed first (a reload during startup),
+        # so it can't fire on a removed entity.
+        self.async_on_remove(async_at_started(self.hass, _force_delayed_update))
 
     @callback
     def _async_pc_changed(self, event):
