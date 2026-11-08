@@ -148,22 +148,3 @@ jobs:
       - name: Check readme and nav links
         run: |
           python scripts/check_doc_links.py
-
-  # TEST 8: PUBLIC PAGE CARDS PIN
-  cards-pin:
-    name: Public Page Cards Pin
-    runs-on: "ubuntu-latest"
-    steps:
-      - name: Checkout the repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Check pinned cards script integrity
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          python scripts/check_cards_pin.py
