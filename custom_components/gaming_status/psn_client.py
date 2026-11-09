@@ -22,6 +22,7 @@ refresh_token_expires_in just counting down from the original exchange.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections import OrderedDict
@@ -100,6 +101,10 @@ class PsnClient:
         self._access_token_expires_at: float = 0.0
         self._refresh_token: str | None = None
         self._refresh_token_expires_at: float = 0.0
+        # One client is shared by every player, sensor, scan and backfill
+        # using this NPSSO: when the token expires, one caller refreshes it
+        # and the rest wait for that, rather than all refreshing at once.
+        self._session_lock = asyncio.Lock()
 
     async def _request(self, method: str, url: str, **kwargs) -> tuple[int, dict]:
         await self._rate_limiter.async_acquire(
@@ -249,14 +254,22 @@ class PsnClient:
         self._refresh_token = refresh_token
         self._refresh_token_expires_at = now + refresh_expires_in
 
-    async def _async_ensure_session(self) -> None:
-        now = time.time()
-        if (
-            self._access_token
-            and now < self._access_token_expires_at - _EXPIRY_SAFETY_MARGIN_SECONDS
-        ):
-            return
+    def _access_token_valid(self) -> bool:
+        return bool(self._access_token) and (
+            time.time() < self._access_token_expires_at - _EXPIRY_SAFETY_MARGIN_SECONDS
+        )
 
+    async def _async_ensure_session(self) -> None:
+        if self._access_token_valid():
+            return
+        async with self._session_lock:
+            # Another caller may have refreshed it while this one waited.
+            if self._access_token_valid():
+                return
+            await self._async_renew_session()
+
+    async def _async_renew_session(self) -> None:
+        now = time.time()
         if (
             self._refresh_token
             and now < self._refresh_token_expires_at - _EXPIRY_SAFETY_MARGIN_SECONDS
