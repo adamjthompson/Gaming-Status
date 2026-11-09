@@ -105,10 +105,13 @@ PLAYER_OPT_PUBLIC = "show_on_public_page"
 # There's deliberately no CDN fallback: the page is served from Home
 # Assistant's own origin, so any script it runs could read a logged-in
 # owner's HA session -- it only runs the copy the owner installed (or chose
-# with Cards script URL). Worded for visitors, with the fix for the owner.
+# with Cards script URL). Says exactly what's missing, then the owner's fix:
+# installing from HACS adds the dashboard resource it looks for; Cards script
+# URL covers a copy it can't find by itself.
 CARDS_MISSING_NOTICE = (
-    "This page isn’t set up yet. (Owner: install Gaming Status Cards as a "
-    "dashboard resource, or set Cards script URL in the public page settings.)"
+    "Gaming Status Cards needs to be installed to show this page. Owner: "
+    "install it from HACS (which adds it as a dashboard resource), or set "
+    "Cards script URL in the public page settings."
 )
 _EXTRA_MODULE_URL_KEY = "frontend_extra_module_url"
 MDI_FONT_CSS = (
@@ -1561,7 +1564,7 @@ async function refresh(){
     const text=step==="network"?"Couldn’t reach the server."
       :step.startsWith("status:")?`The server returned an error (${step.slice(7)}).`
       :step==="json"?"The server sent something other than page data (a proxy or security page?)."
-      :step==="script"?"Couldn’t load the cards script."
+      :step==="script"?"Couldn’t load Gaming Status Cards."
       :step==="render"?"Couldn’t display the cards."
       :"Couldn’t load page data.";
     sub.textContent=text+" Retrying…";
