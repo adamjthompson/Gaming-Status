@@ -14,6 +14,16 @@ class NetworkError(ApiError):
     """Wraps a transport-level failure (connection refused, timeout, etc.)."""
 
 
+class HttpStatusError(NetworkError):
+    """The server answered, but not with 200. A NetworkError, so every
+    existing handler still catches it; carries the status for callers that
+    need to tell a request that can't work (4xx) from a transient failure."""
+
+    def __init__(self, message: str, status: int) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 class AuthError(ApiError):
     """The credential itself is invalid/revoked -- distinct from a privacy
     setting blocking access to someone's data."""
