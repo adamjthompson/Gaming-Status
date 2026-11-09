@@ -41,7 +41,7 @@ from .platform_exceptions import (
     NotFoundError,
     RateLimitedError,
 )
-from .rate_limiter import RateLimiter
+from .rate_limiter import RateLimiter, parse_retry_after
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -121,13 +121,7 @@ class EpicClient:
                 timeout=_TIMEOUT,
             ) as resp:
                 if resp.status == 429:
-                    retry_after_header = resp.headers.get("Retry-After")
-                    try:
-                        retry_after = (
-                            float(retry_after_header) if retry_after_header else None
-                        )
-                    except ValueError:
-                        retry_after = None
+                    retry_after = parse_retry_after(resp.headers.get("Retry-After"))
                     self._rate_limiter.notify_rate_limited(retry_after)
                     raise RateLimitedError(
                         f"Epic rate-limited {what}", retry_after=retry_after

@@ -58,6 +58,20 @@ class AsyncConfigEntryAuth(AuthenticationManager):
         await super().refresh_tokens()
 
 
+def _same_oauth_source(old, new) -> bool:
+    """Whether two OAuth2Sessions are interchangeable. Both read the same
+    config entry's stored token and refresh it in place, so a re-auth flows
+    through either one; only a different entry object or auth implementation
+    (a re-added account, swapped application credentials) needs a new
+    client. Implementations are compared by domain because Home Assistant
+    can build a fresh implementation object on every lookup."""
+    if old is new:
+        return True
+    return old.config_entry is new.config_entry and getattr(
+        old.implementation, "domain", None
+    ) == getattr(new.implementation, "domain", None)
+
+
 def get_xbox_client(hass, entry, oauth_session):
     """XboxLiveClient singleton per xbox config entry -- shared across every
     player tracked against the same Xbox account, same reasoning as the
@@ -83,13 +97,17 @@ def get_xbox_client(hass, entry, oauth_session):
     per-entry singleton cache below reuse it."""
     from homeassistant.helpers.httpx_client import create_async_httpx_client
 
-    # Keyed by the Xbox entry; rebuilt if that entry hands us a new OAuth
-    # session (re-auth/reload), so a stale session is never reused.
+    # Keyed by the Xbox entry. Every caller (each player's sensor, library
+    # scans, backfill passes) builds its own OAuth2Session object, so only
+    # rebuild for one that's genuinely different: rebuilding on any new
+    # object kept closing the HTTP client under another caller's in-flight
+    # request and signing in again.
     clients = hass.data.setdefault("gaming_status_xbox_clients", {})
     cached = clients.get(entry.entry_id)
-    if cached is None or cached[0] is not oauth_session:
-        if cached is not None:
-            hass.async_create_task(cached[1].aclose())
+    if cached is not None and not _same_oauth_source(cached[0], oauth_session):
+        hass.async_create_task(cached[1].aclose())
+        cached = None
+    if cached is None:
         xbox_http_client = create_async_httpx_client(hass, timeout=30.0)
         auth = AsyncConfigEntryAuth(xbox_http_client, oauth_session)
         clients[entry.entry_id] = (

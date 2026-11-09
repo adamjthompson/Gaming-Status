@@ -12,8 +12,29 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 
 from .platform_exceptions import RateLimitedError
+
+
+def parse_retry_after(value) -> float | None:
+    """Seconds to wait from a Retry-After header, which may be a number of
+    seconds or an HTTP date. None if it's missing or unreadable -- a bad
+    header must not turn a rate limit into an unhandled ValueError."""
+    if not value:
+        return None
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        pass
+    try:
+        when = parsedate_to_datetime(str(value))
+    except (TypeError, ValueError, IndexError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return max(0.0, (when - datetime.now(UTC)).total_seconds())
 
 
 class RateLimiterTimeout(RateLimitedError):

@@ -22,6 +22,7 @@ refresh_token_expires_in just counting down from the original exchange.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections import OrderedDict
@@ -52,7 +53,7 @@ from .platform_exceptions import (
     RateLimitedError,
     ReauthRequiredError,
 )
-from .rate_limiter import RateLimiter
+from .rate_limiter import RateLimiter, parse_retry_after
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -100,6 +101,10 @@ class PsnClient:
         self._access_token_expires_at: float = 0.0
         self._refresh_token: str | None = None
         self._refresh_token_expires_at: float = 0.0
+        # One client is shared by every player, sensor, scan and backfill
+        # using this NPSSO: when the token expires, one caller refreshes it
+        # and the rest wait for that, rather than all refreshing at once.
+        self._session_lock = asyncio.Lock()
 
     async def _request(self, method: str, url: str, **kwargs) -> tuple[int, dict]:
         await self._rate_limiter.async_acquire(
@@ -110,10 +115,7 @@ class PsnClient:
                 method, url, timeout=_TIMEOUT, **kwargs
             ) as resp:
                 if resp.status == 429:
-                    retry_after_header = resp.headers.get("Retry-After")
-                    retry_after = (
-                        float(retry_after_header) if retry_after_header else None
-                    )
+                    retry_after = parse_retry_after(resp.headers.get("Retry-After"))
                     self._rate_limiter.notify_rate_limited(retry_after)
                     raise RateLimitedError(
                         f"PSN rate-limited {url}", retry_after=retry_after
@@ -239,21 +241,35 @@ class PsnClient:
             raise MalformedResponseError(
                 f"PSN token response missing field(s): {', '.join(missing)}"
             )
+        try:
+            expires_in = float(body.get("expires_in", 0))
+            refresh_expires_in = float(body.get("refresh_token_expires_in", 0))
+        except (TypeError, ValueError) as err:
+            # Handled like any other unexpected response, not a bare error.
+            raise MalformedResponseError(
+                f"PSN token response has an unreadable expiry: {err}"
+            ) from None
         self._access_token = access_token
-        self._access_token_expires_at = now + float(body.get("expires_in", 0))
+        self._access_token_expires_at = now + expires_in
         self._refresh_token = refresh_token
-        self._refresh_token_expires_at = now + float(
-            body.get("refresh_token_expires_in", 0)
+        self._refresh_token_expires_at = now + refresh_expires_in
+
+    def _access_token_valid(self) -> bool:
+        return bool(self._access_token) and (
+            time.time() < self._access_token_expires_at - _EXPIRY_SAFETY_MARGIN_SECONDS
         )
 
     async def _async_ensure_session(self) -> None:
-        now = time.time()
-        if (
-            self._access_token
-            and now < self._access_token_expires_at - _EXPIRY_SAFETY_MARGIN_SECONDS
-        ):
+        if self._access_token_valid():
             return
+        async with self._session_lock:
+            # Another caller may have refreshed it while this one waited.
+            if self._access_token_valid():
+                return
+            await self._async_renew_session()
 
+    async def _async_renew_session(self) -> None:
+        now = time.time()
         if (
             self._refresh_token
             and now < self._refresh_token_expires_at - _EXPIRY_SAFETY_MARGIN_SECONDS

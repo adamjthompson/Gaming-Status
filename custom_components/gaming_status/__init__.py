@@ -355,11 +355,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 if isinstance(p, dict) and p.get("discord")
             }
 
-            intents = nextcord.Intents.default()
+            # Only what the bot reads: guilds (bot.guilds), members (the
+            # member list and member updates) and presences (status and
+            # activities). Intents.default() also subscribed it to every
+            # message, typing, reaction and voice event in every server it
+            # shares, all ignored -- and the message cache it kept for them
+            # (1,000 messages) is turned off too.
+            intents = nextcord.Intents.none()
+            intents.guilds = True
             intents.members = True
             intents.presences = True
 
-            bot = nextcord.Client(intents=intents)
+            bot = nextcord.Client(intents=intents, max_messages=None)
 
             def _dispatch(member):
                 # Only tracked players have a sensor listening for their
@@ -733,4 +740,21 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     ).values():
         hass.async_create_task(http_client.aclose())
 
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok:
+        # This entry's own objects. Left in place, the history services
+        # (registered once, so still callable) kept renaming and deleting
+        # history on the removed sensors -- writing their storage files --
+        # and everything they reference stayed in memory. Rate limiters,
+        # caches and the Ubisoft feed registry are meant to outlive a reload
+        # and are kept; a reload rebuilds all of these.
+        domain_data = hass.data.get(DOMAIN, {})
+        for key in (
+            "platform_sensors",
+            "master_sensors",
+            "library_coordinators",
+            "notifier",
+            "discord_bot",
+        ):
+            domain_data.pop(key, None)
+    return unload_ok

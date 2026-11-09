@@ -41,6 +41,13 @@ _ICON_TOPIC_RE = re.compile(r"/icon/(\d{1,10})/(\d{1,12})$")
 
 MAX_LIBRARY_BYTES = 512 * 1024
 MAX_ICON_BYTES = 256 * 1024
+# The whole icon store (shared by every Agent). Once it holds this many
+# files or bytes, new icons are refused, so a flood of icon messages can't
+# fill the disk. Far above any real library (icons are a few KB each);
+# icons already stored are never deleted and can still be updated.
+MAX_ICON_STORE_FILES = 50_000
+MAX_ICON_STORE_BYTES = 512 * 1024 * 1024
+_ICON_USAGE_KEY = "gaming_status_ubisoft_icon_usage"
 MAX_GAMES = 2000
 MAX_RECENT = 20
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -189,6 +196,7 @@ class UbisoftFeed:
         self.updated_at = None
         self.icons_written = 0
         self.rejected = 0
+        self._warned_store_full = False
         self._unsubs: list = []
         self._icon_dir = Path(
             hass.config.path("www", "gaming_status_cache", ICON_SUBDIR)
@@ -262,24 +270,69 @@ class UbisoftFeed:
             f"{DOMAIN}_ubisoft_icon_{game_id}_{ach_id}",
         )
 
+    async def _async_icon_usage(self) -> list[int]:
+        """[file count, bytes] of the whole icon store: counted from disk
+        once, then kept up to date as icons are written."""
+        usage = self.hass.data.get(_ICON_USAGE_KEY)
+        if usage is None:
+            icon_dir = self._icon_dir
+
+            def _count() -> list[int]:
+                files = size = 0
+                if icon_dir.is_dir():
+                    for icon in icon_dir.rglob("*.png"):
+                        with contextlib.suppress(OSError):
+                            size += icon.stat().st_size
+                            files += 1
+                return [files, size]
+
+            counted = await self.hass.async_add_executor_job(_count)
+            usage = self.hass.data.setdefault(_ICON_USAGE_KEY, counted)
+        return usage
+
     async def _async_write_icon(self, game_id: int, ach_id: int, data: bytes) -> None:
         # Both parts are plain integers, so the path can't leave the cache.
         path = self._icon_dir / str(game_id) / f"{ach_id}.png"
+        usage = await self._async_icon_usage()
+        files_now, bytes_now = usage
 
-        def _write() -> bool:
-            if path.exists() and path.stat().st_size == len(data):
-                return False
+        def _write() -> tuple[int, int] | None:
+            """(files added, bytes added) -- (0, 0) if the icon was already
+            there -- or None if it's a new icon and the store is full."""
+            old_size = path.stat().st_size if path.exists() else None
+            if old_size == len(data):
+                return 0, 0
+            if old_size is None and (
+                files_now >= MAX_ICON_STORE_FILES
+                or bytes_now + len(data) > MAX_ICON_STORE_BYTES
+            ):
+                return None
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix(".tmp")
             tmp.write_bytes(data)
             tmp.replace(path)
-            return True
+            return (0 if old_size is not None else 1), len(data) - (old_size or 0)
 
         try:
-            if await self.hass.async_add_executor_job(_write):
-                self.icons_written += 1
+            added = await self.hass.async_add_executor_job(_write)
         except OSError as err:
             _LOGGER.debug("Gaming Status: couldn't cache Ubisoft icon: %s", err)
+            return
+        if added is None:
+            self.rejected += 1
+            if not self._warned_store_full:
+                self._warned_store_full = True
+                _LOGGER.warning(
+                    "Gaming Status: the Ubisoft achievement icon store is full "
+                    "(%s files, %s MB); new icons won't be saved",
+                    files_now,
+                    bytes_now // (1024 * 1024),
+                )
+            return
+        if added != (0, 0):
+            usage[0] += added[0]
+            usage[1] += added[1]
+            self.icons_written += 1
 
     def status(self) -> dict:
         """For diagnostics -- no account details."""

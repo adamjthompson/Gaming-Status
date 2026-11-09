@@ -23,11 +23,12 @@ from .const import (
 from .platform_exceptions import (
     AuthError,
     GameDetailsPrivateError,
+    HttpStatusError,
     MalformedResponseError,
     NetworkError,
     RateLimitedError,
 )
-from .rate_limiter import RateLimiter
+from .rate_limiter import RateLimiter, parse_retry_after
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,10 +52,7 @@ class SteamClient:
         try:
             async with self._session.get(url, params=query, timeout=_TIMEOUT) as resp:
                 if resp.status == 429:
-                    retry_after_header = resp.headers.get("Retry-After")
-                    retry_after = (
-                        float(retry_after_header) if retry_after_header else None
-                    )
+                    retry_after = parse_retry_after(resp.headers.get("Retry-After"))
                     self._rate_limiter.notify_rate_limited(retry_after)
                     raise RateLimitedError(
                         f"Steam rate-limited {path}", retry_after=retry_after
@@ -62,7 +60,9 @@ class SteamClient:
                 if resp.status in (401, 403):
                     raise AuthError(f"Steam rejected the API key calling {path}")
                 if resp.status != 200:
-                    raise NetworkError(f"Steam returned HTTP {resp.status} for {path}")
+                    raise HttpStatusError(
+                        f"Steam returned HTTP {resp.status} for {path}", resp.status
+                    )
                 try:
                     return await resp.json(content_type=None)
                 except (ValueError, aiohttp.ContentTypeError) as err:
@@ -171,12 +171,15 @@ class SteamClient:
                 appid,
             )
             return []
-        except NetworkError:
-            # Steam returns a non-200 for "this game has no achievements
-            # schema" as well as real failures -- treat as "no achievements"
-            # rather than propagating a spurious error for the common case
-            # of a game with no achievement support at all.
-            return []
+        except HttpStatusError as err:
+            # Steam answers 4xx (e.g. 400 "Requested app has no stats") for
+            # a game without achievement stats -- "no achievements", not a
+            # failure. A 5xx is Steam having trouble: raised (as are
+            # timeouts and connection errors), so callers keep their last
+            # known counts instead of recording 0 earned.
+            if 400 <= err.status < 500:
+                return []
+            raise
 
         playerstats = (data or {}).get("playerstats") or {}
         if not playerstats.get("success"):

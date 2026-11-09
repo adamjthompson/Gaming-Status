@@ -11,6 +11,7 @@ import json
 import mimetypes
 from pathlib import Path
 
+import aiohttp
 from homeassistant.components.image import ImageEntity
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -23,7 +24,7 @@ from .device import (
     resolve_master_entity_id,
     safe_owner_slug,
 )
-from .utils import is_public_url
+from .utils import _read_capped, is_public_url
 
 _ART_ATTRIBUTE = "game_cover_art"
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024
@@ -113,10 +114,13 @@ class GameArtImage(ImageEntity):
                 )
                 if resp.status != 200 or mime not in _ALLOWED_IMAGE_TYPES:
                     return None
-                data = await resp.content.read(_MAX_IMAGE_BYTES + 1)
-        except (OSError, TimeoutError):
+                # Read to the end, capped. content.read(n) returns only what
+                # has arrived so far, so a larger image came back truncated.
+                data = await _read_capped(resp, _MAX_IMAGE_BYTES)
+        except (OSError, TimeoutError, aiohttp.ClientError):
+            # ClientError: e.g. the connection dropping mid-download.
             return None
-        if len(data) > _MAX_IMAGE_BYTES:
+        if data is None:
             return None
         self._attr_content_type = mime
         return data
