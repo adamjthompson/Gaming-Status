@@ -70,7 +70,9 @@
   };
 
   const iconSet = {
-    getIcon: async (name) => ICONS[name] || { path: "" },
+    // Own keys only, so names like "constructor" don't return Object's.
+    getIcon: async (name) =>
+      Object.prototype.hasOwnProperty.call(ICONS, name) ? ICONS[name] : { path: "" },
     getIconList: async () => Object.keys(ICONS).map((name) => ({ name })),
   };
 

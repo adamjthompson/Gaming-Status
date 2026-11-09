@@ -689,6 +689,10 @@ def _platform_flags(hass, name: str) -> dict:
 # mirrored view these are cut down to public players, so a private
 # player's name never appears in the page's data.
 _ENTITY_LIST_KEYS = ("selected_entities", "manual_entities", "entities")
+# The slideshow's Plex options, which can name people (avatar_name_map maps
+# Plex usernames to labels). Plex entities never reach the public snapshot,
+# so dropping these from a mirrored card changes nothing the page shows.
+_PRIVATE_CONFIG_KEYS = frozenset({"avatar_name_map", "plex_source", "include_plex"})
 
 
 def _scrub_entity_lists(config: dict, allowed: set[str]) -> dict:
@@ -737,7 +741,11 @@ def _build_layout(
         for group in _view_card_groups(view):
             kept = []
             for card in group:
-                config = {k: v for k, v in card.items() if k != "type"}
+                config = {
+                    k: v
+                    for k, v in card.items()
+                    if k != "type" and k not in _PRIVATE_CONFIG_KEYS
+                }
                 target = config.get("single_entity") or config.get("entity")
                 # Pinned to a specific player: only if that player is public.
                 # Unpinned cards are safe as-is -- the snapshot only contains
@@ -978,6 +986,9 @@ async def _build_public_payload(hass: HomeAssistant, now: float) -> dict | None:
         "theme": _theme_vars(hass, theme_name),
         "cards_url": cards_url,
         "generated_at": dt_util.now().isoformat(),
+        # The cards group play history by Home Assistant's own days, so they
+        # need its time zone rather than each visitor's.
+        "time_zone": hass.config.time_zone,
         "refresh_seconds": CACHE_SECONDS * 2,
         "layout": layout,
         "notice": notice,
@@ -1018,6 +1029,7 @@ class GamingStatusPublicJsonView(HomeAssistantView):
             ),
             "Referrer-Policy": "no-referrer",
             "X-Robots-Tag": "noindex",
+            "X-Content-Type-Options": "nosniff",
             "Vary": "Accept-Encoding",
         }
         if _accepts_gzip(request):
@@ -1207,10 +1219,13 @@ class GamingStatusPublicIconView(HomeAssistantView):
         hass = request.app["hass"]
         if _rate_limited(hass, request):
             return web.Response(status=429, text="Too many requests")
-        if not _request_allowed(request, _loaded_entry(hass)):
+        entry = _loaded_entry(hass)
+        if not _request_allowed(request, entry):
             return web.Response(status=404, text="Not found")
+        # A keyed page's icon URL carries the key: keep it out of shared caches.
+        cache = "private" if page_key(entry) else "public"
         return web.FileResponse(
-            _ICON_PATH, headers={"Cache-Control": "public, max-age=86400"}
+            _ICON_PATH, headers={"Cache-Control": f"{cache}, max-age=86400"}
         )
 
 
@@ -1418,6 +1433,13 @@ if(!customElements.get("ha-card")){
     set header(v){v?this.setAttribute("header",v):this.removeAttribute("header")}
   });
 }
+// Icons drawn before the "gaming-status:" icon set registers wait here and
+// are redrawn when it does: one listener for all of them, and a removed icon
+// stops waiting, so nothing piles up if the icon set never loads.
+const pendingIcons=new Set();
+addEventListener("gaming-status-icons-registered",()=>{
+  const waiting=[...pendingIcons];pendingIcons.clear();
+  waiting.forEach(el=>el._set(el.getAttribute("icon")))});
 if(!customElements.get("ha-icon")){
   customElements.define("ha-icon",class extends HTMLElement{
     constructor(){super();this.attachShadow({mode:"open"}).innerHTML=
@@ -1426,6 +1448,7 @@ if(!customElements.get("ha-icon")){
        span{font-size:var(--mdc-icon-size,24px);line-height:1}</style><span class="mdi"></span>`}
     static get observedAttributes(){return["icon"]}
     attributeChangedCallback(_,__,v){this._set(v)}
+    disconnectedCallback(){pendingIcons.delete(this)}
     set icon(v){this.setAttribute("icon",v||"")} get icon(){return this.getAttribute("icon")}
     _set(v){const s=this.shadowRoot.querySelector("span");v=v||"";
       // "prefix:name" icons other than mdi come from a registered custom
@@ -1435,8 +1458,7 @@ if(!customElements.get("ha-icon")){
       if(pre==="mdi"){s.innerHTML="";s.className=name?"mdi mdi-"+name:"mdi";return}
       s.className="";s.innerHTML="";
       const set=(window.customIcons||{})[pre];
-      if(!set){addEventListener("gaming-status-icons-registered",()=>{
-        if(this.getAttribute("icon")===v)this._set(v)},{once:true});return}
+      if(!set){pendingIcons.add(this);return}
       set.getIcon(name).then(ic=>{if(this.getAttribute("icon")!==v||!ic||!ic.path)return;
         const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
         svg.setAttribute("viewBox",ic.viewBox||"0 0 24 24");svg.setAttribute("fill","currentColor");
@@ -1469,11 +1491,13 @@ function makeHass(states){
   return{states,language:lang,locale:{language:lang,number_format:"language",time_format:"language"},
     themes:{darkMode:dark},selectedTheme:null,user:{is_admin:false,name:"Guest"},
     callService:nope,callWS:nope,callApi:nope,connection:null,
+    // Home Assistant's time zone, so charts bucket days like the server does.
+    config:{time_zone:timeZone},
     // Tells the cards there's no Home Assistant UI here (e.g. no more-info dialog).
     readOnly:true};
 }
 
-let cards=[], layoutKey="", scriptUrl=null;
+let cards=[], layoutKey="", scriptUrl=null, timeZone="";
 function loadScript(url){return new Promise((ok,fail)=>{
   if(scriptUrl===url)return ok(); const s=document.createElement("script");
   s.type="module";s.src=url;s.onload=()=>{scriptUrl=url;ok()};s.onerror=()=>{s.remove();fail(new Error("cards script failed to load: "+url))};
@@ -1519,7 +1543,7 @@ async function refresh(){
     next=d.refresh_seconds||60;
     document.title=d.title; document.getElementById("title").textContent=d.title;
     document.documentElement.dataset.theme=d.theme_mode||"auto";
-    theme=d.theme||null; applyTheme(); lastStates=d.states;
+    theme=d.theme||null; applyTheme(); lastStates=d.states; timeZone=d.time_zone||"";
     const on=Object.values(d.states).filter(s=>s.entity_id.endsWith("_master")&&
       !["offline","unknown","unavailable","source missing"].includes(String(s.state).toLowerCase())).length;
     sub.textContent=`${on} Player${on===1?"":"s"} Online`;
