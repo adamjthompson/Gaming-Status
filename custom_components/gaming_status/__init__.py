@@ -745,4 +745,21 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     ).values():
         hass.async_create_task(http_client.aclose())
 
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok:
+        # This entry's own objects. Left in place, the history services
+        # (registered once, so still callable) kept renaming and deleting
+        # history on the removed sensors -- writing their storage files --
+        # and everything they reference stayed in memory. Rate limiters,
+        # caches and the Ubisoft feed registry are meant to outlive a reload
+        # and are kept; a reload rebuilds all of these.
+        domain_data = hass.data.get(DOMAIN, {})
+        for key in (
+            "platform_sensors",
+            "master_sensors",
+            "library_coordinators",
+            "notifier",
+            "discord_bot",
+        ):
+            domain_data.pop(key, None)
+    return unload_ok
