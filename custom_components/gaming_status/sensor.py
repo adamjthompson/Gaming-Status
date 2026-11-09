@@ -4293,9 +4293,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     # what counts as a game. Deriving it from src.state here
                     # would miss the exclusion handling it applies.
                     probe = self._get_platform_data(src.state, src.attributes)
-                    source_reports_game = bool(
-                        probe.get("is_online") and probe.get("current_game")
-                    )
+                    # None for a "None"/empty state, which _unified_update
+                    # ignores too: no information either way, same as a
+                    # missing source.
+                    if probe is not None:
+                        source_reports_game = bool(
+                            probe.get("is_online") and probe.get("current_game")
+                        )
 
             if believes_playing and source_reports_game is False:
                 # Hand off to _unified_update rather than ending the session
