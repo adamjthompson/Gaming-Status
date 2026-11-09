@@ -578,6 +578,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # wiped on every game switch), this accumulates and persists the
         # same way _recent_sessions does. See _ingest_recent_unlocks.
         self._recent_achievements = []
+        # State write pending after unlocks arrived from outside this sensor's
+        # own update flow; see _schedule_unlock_publish.
+        self._unlock_publish_unsub = None
         self._cached_history_seconds = 0
         self._local_avatar_path = None
         self._default_avatar_path = None
@@ -2255,6 +2258,32 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if len(self._recent_achievements) > MAX_RECENT_ACHIEVEMENT_UNLOCKS:
                 del self._recent_achievements[MAX_RECENT_ACHIEVEMENT_UNLOCKS:]
             self._store.async_delay_save(self._get_store_data, 5.0)
+            self._schedule_unlock_publish()
+
+    @callback
+    def _schedule_unlock_publish(self):
+        """Library scans and achievement backfills feed unlocks in from
+        outside this sensor's own update flow, which never wrote its state
+        afterwards -- so they only showed up once something else did (up to
+        a day later for an idle player). One write a few seconds after the
+        last change covers a whole pass; when the sensor's own flow already
+        wrote the change, this one just finds nothing new."""
+        if self.hass is None or self._unlock_publish_unsub is not None:
+            return
+
+        @callback
+        def _publish(_now):
+            self._unlock_publish_unsub = None
+            self._write_common_attributes()
+            self.async_write_ha_state()
+
+        self._unlock_publish_unsub = async_call_later(self.hass, 5, _publish)
+
+    @callback
+    def _cancel_unlock_publish(self):
+        if self._unlock_publish_unsub is not None:
+            self._unlock_publish_unsub()
+            self._unlock_publish_unsub = None
 
     def _fire_achievement_event(self, entry):
         """Fires gaming_status_achievement_unlocked for a just-recorded
@@ -3913,6 +3942,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # through async_on_remove like everything else here. Cancels whatever
         # pending-confirmation one-shot happens to be armed at the time.
         self.async_on_remove(self._cancel_pending_recheck)
+        self.async_on_remove(self._cancel_unlock_publish)
         self.async_on_remove(self._async_ubisoft_removed)
 
         if self._gaming_type == "discord":
