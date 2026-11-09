@@ -52,7 +52,7 @@ from .platform_exceptions import (
     RateLimitedError,
     ReauthRequiredError,
 )
-from .rate_limiter import RateLimiter
+from .rate_limiter import RateLimiter, parse_retry_after
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -110,10 +110,7 @@ class PsnClient:
                 method, url, timeout=_TIMEOUT, **kwargs
             ) as resp:
                 if resp.status == 429:
-                    retry_after_header = resp.headers.get("Retry-After")
-                    retry_after = (
-                        float(retry_after_header) if retry_after_header else None
-                    )
+                    retry_after = parse_retry_after(resp.headers.get("Retry-After"))
                     self._rate_limiter.notify_rate_limited(retry_after)
                     raise RateLimitedError(
                         f"PSN rate-limited {url}", retry_after=retry_after
@@ -239,12 +236,18 @@ class PsnClient:
             raise MalformedResponseError(
                 f"PSN token response missing field(s): {', '.join(missing)}"
             )
+        try:
+            expires_in = float(body.get("expires_in", 0))
+            refresh_expires_in = float(body.get("refresh_token_expires_in", 0))
+        except (TypeError, ValueError) as err:
+            # Handled like any other unexpected response, not a bare error.
+            raise MalformedResponseError(
+                f"PSN token response has an unreadable expiry: {err}"
+            ) from None
         self._access_token = access_token
-        self._access_token_expires_at = now + float(body.get("expires_in", 0))
+        self._access_token_expires_at = now + expires_in
         self._refresh_token = refresh_token
-        self._refresh_token_expires_at = now + float(
-            body.get("refresh_token_expires_in", 0)
-        )
+        self._refresh_token_expires_at = now + refresh_expires_in
 
     async def _async_ensure_session(self) -> None:
         now = time.time()
