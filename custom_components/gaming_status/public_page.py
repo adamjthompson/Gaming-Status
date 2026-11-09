@@ -58,6 +58,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.json import json_bytes
 from homeassistant.util import dt as dt_util
 
@@ -501,6 +502,18 @@ _IMAGE_KEY_RE = re.compile(
 _AVATAR_CONTENT_TYPES = frozenset(
     {"image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/bmp"}
 )
+# Discord avatar URLs name the account (and, for server avatars, the server)
+# by numeric ID, which anyone can look up -- so with Show gamertags off
+# they're served under an opaque alias too, fetched from Discord by Home
+# Assistant. Default avatars (/embed/avatars/<n>.png) name nobody.
+_DISCORD_AVATAR_RE = re.compile(
+    r"^https://(?:cdn\.discordapp\.com|media\.discordapp\.net)/"
+    r"(?:avatars/\d+|guilds/\d+/users/\d+/avatars)/"
+    r"[A-Za-z0-9_]+\.(?:png|jpe?g|webp|gif)(?:\?[A-Za-z0-9=&_]*)?$"
+)
+_REMOTE_AVATARS_KEY = "gaming_status_public_remote_avatars"
+_REMOTE_AVATAR_CACHE_SECONDS = 300
+_REMOTE_AVATAR_CACHE_MAX = 64
 
 
 class _AvatarAliases:
@@ -531,11 +544,11 @@ class _AvatarAliases:
             return None
         return entity_id
 
-    def url_for(self, entity_id: str) -> str:
-        alias = hmac.new(self._secret, entity_id.encode(), hashlib.sha256).hexdigest()[
-            :32
-        ]
-        self.by_alias[alias] = entity_id
+    def url_for(self, target: str) -> str:
+        """Alias for an image entity id, or for a remote (Discord) avatar
+        URL -- the avatar view tells them apart by the https:// prefix."""
+        alias = hmac.new(self._secret, target.encode(), hashlib.sha256).hexdigest()[:32]
+        self.by_alias[alias] = target
         return with_key(f"{PUBLIC_AVATAR_URL}/{alias}", self._entry)
 
 
@@ -567,6 +580,13 @@ def _filter_value(
                 return _DROP
             if not show_gamertags:
                 return avatars.url_for(entity_id)
+    elif (
+        not show_gamertags
+        and isinstance(value, str)
+        and value.startswith("https://")
+        and _DISCORD_AVATAR_RE.match(value)
+    ):
+        return avatars.url_for(value) if avatars else _DROP
     return value
 
 
@@ -1215,20 +1235,13 @@ class GamingStatusPublicAvatarView(HomeAssistantView):
         # just left the public page stops being served (cached otherwise).
         if await build_public_payload(hass) is None:
             return web.Response(status=404, text="Not found")
-        entity_id = (hass.data.get(_AVATAR_ALIASES_KEY) or {}).get(alias)
-        component = hass.data.get("image")
-        entity = component.get_entity(entity_id) if entity_id and component else None
-        if entity is None:
+        target = (hass.data.get(_AVATAR_ALIASES_KEY) or {}).get(alias)
+        if not target:
             return web.Response(status=404, text="Not found")
-        try:
-            async with asyncio.timeout(_AVATAR_TIMEOUT_SECONDS):
-                content = await entity.async_image()
-        except Exception:
-            _LOGGER.debug(
-                "[Gaming Status] Public avatar %s failed", entity_id, exc_info=True
-            )
-            content = None
-        content_type = (entity.content_type or "").split(";")[0].strip().lower()
+        if target.startswith("https://"):
+            content, content_type = await _remote_avatar(hass, target)
+        else:
+            content, content_type = await _entity_avatar(hass, target)
         if not content or content_type not in _AVATAR_CONTENT_TYPES:
             return web.Response(status=404, text="Not found")
         return web.Response(
@@ -1247,6 +1260,72 @@ class GamingStatusPublicAvatarView(HomeAssistantView):
                 "Content-Security-Policy": "default-src 'none'; sandbox",
             },
         )
+
+
+async def _entity_avatar(
+    hass: HomeAssistant, entity_id: str
+) -> tuple[bytes | None, str]:
+    """An Xbox/PlayStation gamerpic image entity's bytes and content type."""
+    component = hass.data.get("image")
+    entity = component.get_entity(entity_id) if component else None
+    if entity is None:
+        return None, ""
+    try:
+        async with asyncio.timeout(_AVATAR_TIMEOUT_SECONDS):
+            content = await entity.async_image()
+    except Exception:
+        _LOGGER.debug(
+            "[Gaming Status] Public avatar %s failed", entity_id, exc_info=True
+        )
+        return None, ""
+    return content, (entity.content_type or "").split(";")[0].strip().lower()
+
+
+async def _remote_avatar(hass: HomeAssistant, url: str) -> tuple[bytes | None, str]:
+    """A Discord avatar fetched by Home Assistant (so the page's own URLs
+    never name the account), cached for a few minutes. Failures are cached
+    too, so visitors can't make Home Assistant re-request Discord on every
+    page load. The type comes from the bytes, not from what Discord says."""
+    from . import utils
+
+    cache: dict = hass.data.setdefault(_REMOTE_AVATARS_KEY, {})
+    now = time.monotonic()
+    hit = cache.get(url)
+    if hit and now - hit[0] < _REMOTE_AVATAR_CACHE_SECONDS:
+        return hit[1], hit[2]
+    content = None
+    try:
+        if await utils.is_public_url(hass, url):
+            async with asyncio.timeout(_AVATAR_TIMEOUT_SECONDS):
+                content = await utils._fetch_public_image(
+                    hass, async_get_clientsession(hass), url, _AVATAR_TIMEOUT_SECONDS
+                )
+    except Exception:
+        _LOGGER.debug("[Gaming Status] Public Discord avatar failed", exc_info=True)
+    content_type = _sniff_image_type(content) if content else ""
+    if len(cache) >= _REMOTE_AVATAR_CACHE_MAX:
+        for stale in [
+            u
+            for u, (at, _c, _t) in cache.items()
+            if now - at >= _REMOTE_AVATAR_CACHE_SECONDS
+        ]:
+            del cache[stale]
+        if len(cache) >= _REMOTE_AVATAR_CACHE_MAX:
+            cache.clear()
+    cache[url] = (now, content, content_type)
+    return content, content_type
+
+
+def _sniff_image_type(data: bytes) -> str:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return ""
 
 
 # ---------------------------------------------------------------------------
