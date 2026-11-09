@@ -229,7 +229,10 @@ class GamingNotifier:
             self._unsub_parental()
         if self._unsub_achievements:
             self._unsub_achievements()
-        for task in getattr(self, "_pending_end_tasks", {}).values():
+        for task in {
+            *getattr(self, "_pending_end_tasks", {}).values(),
+            *getattr(self, "_end_tasks", ()),
+        }:
             task.cancel()
 
     # ------------------------------------------------------------------
@@ -755,6 +758,11 @@ class GamingNotifier:
             self._pending_end_tasks = {}
         if not hasattr(self, "_recent_end"):
             self._recent_end = {}
+        if not hasattr(self, "_end_tasks"):
+            # Every pending "ended" task, including one a newer end for the
+            # same player replaced in _pending_end_tasks, so async_stop can
+            # cancel them all.
+            self._end_tasks = set()
 
         if is_start:
             # SAME-GAME HANDOFF: a recent "finished playing" for this player
@@ -879,16 +887,19 @@ class GamingNotifier:
                 # Still held for the handoff window so the ended event is
                 # skipped for a same-game platform handoff.
                 self._recent_end[target_player] = {"game": old_clean, "at": now}
-                self._pending_end_tasks[target_player] = self.hass.async_create_task(
-                    self._send_delayed_end(
-                        target_player,
-                        entity_id,
-                        old_state,
-                        old_game,
-                        duration_str,
-                        total_minutes,
-                        [],
-                    )
+                self._track_end_task(
+                    target_player,
+                    self.hass.async_create_task(
+                        self._send_delayed_end(
+                            target_player,
+                            entity_id,
+                            old_state,
+                            old_game,
+                            duration_str,
+                            total_minutes,
+                            [],
+                        )
+                    ),
                 )
             return
 
@@ -937,7 +948,12 @@ class GamingNotifier:
                     end_dests,
                 )
             )
-            self._pending_end_tasks[target_player] = task
+            self._track_end_task(target_player, task)
+
+    def _track_end_task(self, target_player, task) -> None:
+        self._pending_end_tasks[target_player] = task
+        self._end_tasks.add(task)
+        task.add_done_callback(self._end_tasks.discard)
 
     async def _send_delayed_end(
         self,
@@ -953,8 +969,13 @@ class GamingNotifier:
             await asyncio.sleep(SAME_GAME_HANDOFF_WINDOW_SECONDS)
         except asyncio.CancelledError:
             return
-        self._pending_end_tasks.pop(target_player, None)
-        self._recent_end.pop(target_player, None)
+        # Only clear the handoff bookkeeping if it's still ours: when another
+        # session for this player ended during our wait, both entries now
+        # belong to that newer end, and clearing them would break its
+        # same-game handoff check.
+        if self._pending_end_tasks.get(target_player) is asyncio.current_task():
+            self._pending_end_tasks.pop(target_player, None)
+            self._recent_end.pop(target_player, None)
 
         self._fire_session_event(
             EVENT_SESSION_ENDED,
