@@ -2624,7 +2624,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._attr_extra_state_attributes["calendar_weekly_breakdown_last_week"] = (
             self._calendar_weekly_breakdown_last_week
         )
-        self._attr_extra_state_attributes["longest_session_details"] = today_longest
+        # Copies here and for the two lists below, not the live objects: those
+        # get edited in place later (rename_game, an achievement's icon or date
+        # filled in after the fact), and Home Assistant compares new attributes
+        # against the state it already holds. Shared dicts would compare equal,
+        # so the edit would never reach open dashboards (or the master sensor).
+        self._attr_extra_state_attributes["longest_session_details"] = dict(
+            today_longest
+        )
         self._attr_extra_state_attributes["rolling_longest_session_details"] = (
             derived.rolling_longest
         )
@@ -2633,12 +2640,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         )
 
         self._attr_extra_state_attributes["play_history"] = derived.history_attr
-        self._attr_extra_state_attributes["recent_sessions"] = list(
-            getattr(self, "_recent_sessions", [])
-        )
-        self._attr_extra_state_attributes["recent_achievements"] = list(
-            getattr(self, "_recent_achievements", [])
-        )
+        self._attr_extra_state_attributes["recent_sessions"] = [
+            dict(e) if isinstance(e, dict) else e
+            for e in getattr(self, "_recent_sessions", [])
+        ]
+        self._attr_extra_state_attributes["recent_achievements"] = [
+            dict(e) if isinstance(e, dict) else e
+            for e in getattr(self, "_recent_achievements", [])
+        ]
 
         self._attr_extra_state_attributes["all_time_total_hours"] = (
             derived.all_time_total_hours
