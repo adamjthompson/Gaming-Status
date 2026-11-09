@@ -177,6 +177,37 @@ def _parse_day(value):
         return parser.parse(value).date()
 
 
+def _week_key(day):
+    """Key for the Sunday-to-Saturday week containing `day`: the ISO date of
+    its Sunday. This used to be strftime("%Y-%U"), which puts the days before
+    a year's first Sunday in week "00" -- so the week containing Jan 1 had
+    two keys and the weekly totals rolled over twice, once mid-week."""
+    return (day - timedelta(days=(day.weekday() + 1) % 7)).isoformat()
+
+
+_LEGACY_WEEK_KEY_RE = re.compile(r"^\d{4}-\d{2}$")
+
+
+def _migrate_week_key(value):
+    """A stored week key in _week_key's format. A legacy "%Y-%U" key becomes
+    its week's Sunday ("2027-00" and "2026-52" are both 2026-12-27), so
+    updating mid-week doesn't count as a new week."""
+    if isinstance(value, str) and _LEGACY_WEEK_KEY_RE.match(value):
+        try:
+            return datetime.strptime(f"{value}-0", "%Y-%U-%w").date().isoformat()
+        except ValueError:
+            return value
+    return value
+
+
+def _day_week_key(date_str):
+    """_week_key for a play_history day key, or None if it doesn't parse."""
+    try:
+        return _week_key(_parse_day(date_str))
+    except (ValueError, OverflowError, TypeError):
+        return None
+
+
 def _agent_attr(attrs, name):
     """A Gaming Status Agent attribute, or None when absent -- the Agent fills
     empty fields with the text "None"."""
@@ -547,6 +578,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # wiped on every game switch), this accumulates and persists the
         # same way _recent_sessions does. See _ingest_recent_unlocks.
         self._recent_achievements = []
+        # State write pending after unlocks arrived from outside this sensor's
+        # own update flow; see _schedule_unlock_publish.
+        self._unlock_publish_unsub = None
         self._cached_history_seconds = 0
         self._local_avatar_path = None
         self._default_avatar_path = None
@@ -920,7 +954,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         now = dt_util.now()
         local_now = dt_util.as_local(now)
         current_date_str = local_now.strftime("%Y-%m-%d")
-        current_week_str = local_now.strftime("%Y-%U")
+        current_week_str = _week_key(local_now.date())
 
         history_changed = False
 
@@ -933,9 +967,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 # abort this whole daily reset instead of just mistagging
                 # one archived day.
                 try:
-                    archived_week_str = _parse_day(self._last_reset_date).strftime(
-                        "%Y-%U"
-                    )
+                    archived_week_str = _week_key(_parse_day(self._last_reset_date))
                 except (ValueError, OverflowError, TypeError):
                     archived_week_str = current_week_str
                 self._play_history[self._last_reset_date] = {
@@ -972,6 +1004,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             # Unconditional: breakdown/longest_session were reset above regardless of history_changed.
             self._mark_history_changed()
 
+        self._last_weekly_reset = _migrate_week_key(self._last_weekly_reset)
         if self._last_weekly_reset != current_week_str:
             _LOGGER.debug(
                 "Gaming Status: %s -- weekly rollover firing: "
@@ -1115,9 +1148,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 if other_priority > my_priority and other_platform != defer_to:
                     continue
 
-                other_sensor_id = self._desired_entity_id.replace(
-                    f"_{self._gaming_type}", f"_{other_platform}"
-                )
+                other_sensor_id = self._sibling_entity_id(other_platform)
                 other_state = (
                     prefetched_states[other_sensor_id]
                     if prefetched_states and other_sensor_id in prefetched_states
@@ -1673,9 +1704,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 console_active = False
                 console_states = {}
                 for _cp in ["playstation", "xbox"]:
-                    _cid = self._desired_entity_id.replace(
-                        f"_{self._gaming_type}", f"_{_cp}"
-                    )
+                    _cid = self._sibling_entity_id(_cp)
                     _cs = self.hass.states.get(_cid)
                     console_states[_cid] = _cs
                     if _cs and str(_cs.state).lower() not in [
@@ -1700,12 +1729,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 # available, so still let it through.
                 is_xbox_connection_relay = app_id == DISCORD_XBOX_CONNECTION_APP_ID
                 has_native_xbox_sibling = (
-                    console_states.get(
-                        self._desired_entity_id.replace(
-                            f"_{self._gaming_type}", "_xbox"
-                        )
-                    )
-                    is not None
+                    console_states.get(self._sibling_entity_id("xbox")) is not None
                 )
 
                 if is_xbox_connection_relay and has_native_xbox_sibling:
@@ -1847,6 +1871,40 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # Still pending until it has held for the full window.
         return _elapsed_seconds(self._pending_first_seen, now_dt) < window
 
+    def _sibling_entity_id(self, platform):
+        """This player's sensor id for another platform. Swaps only the
+        trailing platform suffix -- a whole-string replace also rewrote a
+        player name containing the platform's word (player "Steam Sam"'s
+        Xbox sibling came out as sensor.gaming_status_xbox_sam_xbox)."""
+        base = self._desired_entity_id.removesuffix(f"_{self._gaming_type}")
+        return f"{base}_{platform}"
+
+    def _drop_resumed_segment_row(self, game, stopped_at):
+        """When a session resumes (same game back within 5 minutes), the
+        merged session's row will cover the first segment's time again --
+        so drop the row (and the session count) that segment got when it
+        ended, rather than list the same minutes twice. Only an exact match
+        is dropped: same game, same end time, same duration."""
+        stop_dt = _safe_parse_datetime(stopped_at)
+        if stop_dt is None:
+            return
+        norm = _normalize_game_name(game)
+        for i, row in enumerate(self._recent_sessions):
+            if not isinstance(row, dict):
+                continue
+            end_dt = _safe_parse_datetime(row.get("end_time"))
+            if (
+                end_dt is not None
+                and abs((end_dt - stop_dt).total_seconds()) < 1
+                and row.get("duration_seconds") == self._last_session_play_time
+                and _normalize_game_name(row.get("game")) == norm
+            ):
+                del self._recent_sessions[i]
+                if getattr(self, "_all_time_session_count", 0) > 0:
+                    self._all_time_session_count -= 1
+                self._store.async_delay_save(self._get_store_data, 5.0)
+                return
+
     def _handle_game_transition(self, new_game_name, explicit_end_time=None):
         now = dt_util.now()
         actual_end_time = explicit_end_time or now
@@ -1940,10 +1998,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     # gets topped up -- it just silently dropped the session row
                     # while still crediting the aggregate totals.
                     # Note: a brief network blip after 5+ minutes of play can end a
-                    # session here and have it "resurrect" as a new one below, which
-                    # will show as two rows instead of one continuous session - a
-                    # known, accepted edge case (same tradeoff the aggregate totals
-                    # above already make in favor of not losing playtime).
+                    # session here and have it "resurrect" below; this row (and
+                    # count) is then dropped in favor of the merged session's
+                    # (see _drop_resumed_segment_row).
                     if self._current_game:
                         self._all_time_session_count = (
                             getattr(self, "_all_time_session_count", 0) + 1
@@ -2014,6 +2071,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             can_resurrect = True
             if can_resurrect:
                 if self._last_session_play_time > 0:
+                    self._drop_resumed_segment_row(new_game_name, prev_stop)
                     resumed_start = now - timedelta(
                         seconds=self._last_session_play_time
                     )
@@ -2225,6 +2283,32 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             if len(self._recent_achievements) > MAX_RECENT_ACHIEVEMENT_UNLOCKS:
                 del self._recent_achievements[MAX_RECENT_ACHIEVEMENT_UNLOCKS:]
             self._store.async_delay_save(self._get_store_data, 5.0)
+            self._schedule_unlock_publish()
+
+    @callback
+    def _schedule_unlock_publish(self):
+        """Library scans and achievement backfills feed unlocks in from
+        outside this sensor's own update flow, which never wrote its state
+        afterwards -- so they only showed up once something else did (up to
+        a day later for an idle player). One write a few seconds after the
+        last change covers a whole pass; when the sensor's own flow already
+        wrote the change, this one just finds nothing new."""
+        if self.hass is None or self._unlock_publish_unsub is not None:
+            return
+
+        @callback
+        def _publish(_now):
+            self._unlock_publish_unsub = None
+            self._write_common_attributes()
+            self.async_write_ha_state()
+
+        self._unlock_publish_unsub = async_call_later(self.hass, 5, _publish)
+
+    @callback
+    def _cancel_unlock_publish(self):
+        if self._unlock_publish_unsub is not None:
+            self._unlock_publish_unsub()
+            self._unlock_publish_unsub = None
 
     def _fire_achievement_event(self, entry):
         """Fires gaming_status_achievement_unlocked for a just-recorded
@@ -2299,7 +2383,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         across play-time ticks. Longest-session entries start from an empty
         baseline and are merged with today's in _compute_derived_history_stats."""
         # Sunday-anchored, matching total_weekly_hours's own week boundary
-        # (strftime("%U") in _check_daily_reset) and this integration's own
+        # (_week_key in _check_daily_reset) and this integration's own
         # documented "Calendar (Since Sunday)" behavior -- date.weekday()
         # is Monday=0, so the naive `- timedelta(days=weekday())` this
         # replaced was actually Monday-anchored, silently disagreeing with
@@ -2594,7 +2678,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         self._attr_extra_state_attributes["calendar_weekly_breakdown_last_week"] = (
             self._calendar_weekly_breakdown_last_week
         )
-        self._attr_extra_state_attributes["longest_session_details"] = today_longest
+        # Copies here and for the two lists below, not the live objects: those
+        # get edited in place later (rename_game, an achievement's icon or date
+        # filled in after the fact), and Home Assistant compares new attributes
+        # against the state it already holds. Shared dicts would compare equal,
+        # so the edit would never reach open dashboards (or the master sensor).
+        self._attr_extra_state_attributes["longest_session_details"] = dict(
+            today_longest
+        )
         self._attr_extra_state_attributes["rolling_longest_session_details"] = (
             derived.rolling_longest
         )
@@ -2603,12 +2694,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         )
 
         self._attr_extra_state_attributes["play_history"] = derived.history_attr
-        self._attr_extra_state_attributes["recent_sessions"] = list(
-            getattr(self, "_recent_sessions", [])
-        )
-        self._attr_extra_state_attributes["recent_achievements"] = list(
-            getattr(self, "_recent_achievements", [])
-        )
+        self._attr_extra_state_attributes["recent_sessions"] = [
+            dict(e) if isinstance(e, dict) else e
+            for e in getattr(self, "_recent_sessions", [])
+        ]
+        self._attr_extra_state_attributes["recent_achievements"] = [
+            dict(e) if isinstance(e, dict) else e
+            for e in getattr(self, "_recent_achievements", [])
+        ]
 
         self._attr_extra_state_attributes["all_time_total_hours"] = (
             derived.all_time_total_hours
@@ -2786,7 +2879,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             # weekly_play_time accumulates across the whole current week
             # independent of the daily reset, so an archived-but-still-this-week
             # day must also correct it.
-            if day_data.get("week_str") == self._last_weekly_reset:
+            if _day_week_key(date_str) == self._last_weekly_reset:
                 self._weekly_play_time = max(
                     0, int((self._weekly_play_time or 0) - secs)
                 )
@@ -2963,7 +3056,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     # weekly_play_time accumulates across the whole current week
                     # independent of the daily reset, so an archived-but-still-
                     # this-week day must also correct it.
-                    if day_data.get("week_str") == self._last_weekly_reset:
+                    if _day_week_key(date_str) == self._last_weekly_reset:
                         self._weekly_play_time = max(
                             0, int((self._weekly_play_time or 0) - secs)
                         )
@@ -3161,7 +3254,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             # weekly_play_time accumulates across the whole current week
             # independent of the daily reset, so an archived-but-still-
             # this-week day must also be credited here.
-            if day_data.get("week_str") == self._last_weekly_reset:
+            if _day_week_key(date_str) == self._last_weekly_reset:
                 self._weekly_play_time = int((self._weekly_play_time or 0) + secs)
             hist_longest = day_data.get("longest_session") or {}
             if secs > hist_longest.get("duration", 0):
@@ -3169,7 +3262,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         else:
             # No existing archived entry for this date at all -- synthesize a
             # fresh one in the same shape organic daily-reset archiving uses.
-            week_str = local_start.strftime("%Y-%U")
+            week_str = _week_key(local_start.date())
             self._play_history[date_str] = {
                 "total_seconds": secs,
                 "game_breakdown": {clean_title: secs},
@@ -3282,7 +3375,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 internal.get("daily_play_time_yesterday", 0)
             )
             self._last_reset_date = internal.get("last_reset_date")
-            self._last_weekly_reset = internal.get("last_weekly_reset")
+            self._last_weekly_reset = _migrate_week_key(
+                internal.get("last_weekly_reset")
+            )
             self._last_session_play_time = int(
                 internal.get("last_session_play_time", 0)
             )
@@ -3872,6 +3967,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # through async_on_remove like everything else here. Cancels whatever
         # pending-confirmation one-shot happens to be armed at the time.
         self.async_on_remove(self._cancel_pending_recheck)
+        self.async_on_remove(self._cancel_unlock_publish)
         self.async_on_remove(self._async_ubisoft_removed)
 
         if self._gaming_type == "discord":
@@ -4261,9 +4357,13 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     # what counts as a game. Deriving it from src.state here
                     # would miss the exclusion handling it applies.
                     probe = self._get_platform_data(src.state, src.attributes)
-                    source_reports_game = bool(
-                        probe.get("is_online") and probe.get("current_game")
-                    )
+                    # None for a "None"/empty state, which _unified_update
+                    # ignores too: no information either way, same as a
+                    # missing source.
+                    if probe is not None:
+                        source_reports_game = bool(
+                            probe.get("is_online") and probe.get("current_game")
+                        )
 
             if believes_playing and source_reports_game is False:
                 # Hand off to _unified_update rather than ending the session
@@ -6053,9 +6153,11 @@ class PCGamingSensor(RestoreSensor):
         handoff_grace_seconds=DEFAULT_MASTER_HANDOFF_GRACE_SECONDS,
         device_info=None,
         achievement_tracking_enabled=True,
+        pc_platform_keys=None,
     ):
         self.hass = hass
         self._pc_entities = pc_entities
+        self._pc_platform_keys = pc_platform_keys or {}
         self._same_game_prefix_words = same_game_prefix_words
         self._handoff_grace_seconds = handoff_grace_seconds
         self._achievement_tracking_enabled = achievement_tracking_enabled
@@ -6084,6 +6186,12 @@ class PCGamingSensor(RestoreSensor):
             immediate=True,
             function=self._update_pc_state_safe,
         )
+
+    def _platform_of(self, entity_id):
+        """Platform key ("steam", "gsa", ...) of one of this player's PC
+        platform sensors: from setup, which knows it, rather than parsed from
+        the entity id, which Home Assistant may have suffixed ("_2")."""
+        return self._pc_platform_keys.get(entity_id) or entity_id.split("_")[-1]
 
     async def async_added_to_hass(self):
         """Run when the entity is added to Home Assistant to restore state."""
@@ -6177,8 +6285,8 @@ class PCGamingSensor(RestoreSensor):
         gamertags_by_platform = {}
         for entity_id, state in pc_states.items():
             if state:
-                gamertags_by_platform[entity_id.split("_")[-1]] = state.attributes.get(
-                    "gamertag"
+                gamertags_by_platform[self._platform_of(entity_id)] = (
+                    state.attributes.get("gamertag")
                 )
         winning_platform = None
 
@@ -6252,7 +6360,7 @@ class PCGamingSensor(RestoreSensor):
             self._attr_native_value = active_state.state
 
             # Dynamically grab the icon and name from the winning platform
-            winning_platform = active_state.entity_id.split("_")[-1]
+            winning_platform = self._platform_of(active_state.entity_id)
             winning_launcher = active_state.attributes.get("launcher")
             self._attr_icon = _platform_icon(winning_platform, winning_launcher)
             pretty_platform_name = _platform_display_name(
@@ -6286,7 +6394,7 @@ class PCGamingSensor(RestoreSensor):
 
             # If everything is offline, inherit the 'Last seen...' data from the most recently active PC platform
             if most_recent_state:
-                winning_platform = most_recent_state.entity_id.split("_")[-1]
+                winning_platform = self._platform_of(most_recent_state.entity_id)
                 winning_launcher = most_recent_state.attributes.get("launcher")
                 pretty_platform_name = _platform_display_name(
                     winning_platform, winning_launcher
@@ -7130,6 +7238,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                         registry.async_remove(target_id)
 
         pc_platforms_present = []
+        # Real entity id -> platform key, so the PC sensor needn't parse the
+        # platform back out of an id Home Assistant may have suffixed ("_2").
+        pc_platform_keys = {}
         library_platform_sources = {}
         resolved_platform_entities = {}
 
@@ -7205,6 +7316,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 # Register PC platforms in strict hierarchy order for the Sub-Master
                 if platform in ["playnite", "gsa", "custom", "steam", "discord"]:
                     pc_platforms_present.append(real_entity_id)
+                    pc_platform_keys[real_entity_id] = platform
 
                 if platform in (
                     "steam",
@@ -7232,7 +7344,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 "discord": 4,
             }
             pc_platforms_present.sort(
-                key=lambda x: priority_order.get(x.split("_")[-1], 99)
+                key=lambda x: priority_order.get(pc_platform_keys.get(x), 99)
             )
             ents.append(
                 PCGamingSensor(
@@ -7245,6 +7357,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     achievement_tracking_enabled=any(
                         player_achievement_tracking_by_platform.values()
                     ),
+                    pc_platform_keys=pc_platform_keys,
                 )
             )
         else:

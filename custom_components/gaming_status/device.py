@@ -96,6 +96,29 @@ def resolve_platform_entity_id(
     )
 
 
+def find_platform_sensor(hass, player_name: str, platform: str):
+    """The live platform sensor object for one player's platform, from
+    hass.data[DOMAIN]["platform_sensors"] -- keyed by the registered entity
+    id, which may not be the default one (renamed by the user, or
+    re-slugified by Home Assistant). Tries the default id, then matches on
+    the sensor's own player and platform. None if there isn't one."""
+    sensors = hass.data.get(DOMAIN, {}).get("platform_sensors", {})
+    safe_owner = safe_owner_slug(player_name)
+    sensor = sensors.get(f"sensor.gaming_status_{safe_owner}_{platform}")
+    if sensor is not None:
+        return sensor
+    return next(
+        (
+            candidate
+            for candidate in sensors.values()
+            if getattr(candidate, "_gaming_type", None) == platform
+            and safe_owner_slug(getattr(candidate, "_owner_name", "") or "")
+            == safe_owner
+        ),
+        None,
+    )
+
+
 def player_device_info(
     player_name: str, safe_owner: str, platforms: list[str]
 ) -> DeviceInfo:

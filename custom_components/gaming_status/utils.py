@@ -2269,6 +2269,29 @@ def _elapsed_seconds(start, end):
     return end.timestamp() - start.timestamp()
 
 
+def _relative_unit_delta(val, unit):
+    """timedelta for "<val> <unit>" in a "Last seen ..." status ("5 minutes",
+    "2 hrs", "1 month"), or None. Matched on how the unit word starts:
+    checking for any letter in it read "seconds" as days (it has a "d"),
+    "months" as minutes, and "weeks"/"years" as seconds."""
+    unit = unit.strip(".,;:()")
+    if unit.startswith("mo"):
+        return timedelta(days=30 * val)
+    if unit.startswith("mi") or unit == "m":
+        return timedelta(minutes=val)
+    if unit.startswith("h"):
+        return timedelta(hours=val)
+    if unit.startswith("d"):
+        return timedelta(days=val)
+    if unit.startswith("w"):
+        return timedelta(weeks=val)
+    if unit.startswith("y"):
+        return timedelta(days=365 * val)
+    if unit.startswith("s"):
+        return timedelta(seconds=val)
+    return None
+
+
 def _parse_relative_time_from_status(status_text):
     if not status_text or isinstance(status_text, datetime):
         return None
@@ -2280,15 +2303,7 @@ def _parse_relative_time_from_status(status_text):
         parts = text.split(" ")
         for i, part in enumerate(parts):
             if part.isdigit() and i + 1 < len(parts):
-                val, unit, delta = int(part), parts[i + 1], None
-                if "m" in unit:
-                    delta = timedelta(minutes=val)
-                elif "h" in unit:
-                    delta = timedelta(hours=val)
-                elif "d" in unit:
-                    delta = timedelta(days=val)
-                elif "s" in unit:
-                    delta = timedelta(seconds=val)
+                delta = _relative_unit_delta(int(part), parts[i + 1])
                 if delta:
                     return (now - delta).isoformat()
             if part[-1] in ["d", "h", "m", "s"] and part[:-1].isdigit():

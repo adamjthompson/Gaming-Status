@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, time as dt_time, timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -20,6 +20,7 @@ from homeassistant.util import dt as dt_util
 
 from . import messages
 from .const import (
+    CURFEW_END_HOUR,
     DEFAULT_ENABLE_ACHIEVEMENT_TRACKING,
     DEFAULT_SAME_GAME_PREFIX_WORDS,
     DOMAIN,
@@ -60,6 +61,34 @@ _ART_ATTR_TO_ASSET = {
     "game_logo_art": "logo",
     "game_icon_art": "icon",
 }
+
+
+def _active_curfew_start(now_dt, rule):
+    """When the curfew in force at now_dt began, or None if none is.
+
+    A curfew runs from its time until CURFEW_END_HOUR (06:00) the next
+    morning, under the rule -- weekday or weekend -- of the evening it
+    started, so playing after midnight still counts as past curfew. A time
+    before 06:00 is an after-midnight curfew for that night (00:30 means
+    00:30-06:00, not all day). Raises ValueError for a malformed time."""
+    for days_back in (1, 0):
+        night = (now_dt - timedelta(days=days_back)).date()
+        curfew_time = (
+            rule.get("weekend", "23:00")
+            if night.weekday() >= 5
+            else rule.get("weekday", "22:00")
+        )
+        # [:2] tolerates both "HH:MM" (legacy free-text entries) and
+        # "HH:MM:SS" (Home Assistant's TimeSelector widget).
+        hour, minute = (int(p) for p in str(curfew_time).split(":")[:2])
+        start_day = night if hour >= CURFEW_END_HOUR else night + timedelta(days=1)
+        start = datetime.combine(start_day, dt_time(hour, minute), tzinfo=now_dt.tzinfo)
+        end = datetime.combine(
+            night + timedelta(days=1), dt_time(CURFEW_END_HOUR), tzinfo=now_dt.tzinfo
+        )
+        if start <= now_dt < end:
+            return start
+    return None
 
 
 def _load_json(raw, fallback):
@@ -229,7 +258,10 @@ class GamingNotifier:
             self._unsub_parental()
         if self._unsub_achievements:
             self._unsub_achievements()
-        for task in getattr(self, "_pending_end_tasks", {}).values():
+        for task in {
+            *getattr(self, "_pending_end_tasks", {}).values(),
+            *getattr(self, "_end_tasks", ()),
+        }:
             task.cancel()
 
     # ------------------------------------------------------------------
@@ -755,6 +787,11 @@ class GamingNotifier:
             self._pending_end_tasks = {}
         if not hasattr(self, "_recent_end"):
             self._recent_end = {}
+        if not hasattr(self, "_end_tasks"):
+            # Every pending "ended" task, including one a newer end for the
+            # same player replaced in _pending_end_tasks, so async_stop can
+            # cancel them all.
+            self._end_tasks = set()
 
         if is_start:
             # SAME-GAME HANDOFF: a recent "finished playing" for this player
@@ -879,16 +916,19 @@ class GamingNotifier:
                 # Still held for the handoff window so the ended event is
                 # skipped for a same-game platform handoff.
                 self._recent_end[target_player] = {"game": old_clean, "at": now}
-                self._pending_end_tasks[target_player] = self.hass.async_create_task(
-                    self._send_delayed_end(
-                        target_player,
-                        entity_id,
-                        old_state,
-                        old_game,
-                        duration_str,
-                        total_minutes,
-                        [],
-                    )
+                self._track_end_task(
+                    target_player,
+                    self.hass.async_create_task(
+                        self._send_delayed_end(
+                            target_player,
+                            entity_id,
+                            old_state,
+                            old_game,
+                            duration_str,
+                            total_minutes,
+                            [],
+                        )
+                    ),
                 )
             return
 
@@ -937,7 +977,12 @@ class GamingNotifier:
                     end_dests,
                 )
             )
-            self._pending_end_tasks[target_player] = task
+            self._track_end_task(target_player, task)
+
+    def _track_end_task(self, target_player, task) -> None:
+        self._pending_end_tasks[target_player] = task
+        self._end_tasks.add(task)
+        task.add_done_callback(self._end_tasks.discard)
 
     async def _send_delayed_end(
         self,
@@ -953,8 +998,13 @@ class GamingNotifier:
             await asyncio.sleep(SAME_GAME_HANDOFF_WINDOW_SECONDS)
         except asyncio.CancelledError:
             return
-        self._pending_end_tasks.pop(target_player, None)
-        self._recent_end.pop(target_player, None)
+        # Only clear the handoff bookkeeping if it's still ours: when another
+        # session for this player ended during our wait, both entries now
+        # belong to that newer end, and clearing them would break its
+        # same-game handoff check.
+        if self._pending_end_tasks.get(target_player) is asyncio.current_task():
+            self._pending_end_tasks.pop(target_player, None)
+            self._recent_end.pop(target_player, None)
 
         self._fire_session_event(
             EVENT_SESSION_ENDED,
@@ -1235,21 +1285,13 @@ class GamingNotifier:
             cf_rule = rules.get("curfew", {})
             if cf_rule.get("enabled"):
                 cf_key = f"{safe_player}_curfew"
-                curfew_time = (
-                    cf_rule.get("weekend", "23:00")
-                    if is_weekend
-                    else cf_rule.get("weekday", "22:00")
-                )
                 cf_repeat = int(cf_rule.get("repeat", 0))
                 try:
-                    # [:2] tolerates both "HH:MM" (legacy free-text entries)
-                    # and "HH:MM:SS" (Home Assistant's TimeSelector widget).
-                    c_hour, c_min = (int(p) for p in curfew_time.split(":")[:2])
-                    curfew_dt = now_dt.replace(
-                        hour=c_hour, minute=c_min, second=0, microsecond=0
-                    )
+                    # Start of the curfew in force (it lasts until 06:00,
+                    # so it carries past midnight), or None.
+                    curfew_dt = _active_curfew_start(now_dt, cf_rule)
 
-                    if now_dt >= curfew_dt:
+                    if curfew_dt is not None:
                         last_event = self._parental_event_marks.get(cf_key)
                         if is_playing and (
                             last_event is None
@@ -1323,7 +1365,7 @@ class GamingNotifier:
                             ):
                                 self._triggered_parental_events[cf_key] = now_dt
 
-                    elif now_dt < curfew_dt:
+                    else:
                         self._triggered_parental_events.pop(cf_key, None)
                         self._parental_event_marks.pop(cf_key, None)
 
