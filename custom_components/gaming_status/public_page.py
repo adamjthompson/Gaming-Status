@@ -68,6 +68,8 @@ from .const import (
     DEFAULT_PUBLIC_PAGE_THEME_MODE,
     DEFAULT_PUBLIC_PAGE_TITLE,
     DOMAIN,
+    HA_PLAYSTATION_NETWORK_DOMAIN,
+    HA_XBOX_DOMAIN,
     OPT_PLAYERS,
     OPT_PUBLIC_PAGE_CARDS_URL,
     OPT_PUBLIC_PAGE_ENABLED,
@@ -484,6 +486,21 @@ _IMAGE_PROXY_RE = re.compile(r"^/api/image_proxy/(image\.[a-z0-9_]+)\?")
 _AVATAR_HMAC_DATA = "gaming_status_public_avatar_hmac"
 _AVATAR_ALIASES_KEY = "gaming_status_public_avatar_aliases"
 _AVATAR_TIMEOUT_SECONDS = 10
+# A player's avatar only ever comes from these integrations' image entities
+# (see the platform sensor's avatar discovery). Any other image_proxy URL in
+# the attributes -- e.g. a game title a player set to look like one -- must
+# not be served, or the page could publish any image entity in Home Assistant.
+_AVATAR_IMAGE_PLATFORMS = frozenset({HA_XBOX_DOMAIN, HA_PLAYSTATION_NETWORK_DOMAIN})
+# Attribute keys that hold image URLs. An image_proxy URL under any other key
+# (a game title, a name) is dropped.
+_IMAGE_KEY_RE = re.compile(
+    r"(picture|avatar|gamerpic|image|art|cover|icon|logo|hero)", re.IGNORECASE
+)
+# What the avatar view serves: gamerpics are PNG or JPEG. Never SVG, which
+# can carry script and would run on Home Assistant's own origin if opened.
+_AVATAR_CONTENT_TYPES = frozenset(
+    {"image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/bmp"}
+)
 
 
 class _AvatarAliases:
@@ -498,13 +515,23 @@ class _AvatarAliases:
             secret = hass.data[_AVATAR_HMAC_DATA] = secrets.token_bytes(32)
         self._secret = secret
         self._entry = entry
+        self._registry = er.async_get(hass)
         self.by_alias: dict[str, str] = {}
 
-    def url_for(self, proxy_url: str) -> str | None:
+    def avatar_entity(self, proxy_url: str, key: str) -> str | None:
+        """The image entity an image_proxy URL points at, if the page may
+        show it: found under an image attribute, and an Xbox or PlayStation
+        gamerpic."""
         match = _IMAGE_PROXY_RE.match(proxy_url)
-        if not match:
+        if not match or not _IMAGE_KEY_RE.search(key):
             return None
         entity_id = match.group(1)
+        entry = self._registry.async_get(entity_id)
+        if entry is None or entry.platform not in _AVATAR_IMAGE_PLATFORMS:
+            return None
+        return entity_id
+
+    def url_for(self, entity_id: str) -> str:
         alias = hmac.new(self._secret, entity_id.encode(), hashlib.sha256).hexdigest()[
             :32
         ]
@@ -515,23 +542,31 @@ class _AvatarAliases:
 _DROP = object()
 
 
-def _filter_value(value, show_gamertags: bool, avatars: _AvatarAliases | None = None):
+def _filter_value(
+    value,
+    show_gamertags: bool,
+    avatars: _AvatarAliases | None = None,
+    key: str = "",
+):
     """Filters nested dicts/lists the same way as top-level attributes, so
-    a sensitive field can't slip through inside another one."""
+    a sensitive field can't slip through inside another one. `key` is the
+    attribute the value sits under (list items inherit their list's)."""
     if isinstance(value, dict):
         return _filter_attrs(value, show_gamertags, avatars)
     if isinstance(value, (list, tuple)):
-        items = (_filter_value(v, show_gamertags, avatars) for v in value)
+        items = (_filter_value(v, show_gamertags, avatars, key) for v in value)
         return [v for v in items if v is not _DROP]
     if isinstance(value, str) and value.startswith("/"):
         if not _public_url_ok(value):
             # e.g. /api/camera_proxy/... needs a login; drop rather than
             # hand the card a URL that renders as a broken image.
             return _DROP
-        if not show_gamertags and value.startswith("/api/image_proxy/"):
-            if avatars is None:
+        if value.startswith("/api/image_proxy/"):
+            entity_id = avatars.avatar_entity(value, key) if avatars else None
+            if avatars is None or entity_id is None:
                 return _DROP
-            return avatars.url_for(value) or _DROP
+            if not show_gamertags:
+                return avatars.url_for(entity_id)
     return value
 
 
@@ -545,7 +580,7 @@ def _filter_attrs(
             continue
         if not show_gamertags and _GAMERTAG_RE.search(key_str):
             continue
-        filtered = _filter_value(value, show_gamertags, avatars)
+        filtered = _filter_value(value, show_gamertags, avatars, key_str)
         if filtered is not _DROP:
             out[key] = filtered
     return out
@@ -1193,8 +1228,8 @@ class GamingStatusPublicAvatarView(HomeAssistantView):
                 "[Gaming Status] Public avatar %s failed", entity_id, exc_info=True
             )
             content = None
-        content_type = entity.content_type or ""
-        if not content or not content_type.startswith("image/"):
+        content_type = (entity.content_type or "").split(";")[0].strip().lower()
+        if not content or content_type not in _AVATAR_CONTENT_TYPES:
             return web.Response(status=404, text="Not found")
         return web.Response(
             body=content,
@@ -1207,6 +1242,9 @@ class GamingStatusPublicAvatarView(HomeAssistantView):
                 "Referrer-Policy": "no-referrer",
                 "X-Robots-Tag": "noindex",
                 "X-Content-Type-Options": "nosniff",
+                # Inert even if the image is opened directly instead of
+                # shown in an <img> (which ignores this header).
+                "Content-Security-Policy": "default-src 'none'; sandbox",
             },
         )
 
