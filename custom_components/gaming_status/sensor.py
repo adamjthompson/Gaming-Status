@@ -1880,6 +1880,32 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # Still pending until it has held for the full window.
         return _elapsed_seconds(self._pending_first_seen, now_dt) < window
 
+    def _drop_resumed_segment_row(self, game, stopped_at):
+        """When a session resumes (same game back within 5 minutes), the
+        merged session's row will cover the first segment's time again --
+        so drop the row (and the session count) that segment got when it
+        ended, rather than list the same minutes twice. Only an exact match
+        is dropped: same game, same end time, same duration."""
+        stop_dt = _safe_parse_datetime(stopped_at)
+        if stop_dt is None:
+            return
+        norm = _normalize_game_name(game)
+        for i, row in enumerate(self._recent_sessions):
+            if not isinstance(row, dict):
+                continue
+            end_dt = _safe_parse_datetime(row.get("end_time"))
+            if (
+                end_dt is not None
+                and abs((end_dt - stop_dt).total_seconds()) < 1
+                and row.get("duration_seconds") == self._last_session_play_time
+                and _normalize_game_name(row.get("game")) == norm
+            ):
+                del self._recent_sessions[i]
+                if getattr(self, "_all_time_session_count", 0) > 0:
+                    self._all_time_session_count -= 1
+                self._store.async_delay_save(self._get_store_data, 5.0)
+                return
+
     def _handle_game_transition(self, new_game_name, explicit_end_time=None):
         now = dt_util.now()
         actual_end_time = explicit_end_time or now
@@ -1973,10 +1999,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     # gets topped up -- it just silently dropped the session row
                     # while still crediting the aggregate totals.
                     # Note: a brief network blip after 5+ minutes of play can end a
-                    # session here and have it "resurrect" as a new one below, which
-                    # will show as two rows instead of one continuous session - a
-                    # known, accepted edge case (same tradeoff the aggregate totals
-                    # above already make in favor of not losing playtime).
+                    # session here and have it "resurrect" below; this row (and
+                    # count) is then dropped in favor of the merged session's
+                    # (see _drop_resumed_segment_row).
                     if self._current_game:
                         self._all_time_session_count = (
                             getattr(self, "_all_time_session_count", 0) + 1
@@ -2047,6 +2072,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                             can_resurrect = True
             if can_resurrect:
                 if self._last_session_play_time > 0:
+                    self._drop_resumed_segment_row(new_game_name, prev_stop)
                     resumed_start = now - timedelta(
                         seconds=self._last_session_play_time
                     )
