@@ -1148,9 +1148,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 if other_priority > my_priority and other_platform != defer_to:
                     continue
 
-                other_sensor_id = self._desired_entity_id.replace(
-                    f"_{self._gaming_type}", f"_{other_platform}"
-                )
+                other_sensor_id = self._sibling_entity_id(other_platform)
                 other_state = (
                     prefetched_states[other_sensor_id]
                     if prefetched_states and other_sensor_id in prefetched_states
@@ -1706,9 +1704,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 console_active = False
                 console_states = {}
                 for _cp in ["playstation", "xbox"]:
-                    _cid = self._desired_entity_id.replace(
-                        f"_{self._gaming_type}", f"_{_cp}"
-                    )
+                    _cid = self._sibling_entity_id(_cp)
                     _cs = self.hass.states.get(_cid)
                     console_states[_cid] = _cs
                     if _cs and str(_cs.state).lower() not in [
@@ -1733,12 +1729,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 # available, so still let it through.
                 is_xbox_connection_relay = app_id == DISCORD_XBOX_CONNECTION_APP_ID
                 has_native_xbox_sibling = (
-                    console_states.get(
-                        self._desired_entity_id.replace(
-                            f"_{self._gaming_type}", "_xbox"
-                        )
-                    )
-                    is not None
+                    console_states.get(self._sibling_entity_id("xbox")) is not None
                 )
 
                 if is_xbox_connection_relay and has_native_xbox_sibling:
@@ -1879,6 +1870,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
 
         # Still pending until it has held for the full window.
         return _elapsed_seconds(self._pending_first_seen, now_dt) < window
+
+    def _sibling_entity_id(self, platform):
+        """This player's sensor id for another platform. Swaps only the
+        trailing platform suffix -- a whole-string replace also rewrote a
+        player name containing the platform's word (player "Steam Sam"'s
+        Xbox sibling came out as sensor.gaming_status_xbox_sam_xbox)."""
+        base = self._desired_entity_id.removesuffix(f"_{self._gaming_type}")
+        return f"{base}_{platform}"
 
     def _drop_resumed_segment_row(self, game, stopped_at):
         """When a session resumes (same game back within 5 minutes), the
@@ -6154,9 +6153,11 @@ class PCGamingSensor(RestoreSensor):
         handoff_grace_seconds=DEFAULT_MASTER_HANDOFF_GRACE_SECONDS,
         device_info=None,
         achievement_tracking_enabled=True,
+        pc_platform_keys=None,
     ):
         self.hass = hass
         self._pc_entities = pc_entities
+        self._pc_platform_keys = pc_platform_keys or {}
         self._same_game_prefix_words = same_game_prefix_words
         self._handoff_grace_seconds = handoff_grace_seconds
         self._achievement_tracking_enabled = achievement_tracking_enabled
@@ -6185,6 +6186,12 @@ class PCGamingSensor(RestoreSensor):
             immediate=True,
             function=self._update_pc_state_safe,
         )
+
+    def _platform_of(self, entity_id):
+        """Platform key ("steam", "gsa", ...) of one of this player's PC
+        platform sensors: from setup, which knows it, rather than parsed from
+        the entity id, which Home Assistant may have suffixed ("_2")."""
+        return self._pc_platform_keys.get(entity_id) or entity_id.split("_")[-1]
 
     async def async_added_to_hass(self):
         """Run when the entity is added to Home Assistant to restore state."""
@@ -6278,8 +6285,8 @@ class PCGamingSensor(RestoreSensor):
         gamertags_by_platform = {}
         for entity_id, state in pc_states.items():
             if state:
-                gamertags_by_platform[entity_id.split("_")[-1]] = state.attributes.get(
-                    "gamertag"
+                gamertags_by_platform[self._platform_of(entity_id)] = (
+                    state.attributes.get("gamertag")
                 )
         winning_platform = None
 
@@ -6353,7 +6360,7 @@ class PCGamingSensor(RestoreSensor):
             self._attr_native_value = active_state.state
 
             # Dynamically grab the icon and name from the winning platform
-            winning_platform = active_state.entity_id.split("_")[-1]
+            winning_platform = self._platform_of(active_state.entity_id)
             winning_launcher = active_state.attributes.get("launcher")
             self._attr_icon = _platform_icon(winning_platform, winning_launcher)
             pretty_platform_name = _platform_display_name(
@@ -6387,7 +6394,7 @@ class PCGamingSensor(RestoreSensor):
 
             # If everything is offline, inherit the 'Last seen...' data from the most recently active PC platform
             if most_recent_state:
-                winning_platform = most_recent_state.entity_id.split("_")[-1]
+                winning_platform = self._platform_of(most_recent_state.entity_id)
                 winning_launcher = most_recent_state.attributes.get("launcher")
                 pretty_platform_name = _platform_display_name(
                     winning_platform, winning_launcher
@@ -7231,6 +7238,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                         registry.async_remove(target_id)
 
         pc_platforms_present = []
+        # Real entity id -> platform key, so the PC sensor needn't parse the
+        # platform back out of an id Home Assistant may have suffixed ("_2").
+        pc_platform_keys = {}
         library_platform_sources = {}
         resolved_platform_entities = {}
 
@@ -7306,6 +7316,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 # Register PC platforms in strict hierarchy order for the Sub-Master
                 if platform in ["playnite", "gsa", "custom", "steam", "discord"]:
                     pc_platforms_present.append(real_entity_id)
+                    pc_platform_keys[real_entity_id] = platform
 
                 if platform in (
                     "steam",
@@ -7333,7 +7344,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 "discord": 4,
             }
             pc_platforms_present.sort(
-                key=lambda x: priority_order.get(x.split("_")[-1], 99)
+                key=lambda x: priority_order.get(pc_platform_keys.get(x), 99)
             )
             ents.append(
                 PCGamingSensor(
@@ -7346,6 +7357,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     achievement_tracking_enabled=any(
                         player_achievement_tracking_by_platform.values()
                     ),
+                    pc_platform_keys=pc_platform_keys,
                 )
             )
         else:

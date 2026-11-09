@@ -40,7 +40,7 @@ from .const import (
     OPT_WEEKLY_REPORT,
     PLAYER_PLATFORMS,
 )
-from .device import safe_owner_slug
+from .device import find_platform_sensor, safe_owner_slug
 from .library_scan import has_pending_library_backfill
 from .notifier import GamingNotifier
 from .public_page import async_invalidate_public_cache, async_register_public_views
@@ -493,14 +493,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     def _resolve_targets(player, platform):
-        safe_owner = safe_owner_slug(player)
         platforms = [platform] if platform else PLAYER_PLATFORMS
-        sensors = hass.data[DOMAIN].get("platform_sensors", {})
-        return [
-            sensors[f"sensor.gaming_status_{safe_owner}_{p}"]
-            for p in platforms
-            if f"sensor.gaming_status_{safe_owner}_{p}" in sensors
-        ]
+        found = (find_platform_sensor(hass, player, p) for p in platforms)
+        return [sensor for sensor in found if sensor is not None]
 
     async def _refresh_master(player):
         # The master sensor normally only re-merges reactively off its

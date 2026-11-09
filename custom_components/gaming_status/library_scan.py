@@ -65,7 +65,6 @@ from homeassistant.util import dt as dt_util
 
 from . import ubisoft_feed, utils
 from .const import (
-    DOMAIN,
     EPIC_LIBRARY_DETAIL_BUDGET,
     GSA_ATTR_UBISOFT_TOPIC,
     LIBRARY_BACKFILL_MAX_ATTEMPTS,
@@ -76,7 +75,7 @@ from .const import (
     XBOX_LIBRARY_ART_BACKFILL_BUDGET_PER_CYCLE,
     XBOX_LIBRARY_BACKFILL_BUDGET_PER_CYCLE,
 )
-from .device import safe_owner_slug
+from .device import find_platform_sensor, safe_owner_slug
 from .utils import _elapsed_seconds, _normalize_game_name, _safe_parse_datetime
 
 _LOGGER = logging.getLogger(__name__)
@@ -135,12 +134,7 @@ def _target_sensor(hass, owner_name, platform):
     recent_achievements history/Store the real-time tracker maintains,
     rather than needing a separate one. Returns None if that sensor
     doesn't exist (e.g. mid-reload) -- callers must handle that."""
-    safe_owner = safe_owner_slug(owner_name)
-    return (
-        hass.data.get(DOMAIN, {})
-        .get("platform_sensors", {})
-        .get(f"sensor.gaming_status_{safe_owner}_{platform}")
-    )
+    return find_platform_sensor(hass, owner_name, platform)
 
 
 def _dominant_color_for(sensor_obj, game_name):
