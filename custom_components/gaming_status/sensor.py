@@ -4339,8 +4339,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                         now_dt,
                     )
 
+                    # Xbox too: _recheck_achievements has always had an Xbox
+                    # branch, but it was never added here, so an Xbox
+                    # player's recent unlocks were fetched only at game start.
                     if self._achievement_tracking_enabled and (
-                        self._gaming_type in ("steam", "playstation")
+                        self._gaming_type in ("steam", "xbox", "playstation")
                         or self._is_epic_session()
                     ):
                         due = (
