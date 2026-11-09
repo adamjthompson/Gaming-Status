@@ -177,6 +177,37 @@ def _parse_day(value):
         return parser.parse(value).date()
 
 
+def _week_key(day):
+    """Key for the Sunday-to-Saturday week containing `day`: the ISO date of
+    its Sunday. This used to be strftime("%Y-%U"), which puts the days before
+    a year's first Sunday in week "00" -- so the week containing Jan 1 had
+    two keys and the weekly totals rolled over twice, once mid-week."""
+    return (day - timedelta(days=(day.weekday() + 1) % 7)).isoformat()
+
+
+_LEGACY_WEEK_KEY_RE = re.compile(r"^\d{4}-\d{2}$")
+
+
+def _migrate_week_key(value):
+    """A stored week key in _week_key's format. A legacy "%Y-%U" key becomes
+    its week's Sunday ("2027-00" and "2026-52" are both 2026-12-27), so
+    updating mid-week doesn't count as a new week."""
+    if isinstance(value, str) and _LEGACY_WEEK_KEY_RE.match(value):
+        try:
+            return datetime.strptime(f"{value}-0", "%Y-%U-%w").date().isoformat()
+        except ValueError:
+            return value
+    return value
+
+
+def _day_week_key(date_str):
+    """_week_key for a play_history day key, or None if it doesn't parse."""
+    try:
+        return _week_key(_parse_day(date_str))
+    except (ValueError, OverflowError, TypeError):
+        return None
+
+
 def _agent_attr(attrs, name):
     """A Gaming Status Agent attribute, or None when absent -- the Agent fills
     empty fields with the text "None"."""
@@ -920,7 +951,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         now = dt_util.now()
         local_now = dt_util.as_local(now)
         current_date_str = local_now.strftime("%Y-%m-%d")
-        current_week_str = local_now.strftime("%Y-%U")
+        current_week_str = _week_key(local_now.date())
 
         history_changed = False
 
@@ -933,9 +964,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 # abort this whole daily reset instead of just mistagging
                 # one archived day.
                 try:
-                    archived_week_str = _parse_day(self._last_reset_date).strftime(
-                        "%Y-%U"
-                    )
+                    archived_week_str = _week_key(_parse_day(self._last_reset_date))
                 except (ValueError, OverflowError, TypeError):
                     archived_week_str = current_week_str
                 self._play_history[self._last_reset_date] = {
@@ -972,6 +1001,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             # Unconditional: breakdown/longest_session were reset above regardless of history_changed.
             self._mark_history_changed()
 
+        self._last_weekly_reset = _migrate_week_key(self._last_weekly_reset)
         if self._last_weekly_reset != current_week_str:
             _LOGGER.debug(
                 "Gaming Status: %s -- weekly rollover firing: "
@@ -2299,7 +2329,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         across play-time ticks. Longest-session entries start from an empty
         baseline and are merged with today's in _compute_derived_history_stats."""
         # Sunday-anchored, matching total_weekly_hours's own week boundary
-        # (strftime("%U") in _check_daily_reset) and this integration's own
+        # (_week_key in _check_daily_reset) and this integration's own
         # documented "Calendar (Since Sunday)" behavior -- date.weekday()
         # is Monday=0, so the naive `- timedelta(days=weekday())` this
         # replaced was actually Monday-anchored, silently disagreeing with
@@ -2786,7 +2816,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             # weekly_play_time accumulates across the whole current week
             # independent of the daily reset, so an archived-but-still-this-week
             # day must also correct it.
-            if day_data.get("week_str") == self._last_weekly_reset:
+            if _day_week_key(date_str) == self._last_weekly_reset:
                 self._weekly_play_time = max(
                     0, int((self._weekly_play_time or 0) - secs)
                 )
@@ -2963,7 +2993,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                     # weekly_play_time accumulates across the whole current week
                     # independent of the daily reset, so an archived-but-still-
                     # this-week day must also correct it.
-                    if day_data.get("week_str") == self._last_weekly_reset:
+                    if _day_week_key(date_str) == self._last_weekly_reset:
                         self._weekly_play_time = max(
                             0, int((self._weekly_play_time or 0) - secs)
                         )
@@ -3161,7 +3191,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             # weekly_play_time accumulates across the whole current week
             # independent of the daily reset, so an archived-but-still-
             # this-week day must also be credited here.
-            if day_data.get("week_str") == self._last_weekly_reset:
+            if _day_week_key(date_str) == self._last_weekly_reset:
                 self._weekly_play_time = int((self._weekly_play_time or 0) + secs)
             hist_longest = day_data.get("longest_session") or {}
             if secs > hist_longest.get("duration", 0):
@@ -3169,7 +3199,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         else:
             # No existing archived entry for this date at all -- synthesize a
             # fresh one in the same shape organic daily-reset archiving uses.
-            week_str = local_start.strftime("%Y-%U")
+            week_str = _week_key(local_start.date())
             self._play_history[date_str] = {
                 "total_seconds": secs,
                 "game_breakdown": {clean_title: secs},
@@ -3282,7 +3312,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 internal.get("daily_play_time_yesterday", 0)
             )
             self._last_reset_date = internal.get("last_reset_date")
-            self._last_weekly_reset = internal.get("last_weekly_reset")
+            self._last_weekly_reset = _migrate_week_key(
+                internal.get("last_weekly_reset")
+            )
             self._last_session_play_time = int(
                 internal.get("last_session_play_time", 0)
             )
