@@ -7332,8 +7332,15 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             # skips the actual rescan if the restored data is still fresh --
             # otherwise ANY options save would force a brand-new full scan
             # on top of one that just ran, since saving Advanced Settings
-            # reloads the whole config entry.
-            hass.async_create_task(coordinator.async_schedule_or_refresh())
+            # reloads the whole config entry. A background task: Home
+            # Assistant's startup waits for ordinary tasks to finish (and
+            # warns that something is blocking it), and this one is also
+            # cancelled if the entry unloads mid-scan.
+            config_entry.async_create_background_task(
+                hass,
+                coordinator.async_schedule_or_refresh(),
+                f"{DOMAIN}_library_scan_{safe_owner}",
+            )
         else:
             for platform in ("steam", "xbox", "playstation", "epic", "ubisoft"):
                 target_id = f"sensor.gaming_status_{safe_owner}_library_{platform}"
