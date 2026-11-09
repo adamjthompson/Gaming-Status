@@ -343,13 +343,13 @@
           "steam_achievements_api_key_override": "Steam Web API Key Override (Optional)",
           "psn_npsso_override": "PSN NPSSO Override (Optional)",
           "same_game_prefix_words": "Same-Game Prefix Match (leading words, 0 = off)",
-          "restrict_history_edits": "Restrict history edits and parental settings to admins"
+          "restrict_history_edits": "Restrict history edits, parental settings and the public page to admins"
         },
         "data_description": {
           "steam_achievements_api_key_override": "Only needed if the Steam integration isn't installed, or you want a different key than the one already configured there. Leave blank to auto-detect.",
           "psn_npsso_override": "Only needed if the PlayStation Network integration isn't installed, or you want a different account's NPSSO than the one already configured there. Leave blank to auto-detect. Used by both native ratings and achievement tracking. Checked with PlayStation when you save.",
           "same_game_prefix_words": "Game names starting with this many matching words (e.g. \"Call of Duty ...\") are treated as the same game instead of a switch. Default: 2. Set to 0 to disable.",
-          "restrict_history_edits": "When on, only Home Assistant administrators can rename or delete games and add, delete or reassign sessions (including from the Game Management card), and change parental controls from their switches, numbers, selects and times (including the Parental controls switch on the hub). Stops non-admin users, such as a child's account, from editing their own play history or lifting their own limits. Automations are still allowed."
+          "restrict_history_edits": "When on, only Home Assistant administrators can rename or delete games and add, delete or reassign sessions (including from the Game Management card), change parental controls from their switches, numbers, selects and times (including the Parental controls switch on the hub), and turn the public page or a player's Show on public page switch on or off. Stops non-admin users, such as a child's account, from editing their own play history, lifting their own limits or publishing anyone's activity. Automations are still allowed."
         }
       },
       "global_settings": {
