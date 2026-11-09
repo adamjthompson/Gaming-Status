@@ -37,6 +37,10 @@ _REDACT_IN_STRING = (
     (re.compile(r"(cdn\.discordapp\.com/avatars/)\d+"), r"\1" + REDACTED),
     # PSN account IDs inside request URLs carried by logged exceptions.
     (re.compile(r"(/users/)\d+"), r"\1" + REDACTED),
+    # Xbox XUIDs in request URLs, e.g. ".../users/xuid(2535...)/titles".
+    (re.compile(r"(xuids?\()[\d,]+"), r"\1" + REDACTED),
+    # SteamID64s anywhere, e.g. a player's "sensor.steam_<id>" source entity.
+    (re.compile(r"(?<!\d)7656119\d{10}(?!\d)"), REDACTED),
 )
 
 # Library sensors carry whole game lists; a few samples are enough to see
