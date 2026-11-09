@@ -54,6 +54,7 @@ import logging
 import time
 from datetime import timedelta
 
+from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.event import (
     async_call_later,
@@ -267,6 +268,10 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         # (e.g. Home Assistant started before the Agent): watches that sensor
         # so the library fills in as soon as it does, not at the next scan.
         self._unsub_ubisoft_source = None
+        # A Ubisoft-only refresh in progress, and whether another push came
+        # in meanwhile (then it runs once more, rather than overlapping).
+        self._ubisoft_refreshing = False
+        self._ubisoft_refresh_again = False
 
     async def async_shutdown(self):
         """Stops this coordinator's own timer and any in-flight backfill
@@ -1294,6 +1299,11 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         if self._unsub_ubisoft_source is not None or self._shut_down:
             return
 
+        # @callback (here and on _on_ubisoft_update): without it Home
+        # Assistant runs a plain function listener in a worker thread, where
+        # hass.async_create_task raises -- so pushed Ubisoft data never
+        # refreshed the library sensors.
+        @callback
         def _on_source_change(event):
             new_state = event.data.get("new_state")
             base = (
@@ -1320,6 +1330,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             self.hass, ubisoft_feed.signal_for(base), self._on_ubisoft_update
         )
 
+    @callback
     def _on_ubisoft_update(self):
         if not self._shut_down:
             self.hass.async_create_task(self.async_refresh_ubisoft())
@@ -1327,15 +1338,42 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
     async def async_refresh_ubisoft(self):
         """Rebuild only the Ubisoft part of the library from the latest pushed
         data, keeping every other platform's last scan as-is -- a Ubisoft
-        unlock shouldn't cost a Steam/Xbox/PlayStation rescan."""
+        unlock shouldn't cost a Steam/Xbox/PlayStation rescan. Pushes that
+        arrive while one is running are folded into one more pass."""
         source = self._platform_sources.get("ubisoft")
         if not source or self._shut_down:
             return
+        if self._ubisoft_refreshing:
+            self._ubisoft_refresh_again = True
+            return
+        self._ubisoft_refreshing = True
+        # Counted like a scan, so the art backfill (which shares the
+        # SteamGridDB limiter with _scan_ubisoft's art lookups) yields to it.
+        running = self.hass.data.setdefault(_SCANS_RUNNING_KEY, [0])
+        running[0] += 1
+        try:
+            while True:
+                self._ubisoft_refresh_again = False
+                await self._async_refresh_ubisoft_once(source)
+                if not self._ubisoft_refresh_again or self._shut_down:
+                    break
+        finally:
+            running[0] -= 1
+            self._ubisoft_refreshing = False
+
+    async def _async_refresh_ubisoft_once(self, source):
         if not self.data:
             await self.async_request_refresh()
             return
-        previous = self.data.get("platforms", {})
-        errors = self.data.get("platform_errors")
+        ubisoft = await self._scan_platform_safely(
+            "ubisoft", self._scan_ubisoft, source, self.data.get("platforms", {})
+        )
+        if self._shut_down or not self.data:
+            return
+        # Merged into the data as it is now, not as it was before the await:
+        # a full scan that finished meanwhile must not be reverted.
+        current = self.data
+        errors = current.get("platform_errors")
         errors = errors if isinstance(errors, dict) else {}
         raw_by_platform = {
             platform: {
@@ -1344,15 +1382,15 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 "account_id": summary.get("account_id"),
                 "owned_game_count": summary.get("owned_game_count"),
             }
-            for platform, summary in previous.items()
+            for platform, summary in current.get("platforms", {}).items()
             if platform != "ubisoft"
         }
-        raw_by_platform["ubisoft"] = await self._scan_platform_safely(
-            "ubisoft", self._scan_ubisoft, source, previous
-        )
-        if self._shut_down:
-            return
+        raw_by_platform["ubisoft"] = ubisoft
         result = _aggregate(raw_by_platform)
+        # Only Ubisoft was refreshed: keep the last full scan's time, which
+        # async_schedule_or_refresh schedules the next full scan from.
+        if current.get("last_synced"):
+            result["last_synced"] = current["last_synced"]
         # Not async_set_updated_data: that would also reset the scan timer,
         # so frequent Ubisoft unlocks could keep postponing the other
         # platforms' scheduled scans (same approach as the backfill pass).
