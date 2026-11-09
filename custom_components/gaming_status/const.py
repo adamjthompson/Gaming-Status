@@ -44,6 +44,10 @@ DEFAULT_SESSION_START_CONFIRM_SECONDS = 0
 # or disable the same-game matching this suppression relies on.
 SAME_GAME_HANDOFF_WINDOW_SECONDS = 45
 
+# A parental curfew lasts from its set time until this hour the next morning
+# (local time), so playing after midnight still counts as past curfew.
+CURFEW_END_HOUR = 6
+
 # Max number of completed sessions retained per sensor for the "recent_sessions" history log
 MAX_RECENT_SESSIONS = 20
 

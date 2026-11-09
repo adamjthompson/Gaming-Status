@@ -299,7 +299,9 @@
           "rt_action_targets": "Notification method(s) when rating exceeded"
         },
         "data_description": {
-          "st_warning_minutes": "Fires the Screen time warning event this many minutes before the limit is reached, so an automation can warn the player."
+          "st_warning_minutes": "Fires the Screen time warning event this many minutes before the limit is reached, so an automation can warn the player.",
+          "cf_weekday": "Monday to Friday nights. Playing from this time until 6:00 the next morning counts as past curfew; a time before 6:00 (e.g. 00:30) is an after-midnight curfew.",
+          "cf_weekend": "Saturday and Sunday nights. Playing from this time until 6:00 the next morning counts as past curfew."
         }
       },
       "overrides_exclusions": {
