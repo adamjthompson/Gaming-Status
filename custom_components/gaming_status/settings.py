@@ -317,8 +317,9 @@ class SettingEntityMixin:
     hass: HomeAssistant
     _attr_should_poll = False
     _attr_entity_category = EntityCategory.CONFIG
-    # Parental settings: limited to admins while "Restrict history edits
-    # and parental settings to admins" is on (see _async_check_admin).
+    # Parental and public page settings: limited to admins while "Restrict
+    # history edits, parental settings and the public page to admins" is on
+    # (see _async_check_admin).
     _admin_only = False
 
     async def _async_check_admin(self) -> None:

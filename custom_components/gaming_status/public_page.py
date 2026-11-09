@@ -58,6 +58,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.json import json_bytes
 from homeassistant.util import dt as dt_util
 
@@ -68,6 +69,8 @@ from .const import (
     DEFAULT_PUBLIC_PAGE_THEME_MODE,
     DEFAULT_PUBLIC_PAGE_TITLE,
     DOMAIN,
+    HA_PLAYSTATION_NETWORK_DOMAIN,
+    HA_XBOX_DOMAIN,
     OPT_PLAYERS,
     OPT_PUBLIC_PAGE_CARDS_URL,
     OPT_PUBLIC_PAGE_ENABLED,
@@ -484,6 +487,33 @@ _IMAGE_PROXY_RE = re.compile(r"^/api/image_proxy/(image\.[a-z0-9_]+)\?")
 _AVATAR_HMAC_DATA = "gaming_status_public_avatar_hmac"
 _AVATAR_ALIASES_KEY = "gaming_status_public_avatar_aliases"
 _AVATAR_TIMEOUT_SECONDS = 10
+# A player's avatar only ever comes from these integrations' image entities
+# (see the platform sensor's avatar discovery). Any other image_proxy URL in
+# the attributes -- e.g. a game title a player set to look like one -- must
+# not be served, or the page could publish any image entity in Home Assistant.
+_AVATAR_IMAGE_PLATFORMS = frozenset({HA_XBOX_DOMAIN, HA_PLAYSTATION_NETWORK_DOMAIN})
+# Attribute keys that hold image URLs. An image_proxy URL under any other key
+# (a game title, a name) is dropped.
+_IMAGE_KEY_RE = re.compile(
+    r"(picture|avatar|gamerpic|image|art|cover|icon|logo|hero)", re.IGNORECASE
+)
+# What the avatar view serves: gamerpics are PNG or JPEG. Never SVG, which
+# can carry script and would run on Home Assistant's own origin if opened.
+_AVATAR_CONTENT_TYPES = frozenset(
+    {"image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/bmp"}
+)
+# Discord avatar URLs name the account (and, for server avatars, the server)
+# by numeric ID, which anyone can look up -- so with Show gamertags off
+# they're served under an opaque alias too, fetched from Discord by Home
+# Assistant. Default avatars (/embed/avatars/<n>.png) name nobody.
+_DISCORD_AVATAR_RE = re.compile(
+    r"^https://(?:cdn\.discordapp\.com|media\.discordapp\.net)/"
+    r"(?:avatars/\d+|guilds/\d+/users/\d+/avatars)/"
+    r"[A-Za-z0-9_]+\.(?:png|jpe?g|webp|gif)(?:\?[A-Za-z0-9=&_]*)?$"
+)
+_REMOTE_AVATARS_KEY = "gaming_status_public_remote_avatars"
+_REMOTE_AVATAR_CACHE_SECONDS = 300
+_REMOTE_AVATAR_CACHE_MAX = 64
 
 
 class _AvatarAliases:
@@ -498,40 +528,65 @@ class _AvatarAliases:
             secret = hass.data[_AVATAR_HMAC_DATA] = secrets.token_bytes(32)
         self._secret = secret
         self._entry = entry
+        self._registry = er.async_get(hass)
         self.by_alias: dict[str, str] = {}
 
-    def url_for(self, proxy_url: str) -> str | None:
+    def avatar_entity(self, proxy_url: str, key: str) -> str | None:
+        """The image entity an image_proxy URL points at, if the page may
+        show it: found under an image attribute, and an Xbox or PlayStation
+        gamerpic."""
         match = _IMAGE_PROXY_RE.match(proxy_url)
-        if not match:
+        if not match or not _IMAGE_KEY_RE.search(key):
             return None
         entity_id = match.group(1)
-        alias = hmac.new(self._secret, entity_id.encode(), hashlib.sha256).hexdigest()[
-            :32
-        ]
-        self.by_alias[alias] = entity_id
+        entry = self._registry.async_get(entity_id)
+        if entry is None or entry.platform not in _AVATAR_IMAGE_PLATFORMS:
+            return None
+        return entity_id
+
+    def url_for(self, target: str) -> str:
+        """Alias for an image entity id, or for a remote (Discord) avatar
+        URL -- the avatar view tells them apart by the https:// prefix."""
+        alias = hmac.new(self._secret, target.encode(), hashlib.sha256).hexdigest()[:32]
+        self.by_alias[alias] = target
         return with_key(f"{PUBLIC_AVATAR_URL}/{alias}", self._entry)
 
 
 _DROP = object()
 
 
-def _filter_value(value, show_gamertags: bool, avatars: _AvatarAliases | None = None):
+def _filter_value(
+    value,
+    show_gamertags: bool,
+    avatars: _AvatarAliases | None = None,
+    key: str = "",
+):
     """Filters nested dicts/lists the same way as top-level attributes, so
-    a sensitive field can't slip through inside another one."""
+    a sensitive field can't slip through inside another one. `key` is the
+    attribute the value sits under (list items inherit their list's)."""
     if isinstance(value, dict):
         return _filter_attrs(value, show_gamertags, avatars)
     if isinstance(value, (list, tuple)):
-        items = (_filter_value(v, show_gamertags, avatars) for v in value)
+        items = (_filter_value(v, show_gamertags, avatars, key) for v in value)
         return [v for v in items if v is not _DROP]
     if isinstance(value, str) and value.startswith("/"):
         if not _public_url_ok(value):
             # e.g. /api/camera_proxy/... needs a login; drop rather than
             # hand the card a URL that renders as a broken image.
             return _DROP
-        if not show_gamertags and value.startswith("/api/image_proxy/"):
-            if avatars is None:
+        if value.startswith("/api/image_proxy/"):
+            entity_id = avatars.avatar_entity(value, key) if avatars else None
+            if avatars is None or entity_id is None:
                 return _DROP
-            return avatars.url_for(value) or _DROP
+            if not show_gamertags:
+                return avatars.url_for(entity_id)
+    elif (
+        not show_gamertags
+        and isinstance(value, str)
+        and value.startswith("https://")
+        and _DISCORD_AVATAR_RE.match(value)
+    ):
+        return avatars.url_for(value) if avatars else _DROP
     return value
 
 
@@ -545,7 +600,7 @@ def _filter_attrs(
             continue
         if not show_gamertags and _GAMERTAG_RE.search(key_str):
             continue
-        filtered = _filter_value(value, show_gamertags, avatars)
+        filtered = _filter_value(value, show_gamertags, avatars, key_str)
         if filtered is not _DROP:
             out[key] = filtered
     return out
@@ -634,6 +689,10 @@ def _platform_flags(hass, name: str) -> dict:
 # mirrored view these are cut down to public players, so a private
 # player's name never appears in the page's data.
 _ENTITY_LIST_KEYS = ("selected_entities", "manual_entities", "entities")
+# The slideshow's Plex options, which can name people (avatar_name_map maps
+# Plex usernames to labels). Plex entities never reach the public snapshot,
+# so dropping these from a mirrored card changes nothing the page shows.
+_PRIVATE_CONFIG_KEYS = frozenset({"avatar_name_map", "plex_source", "include_plex"})
 
 
 def _scrub_entity_lists(config: dict, allowed: set[str]) -> dict:
@@ -682,7 +741,11 @@ def _build_layout(
         for group in _view_card_groups(view):
             kept = []
             for card in group:
-                config = {k: v for k, v in card.items() if k != "type"}
+                config = {
+                    k: v
+                    for k, v in card.items()
+                    if k != "type" and k not in _PRIVATE_CONFIG_KEYS
+                }
                 target = config.get("single_entity") or config.get("entity")
                 # Pinned to a specific player: only if that player is public.
                 # Unpinned cards are safe as-is -- the snapshot only contains
@@ -923,6 +986,9 @@ async def _build_public_payload(hass: HomeAssistant, now: float) -> dict | None:
         "theme": _theme_vars(hass, theme_name),
         "cards_url": cards_url,
         "generated_at": dt_util.now().isoformat(),
+        # The cards group play history by Home Assistant's own days, so they
+        # need its time zone rather than each visitor's.
+        "time_zone": hass.config.time_zone,
         "refresh_seconds": CACHE_SECONDS * 2,
         "layout": layout,
         "notice": notice,
@@ -963,6 +1029,7 @@ class GamingStatusPublicJsonView(HomeAssistantView):
             ),
             "Referrer-Policy": "no-referrer",
             "X-Robots-Tag": "noindex",
+            "X-Content-Type-Options": "nosniff",
             "Vary": "Accept-Encoding",
         }
         if _accepts_gzip(request):
@@ -1152,10 +1219,13 @@ class GamingStatusPublicIconView(HomeAssistantView):
         hass = request.app["hass"]
         if _rate_limited(hass, request):
             return web.Response(status=429, text="Too many requests")
-        if not _request_allowed(request, _loaded_entry(hass)):
+        entry = _loaded_entry(hass)
+        if not _request_allowed(request, entry):
             return web.Response(status=404, text="Not found")
+        # A keyed page's icon URL carries the key: keep it out of shared caches.
+        cache = "private" if page_key(entry) else "public"
         return web.FileResponse(
-            _ICON_PATH, headers={"Cache-Control": "public, max-age=86400"}
+            _ICON_PATH, headers={"Cache-Control": f"{cache}, max-age=86400"}
         )
 
 
@@ -1180,21 +1250,14 @@ class GamingStatusPublicAvatarView(HomeAssistantView):
         # just left the public page stops being served (cached otherwise).
         if await build_public_payload(hass) is None:
             return web.Response(status=404, text="Not found")
-        entity_id = (hass.data.get(_AVATAR_ALIASES_KEY) or {}).get(alias)
-        component = hass.data.get("image")
-        entity = component.get_entity(entity_id) if entity_id and component else None
-        if entity is None:
+        target = (hass.data.get(_AVATAR_ALIASES_KEY) or {}).get(alias)
+        if not target:
             return web.Response(status=404, text="Not found")
-        try:
-            async with asyncio.timeout(_AVATAR_TIMEOUT_SECONDS):
-                content = await entity.async_image()
-        except Exception:
-            _LOGGER.debug(
-                "[Gaming Status] Public avatar %s failed", entity_id, exc_info=True
-            )
-            content = None
-        content_type = entity.content_type or ""
-        if not content or not content_type.startswith("image/"):
+        if target.startswith("https://"):
+            content, content_type = await _remote_avatar(hass, target)
+        else:
+            content, content_type = await _entity_avatar(hass, target)
+        if not content or content_type not in _AVATAR_CONTENT_TYPES:
             return web.Response(status=404, text="Not found")
         return web.Response(
             body=content,
@@ -1207,8 +1270,77 @@ class GamingStatusPublicAvatarView(HomeAssistantView):
                 "Referrer-Policy": "no-referrer",
                 "X-Robots-Tag": "noindex",
                 "X-Content-Type-Options": "nosniff",
+                # Inert even if the image is opened directly instead of
+                # shown in an <img> (which ignores this header).
+                "Content-Security-Policy": "default-src 'none'; sandbox",
             },
         )
+
+
+async def _entity_avatar(
+    hass: HomeAssistant, entity_id: str
+) -> tuple[bytes | None, str]:
+    """An Xbox/PlayStation gamerpic image entity's bytes and content type."""
+    component = hass.data.get("image")
+    entity = component.get_entity(entity_id) if component else None
+    if entity is None:
+        return None, ""
+    try:
+        async with asyncio.timeout(_AVATAR_TIMEOUT_SECONDS):
+            content = await entity.async_image()
+    except Exception:
+        _LOGGER.debug(
+            "[Gaming Status] Public avatar %s failed", entity_id, exc_info=True
+        )
+        return None, ""
+    return content, (entity.content_type or "").split(";")[0].strip().lower()
+
+
+async def _remote_avatar(hass: HomeAssistant, url: str) -> tuple[bytes | None, str]:
+    """A Discord avatar fetched by Home Assistant (so the page's own URLs
+    never name the account), cached for a few minutes. Failures are cached
+    too, so visitors can't make Home Assistant re-request Discord on every
+    page load. The type comes from the bytes, not from what Discord says."""
+    from . import utils
+
+    cache: dict = hass.data.setdefault(_REMOTE_AVATARS_KEY, {})
+    now = time.monotonic()
+    hit = cache.get(url)
+    if hit and now - hit[0] < _REMOTE_AVATAR_CACHE_SECONDS:
+        return hit[1], hit[2]
+    content = None
+    try:
+        if await utils.is_public_url(hass, url):
+            async with asyncio.timeout(_AVATAR_TIMEOUT_SECONDS):
+                content = await utils._fetch_public_image(
+                    hass, async_get_clientsession(hass), url, _AVATAR_TIMEOUT_SECONDS
+                )
+    except Exception:
+        _LOGGER.debug("[Gaming Status] Public Discord avatar failed", exc_info=True)
+    content_type = _sniff_image_type(content) if content else ""
+    if len(cache) >= _REMOTE_AVATAR_CACHE_MAX:
+        for stale in [
+            u
+            for u, (at, _c, _t) in cache.items()
+            if now - at >= _REMOTE_AVATAR_CACHE_SECONDS
+        ]:
+            del cache[stale]
+        if len(cache) >= _REMOTE_AVATAR_CACHE_MAX:
+            cache.clear()
+    cache[url] = (now, content, content_type)
+    return content, content_type
+
+
+def _sniff_image_type(data: bytes) -> str:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -1301,6 +1433,13 @@ if(!customElements.get("ha-card")){
     set header(v){v?this.setAttribute("header",v):this.removeAttribute("header")}
   });
 }
+// Icons drawn before the "gaming-status:" icon set registers wait here and
+// are redrawn when it does: one listener for all of them, and a removed icon
+// stops waiting, so nothing piles up if the icon set never loads.
+const pendingIcons=new Set();
+addEventListener("gaming-status-icons-registered",()=>{
+  const waiting=[...pendingIcons];pendingIcons.clear();
+  waiting.forEach(el=>el._set(el.getAttribute("icon")))});
 if(!customElements.get("ha-icon")){
   customElements.define("ha-icon",class extends HTMLElement{
     constructor(){super();this.attachShadow({mode:"open"}).innerHTML=
@@ -1309,6 +1448,7 @@ if(!customElements.get("ha-icon")){
        span{font-size:var(--mdc-icon-size,24px);line-height:1}</style><span class="mdi"></span>`}
     static get observedAttributes(){return["icon"]}
     attributeChangedCallback(_,__,v){this._set(v)}
+    disconnectedCallback(){pendingIcons.delete(this)}
     set icon(v){this.setAttribute("icon",v||"")} get icon(){return this.getAttribute("icon")}
     _set(v){const s=this.shadowRoot.querySelector("span");v=v||"";
       // "prefix:name" icons other than mdi come from a registered custom
@@ -1318,8 +1458,7 @@ if(!customElements.get("ha-icon")){
       if(pre==="mdi"){s.innerHTML="";s.className=name?"mdi mdi-"+name:"mdi";return}
       s.className="";s.innerHTML="";
       const set=(window.customIcons||{})[pre];
-      if(!set){addEventListener("gaming-status-icons-registered",()=>{
-        if(this.getAttribute("icon")===v)this._set(v)},{once:true});return}
+      if(!set){pendingIcons.add(this);return}
       set.getIcon(name).then(ic=>{if(this.getAttribute("icon")!==v||!ic||!ic.path)return;
         const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
         svg.setAttribute("viewBox",ic.viewBox||"0 0 24 24");svg.setAttribute("fill","currentColor");
@@ -1352,11 +1491,13 @@ function makeHass(states){
   return{states,language:lang,locale:{language:lang,number_format:"language",time_format:"language"},
     themes:{darkMode:dark},selectedTheme:null,user:{is_admin:false,name:"Guest"},
     callService:nope,callWS:nope,callApi:nope,connection:null,
+    // Home Assistant's time zone, so charts bucket days like the server does.
+    config:{time_zone:timeZone},
     // Tells the cards there's no Home Assistant UI here (e.g. no more-info dialog).
     readOnly:true};
 }
 
-let cards=[], layoutKey="", scriptUrl=null;
+let cards=[], layoutKey="", scriptUrl=null, timeZone="";
 function loadScript(url){return new Promise((ok,fail)=>{
   if(scriptUrl===url)return ok(); const s=document.createElement("script");
   s.type="module";s.src=url;s.onload=()=>{scriptUrl=url;ok()};s.onerror=()=>{s.remove();fail(new Error("cards script failed to load: "+url))};
@@ -1402,7 +1543,7 @@ async function refresh(){
     next=d.refresh_seconds||60;
     document.title=d.title; document.getElementById("title").textContent=d.title;
     document.documentElement.dataset.theme=d.theme_mode||"auto";
-    theme=d.theme||null; applyTheme(); lastStates=d.states;
+    theme=d.theme||null; applyTheme(); lastStates=d.states; timeZone=d.time_zone||"";
     const on=Object.values(d.states).filter(s=>s.entity_id.endsWith("_master")&&
       !["offline","unknown","unavailable","source missing"].includes(String(s.state).toLowerCase())).length;
     sub.textContent=`${on} Player${on===1?"":"s"} Online`;

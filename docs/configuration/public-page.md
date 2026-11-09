@@ -1,7 +1,7 @@
 # Public Page
 An optional page that anyone with the link can view **without logging in**, at `/gaming_status/public` on your Home Assistant address (e.g. `http://<your-ha-ip>:8123/gaming_status/public`). It uses the same cards as [Gaming Status Cards](https://github.com/adamjthompson/Gaming-Status-Cards), so it looks like your own dashboards, and refreshes about once a minute, showing when it was last updated at the bottom. Sharing the link in Discord, iMessage, Slack and similar apps shows a preview with the page title, icon, and how many players are online. The page needs Gaming Status Cards installed (as a dashboard resource, which HACS sets up for you); without it, the page shows a setup message instead of cards. For security, the page only ever runs the cards script you've installed, never one fetched from elsewhere. The settings screen shows the page's full link.
 
-The page returns "Not found" until **Enable public page** is on *and* at least one player has **Show on public page** checked (Manage Players → Player Details). Only those players appear, and the page's "players online" counts include only them.
+The page returns "Not found" until **Enable public page** is on *and* at least one player has **Show on public page** checked (Manage Players → Player Details). Only those players appear, and the page's "players online" counts include only them. Both can also be changed from switches on the devices; with **Restrict history edits, parental settings and the public page to admins** on (Advanced Settings), only administrators can use those switches.
 
 * **Enable public page:** Serves the page. Your Home Assistant must be reachable from the internet for people outside your network to see it (see [Sharing the page outside your network](public-page.md#sharing-the-page-outside-your-network)).
 * **Require private link:** Off by default. When on, the page's link gets a secret `?key=...` added, and anyone opening the plain address gets "Not found". Share the full link shown at the top of the settings screen.
@@ -15,14 +15,14 @@ The page returns "Not found" until **Enable public page** is on *and* at least o
 * **Show gamertags:** Off by default. When off, gamertags are removed before any data leaves Home Assistant. When on, the built-in layout shows them in the player list and Gamercards; on a mirrored view, also turn on **Show gamertags** in each card's editor.
 * **Cards script URL:** *(Optional)* Leave blank to use the Gaming Status Cards resource already installed in your dashboards; a cards script added with `frontend: extra_module_url:` in `configuration.yaml` is found too. If none is found, the page shows a setup message instead of cards.
 
-**What's never shared:** Credentials, account IDs, parental control data, and (unless enabled) gamertags are stripped from the page's data. The Game Management card is never shown, and the page can't call any services or change anything. Each visitor's address is limited to 120 requests a minute, which is well above what an open page uses. Visitors on public IPv6 are counted per /64 network, since one home can use any address in it.
+**What's never shared:** Credentials, account IDs, parental control data, and (unless enabled) gamertags are stripped from the page's data. With gamertags hidden, Xbox, PlayStation and Discord avatars are served by the page itself under opaque addresses, since their usual addresses name the account. The page's data does include Home Assistant's time zone, so its charts split days the same way your dashboards do. The Game Management card is never shown, and the page can't call any services or change anything. Each visitor's address is limited to 120 requests a minute, which is well above what an open page uses. Visitors on public IPv6 are counted per /64 network, since one home can use any address in it.
 
 ## Sharing the page outside your network
 If you put the page behind a reverse proxy or tunnel (e.g. Cloudflare Tunnel) and only want to expose the page rather than all of Home Assistant, allow these paths:
 
 | Path | Why |
 | --- | --- |
-| `/gaming_status/public` | The page itself, its icon and (with gamertags hidden) Xbox and PlayStation gamerpics under `/gaming_status/public/avatar/` |
+| `/gaming_status/public` | The page itself, its icon and (with gamertags hidden) Xbox, PlayStation and Discord avatars under `/gaming_status/public/avatar/` |
 | `/api/gaming_status/public.json` | The data the page loads |
 | Your Gaming Status Cards resource, e.g. `/hacsfiles/Gaming-Status-Cards/` | The cards script (match the path and capitalization under Settings → Dashboards → Resources), unless you set **Cards script URL** to a public copy |
 | `/local/gaming_status_cache/` | Cached game artwork |

@@ -1927,7 +1927,7 @@ def _aggregate(raw_by_platform):
         games = raw.get("games") or []
         tracked_platforms.append(platform)
         if raw.get("error"):
-            platform_errors[platform] = raw["error"]
+            platform_errors[platform] = utils.redact_account_ids(raw["error"])
 
         summary = {
             # dict.get(key, default) only substitutes the default when the

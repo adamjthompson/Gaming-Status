@@ -108,8 +108,10 @@ class GlobalSwitch(SettingEntityMixin, SwitchEntity):
 
     def __init__(self, entry, device_info, option, name, icon):
         self._option = option
-        # Turning parental controls off would lift every player's rules.
-        self._admin_only = option == OPT_ENABLE_PARENTAL
+        # Turning parental controls off would lift every player's rules, and
+        # turning the public page on publishes presence to anyone with the
+        # link.
+        self._admin_only = option in (OPT_ENABLE_PARENTAL, OPT_PUBLIC_PAGE_ENABLED)
         self._setup_setting(
             entry,
             f"gaming_status_setting_{option}",
@@ -231,6 +233,9 @@ class _PlayerSwitch(SettingEntityMixin, SwitchEntity):
 
 
 class PublicPageSwitch(_PlayerSwitch):
+    # Publishes this player to anyone with the page link.
+    _admin_only = True
+
     def __init__(self, entry, player_name, device_info):
         self._player_name = player_name
         slug = safe_owner_slug(player_name)
@@ -246,6 +251,14 @@ class PublicPageSwitch(_PlayerSwitch):
     @property
     def is_on(self) -> bool:
         return bool(self._player_data().get(PLAYER_OPT_PUBLIC))
+
+    async def async_turn_on(self, **_kwargs: Any) -> None:
+        await self._async_check_admin()
+        self._set(True)
+
+    async def async_turn_off(self, **_kwargs: Any) -> None:
+        await self._async_check_admin()
+        self._set(False)
 
     def _set(self, value: bool) -> None:
         self._set_player_value(PLAYER_OPT_PUBLIC, value, live=True)

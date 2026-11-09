@@ -243,6 +243,26 @@ MAX_TITLE_CLEANUP_PATTERN_LENGTH = 200
 # "(a*)*", "(a+){2,}".
 _CATASTROPHIC_BACKTRACKING_RE = re.compile(r"\([^()]*[+*][^()]*\)[+*{]")
 
+# Account identifiers that platform error text can quote (httpx/aiohttp
+# errors include the request URL): Xbox XUIDs, PSN account ids, SteamID64s.
+_ACCOUNT_IDS_IN_TEXT = (
+    (re.compile(r"(xuids?\()[\d,]+"), r"\1***"),
+    (re.compile(r"(/users/)\d+"), r"\1***"),
+    (re.compile(r"(?<!\d)7656119\d{10}(?!\d)"), "***"),
+)
+
+
+def redact_account_ids(text):
+    """Error text with account identifiers blanked out. Library scan errors
+    are kept in the library sensors' platform_errors attribute, which every
+    Home Assistant user (and the recorder) can see; the ids add nothing to
+    what went wrong."""
+    if not isinstance(text, str):
+        return text
+    for pattern, repl in _ACCOUNT_IDS_IN_TEXT:
+        text = pattern.sub(repl, text)
+    return text
+
 
 def compile_title_cleanups():
     """Pre-compile regex patterns for performance."""
