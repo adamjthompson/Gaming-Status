@@ -40,7 +40,7 @@ The Agent's sensor reports the following, which Gaming Status reads directly:
 | --- | --- |
 | `Game Title` | The current game, or `Offline` |
 | `Launcher` | Launcher Name or None. Shown as the platform (`active_platform`) on the PC and Master sensors and recorded on each session, so a game played through Epic shows as "Epic" rather than a generic PC entry. Steam and Xbox games are attributed to Steam and Xbox (see below) |
-| `Profile Name` | Shown as the player's `gamertag` for this sensor |
+| `Profile Name` | Shown as the player's `gamertag` for this sensor, and recorded on each session. While idle or offline the Agent sends its Device Name here instead, so the last game's gamertag is kept |
 | `Ubisoft Game ID` | *(Windows Agent)* The running Ubisoft game's ID, matched to its entry in the Ubisoft library (any store copy) for live achievement counts |
 | `Ubisoft Topic` | *(Windows Agent)* Where the Agent publishes the [Ubisoft library and achievement icons](../getting-started/prerequisites.md#ubisoft-achievements) over MQTT; Gaming Status subscribes to it. `None` when the Agent's Ubisoft achievements option is off |
 | `Epic Sandbox ID` | *(Windows Agent)* The running Epic game's catalog ID. Lets [Epic achievements](../getting-started/prerequisites.md#epic-games-achievements) find the game exactly, so a game shows its achievement total from the start rather than only after its first unlock. Without it (older or Linux Agents), the game is matched by title |

@@ -26,7 +26,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | all_time_total_hours / all_time_session_count / all_time_top_games | Lifetime hours, session count, and top 10 games across all platforms |
 | recent_achievements | Achievement/trophy unlocks merged from every platform (newest first, capped at 30, with up to 5 reserved per platform so one platform's burst can't crowd out another) |
 | achievement_tracking_enabled / color_extraction_enabled | Whether achievement tracking is enabled for any of this player's platforms / whether vibrant color extraction is on |
-| recent_sessions | List of the most recently completed play sessions across all of this player's platforms (newest first, capped at 20): `{game, platform, platform_key, duration_seconds, date, start_time, end_time, hero_art_url, game_dominant_color}`. `platform` is a display label (a Gaming Status Agent session shows its launcher); `platform_key` is the internal platform key |
+| recent_sessions | List of the most recently completed play sessions across all of this player's platforms (newest first, capped at 20): `{game, platform, platform_key, gamertag, duration_seconds, date, start_time, end_time, hero_art_url, game_dominant_color}`. `platform` is a display label (a Gaming Status Agent session shows its launcher); `platform_key` is the internal platform key; `gamertag` is the account name in use for that session (missing on sessions recorded before it was added) |
 
 **Parental/Limit Controls**
 
@@ -67,7 +67,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | xbox_gamertag | This player's Xbox gamertag, if Xbox is configured |
 | psn_gamertag | This player's PlayStation Network online ID, if PlayStation is configured |
 | discord_gamertag | This player's permanent Discord username (not their server nickname), if Discord is configured |
-| gsa_gamertag | The `Profile Name` reported by this player's Gaming Status Agent sensor, if Gaming Status Agent is configured |
+| gsa_gamertag | The `Profile Name` reported by this player's Gaming Status Agent sensor, if Gaming Status Agent is configured. Keeps the last game's gamertag while the Agent is idle or offline |
 
 ## Attributes for Platform Sensors
 Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The individual `*_steam`, `*_xbox`, `*_playstation`, `*_discord`, `*_playnite`, `*_gsa`, and `*_custom` sensors provide the following attributes:
@@ -91,7 +91,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | game_icon_art | URL of icon art, either local or SteamGridDB |
 | game_dominant_color | The automatically extracted vibrant hex color from the game's artwork, or a manually assigned color |
 | game_content_rating | Rating metadata for the currently active/cached game: `{esrb, pegi, age_floor, descriptors, unrated, source}` (`source` is `"steam_native"`, `"xbox_native"`, `"psn_native"`, `"override"`, or `null` if unrated/never looked up) |
-| gamertag | This player's real account name for this platform (Steam persona name, Xbox gamertag, PSN online ID, Discord username, or the Gaming Status Agent `Profile Name`). Always `null` for Playnite sensors, which have no equivalent identity concept |
+| gamertag | This player's real account name for this platform (Steam persona name, Xbox gamertag, PSN online ID, Discord username, or the Gaming Status Agent `Profile Name`, which keeps the last game's gamertag while the Agent is idle or offline). Always `null` for Playnite sensors, which have no equivalent identity concept |
 | launcher | Gaming Status Agent sensors only. The launcher the current or last game came from (e.g. `Epic`, `GOG`, `Custom`), kept while offline for "last seen" displays |
 
 **Rich Tracking & Analytics**
@@ -115,7 +115,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | recent_unlocked_achievements / recent_unlocked_trophies | Recent unlocks for the current game (achievements on Steam/Xbox, Epic and Ubisoft, trophies on PlayStation) |
 | color_extraction_enabled | Whether automatic vibrant color extraction is on |
 | play_history | Per-day, per-game playtime for this platform: `{"YYYY-MM-DD": {"Game Title": seconds, ...}}` |
-| recent_sessions | List of the most recently completed play sessions on this platform (newest first, capped at 20): `{game, platform, platform_key, duration_seconds, date, start_time, end_time, hero_art_url, game_dominant_color}`. `platform` is a display label (a Gaming Status Agent session shows its launcher); `platform_key` is the internal platform key. A session only appears here once it has ended |
+| recent_sessions | List of the most recently completed play sessions on this platform (newest first, capped at 20): `{game, platform, platform_key, gamertag, duration_seconds, date, start_time, end_time, hero_art_url, game_dominant_color}`. `platform` is a display label (a Gaming Status Agent session shows its launcher); `platform_key` is the internal platform key; `gamertag` is the account name in use for that session (missing on sessions recorded before it was added). A session only appears here once it has ended |
 | longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session today; resets at midnight |
 | rolling_longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session over the rolling 7-day window |
 | calendar_longest_session_details | Dict of `{game, duration}` (seconds) for the longest single session in the current calendar week |
