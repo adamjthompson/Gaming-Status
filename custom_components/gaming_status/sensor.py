@@ -479,6 +479,11 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
         # Launcher per game seen this run, so a session that ends after a
         # switch to a game on another launcher is still labelled correctly.
         self._launcher_by_game = {}
+        # Gamertag per game seen this run, recorded on each session. Keyed
+        # by game for the same reason: on a direct switch the new game's
+        # payload has already replaced _cached_gamertag by the time the
+        # previous session is closed.
+        self._gamertag_by_game = {}
         self._cached_gamerscore_earned = None
         self._cached_gamerscore_total = None
         self._cached_trophies_earned = None
@@ -1213,6 +1218,15 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 launcher = self._cached_launcher
         return _platform_display_name(self._gaming_type, launcher)
 
+    def _gamertag_for(self, game=None):
+        """Gamertag recorded on a session: the one in use while that game
+        was played, else the sensor's current one."""
+        if game:
+            gamertag = self._gamertag_by_game.get(_normalize_game_name(game))
+            if gamertag:
+                return gamertag
+        return self._cached_gamertag
+
     def _is_epic_session(self):
         """Whether this Agent sensor is tracking a game from the Epic launcher
         for a player with Epic achievement tracking set up."""
@@ -1660,11 +1674,18 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             # Gaming Status Agent publishes the game title as the state and
             # repeats it in "Game Title", alongside "Profile Name" (the
             # launcher account name, or the Windows user) and "Launcher".
-            data["gamertag"] = attrs.get("Profile Name") or None
+            launcher = str(attrs.get("Launcher") or "").strip()
+            # The idle/offline payload (Launcher "None") always carries the
+            # Agent's device name as its Profile Name, not a gamertag, so
+            # it's ignored once a real one is known -- otherwise the
+            # gamertag of the game just played flips to the PC's name the
+            # moment it closes. A sensor that has never seen a game still
+            # takes it, so the gamertag is never blank.
+            if (launcher and launcher.lower() != "none") or not self._cached_gamertag:
+                data["gamertag"] = attrs.get("Profile Name") or None
             # Sent in every payload, offline too, so the Ubisoft library
             # stays reachable while the PC is off.
             data["ubisoft_topic"] = _agent_attr(attrs, GSA_ATTR_UBISOFT_TOPIC)
-            launcher = str(attrs.get("Launcher") or "").strip()
             gsa_game = attrs.get("Game Title") or state
             norm_gsa_game = _normalize_game_name(gsa_game)
             if (
@@ -2018,6 +2039,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                                 "platform_key": self._platform_key_for(
                                     self._current_game
                                 ),
+                                "gamertag": self._gamertag_for(self._current_game),
                                 "duration_seconds": self._last_session_play_time,
                                 "date": local_start.strftime("%Y-%m-%d"),
                                 "start_time": local_start.isoformat(),
@@ -3195,6 +3217,7 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
                 "platform_key": self._platform_key_for(
                     clean_title, fallback_to_last=False
                 ),
+                "gamertag": self._gamertag_for(clean_title),
                 "duration_seconds": secs,
                 "date": date_str,
                 "start_time": local_start.isoformat(),
@@ -3721,6 +3744,9 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             attrs = last_state.attributes
             if self._gaming_type == "gsa":
                 self._cached_launcher = attrs.get("launcher")
+                # Otherwise a restart while idle would fall back to the
+                # idle payload's device name (see _get_platform_data).
+                self._cached_gamertag = attrs.get("gamertag")
             self._last_online_valid_timestamp = attrs.get("last_online_valid_timestamp")
             self._last_game_stopped_timestamp = attrs.get("last_game_stopped_timestamp")
             self._last_state_change_ts = last_state.last_changed
@@ -4542,6 +4568,12 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             self._cached_gamertag = (
                 platform_data.get("gamertag") or self._cached_gamertag
             )
+            if platform_data.get("current_game") and platform_data.get("gamertag"):
+                if len(self._gamertag_by_game) > 50:
+                    self._gamertag_by_game.clear()
+                self._gamertag_by_game[
+                    _normalize_game_name(platform_data["current_game"])
+                ] = platform_data["gamertag"]
             if self._gaming_type == "gsa":
                 self._async_set_ubisoft_topic(platform_data.get("ubisoft_topic"))
                 self._ubisoft_game_id = platform_data.get("ubisoft_game_id")
