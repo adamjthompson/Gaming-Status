@@ -51,7 +51,7 @@ import secrets
 import time
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 
 from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
@@ -98,6 +98,20 @@ PUBLIC_JSON_URL = "/api/gaming_status/public.json"
 # allows its icon too.
 PUBLIC_ICON_URL = f"{PUBLIC_PAGE_URL}/icon.png"
 PUBLIC_AVATAR_URL = f"{PUBLIC_PAGE_URL}/avatar"
+# The cards and icon scripts, served under the page's own address so a proxy
+# or tunnel that exposes only the page doesn't also need the paths they're
+# installed at (which changed when the Marketplace replaced HACS).
+PUBLIC_SCRIPT_URL = f"{PUBLIC_PAGE_URL}/script"
+_CARDS_SCRIPT_NAME = "cards.js"
+_ICONS_SCRIPT_NAME = "icons.js"
+# Where Home Assistant serves each local prefix a cards resource can use.
+# /local/ is config/www (the Marketplace installs to /local/community/);
+# HACS, before Home Assistant 2026.11, served /hacsfiles/ from
+# config/www/community.
+_LOCAL_SCRIPT_ROOTS = (
+    ("/local/", ("www",)),
+    ("/hacsfiles/", ("www", "community")),
+)
 _ICON_PATH = Path(__file__).parent / "brand" / "icon.png"
 PLAYER_OPT_PUBLIC = "show_on_public_page"
 
@@ -106,12 +120,13 @@ PLAYER_OPT_PUBLIC = "show_on_public_page"
 # Assistant's own origin, so any script it runs could read a logged-in
 # owner's HA session -- it only runs the copy the owner installed (or chose
 # with Cards script URL). Says exactly what's missing, then the owner's fix:
-# installing from HACS adds the dashboard resource it looks for; Cards script
-# URL covers a copy it can't find by itself.
+# installing from the Marketplace (or HACS) adds the dashboard resource it
+# looks for; Cards script URL covers a copy it can't find by itself.
 CARDS_MISSING_NOTICE = (
     "Gaming Status Cards needs to be installed to show this page. Owner: "
-    "install it from HACS (which adds it as a dashboard resource), or set "
-    "Cards script URL in the public page settings."
+    "install it from the Marketplace, or HACS before Home Assistant 2026.11 "
+    "(either adds it as a dashboard resource), or set Cards script URL in "
+    "the public page settings."
 )
 _EXTRA_MODULE_URL_KEY = "frontend_extra_module_url"
 MDI_FONT_CSS = (
@@ -123,6 +138,9 @@ _CACHE_KEY = f"{DOMAIN}_public_cache"
 _CACHE_LOCK_KEY = f"{DOMAIN}_public_cache_lock"
 _CACHE_BODY_KEY = f"{DOMAIN}_public_cache_body"
 _CACHE_ENCODE_LOCK_KEY = f"{DOMAIN}_public_cache_encode_lock"
+# The cards script file the current snapshot points at, or None when the
+# page loads it from its original address instead.
+_CARDS_FILE_KEY = f"{DOMAIN}_public_cards_file"
 CACHE_SECONDS = 30
 _QVALUE_RE = re.compile(r"\bq\s*=\s*([0-9.]+)", re.IGNORECASE)
 
@@ -230,6 +248,7 @@ def async_register_public_views(hass: HomeAssistant) -> None:
     hass.http.register_view(GamingStatusPublicPageView())
     hass.http.register_view(GamingStatusPublicIconView())
     hass.http.register_view(GamingStatusPublicAvatarView())
+    hass.http.register_view(GamingStatusPublicScriptView())
     hass.data[_VIEWS_REGISTERED_KEY] = True
 
 
@@ -893,6 +912,48 @@ async def _cards_script_url(hass, entry) -> str | None:
     return None
 
 
+def _local_script_file(hass: HomeAssistant, url: str) -> tuple[Path, str] | None:
+    """The file behind a /local/ or /hacsfiles/ script URL, and a version
+    that changes with it. None for anything else (an off-site URL, another
+    path) or a file that isn't there, so the page keeps loading that URL
+    directly. Touches the disk: run it in the executor."""
+    parts = urlsplit(url)
+    if parts.scheme or parts.netloc:
+        return None
+    path = unquote(parts.path)
+    match = next(
+        (
+            (prefix, root_parts)
+            for prefix, root_parts in _LOCAL_SCRIPT_ROOTS
+            if path.startswith(prefix)
+        ),
+        None,
+    )
+    if match is None:
+        return None
+    prefix, root_parts = match
+    try:
+        root = Path(hass.config.path(*root_parts)).resolve()
+        file = (root / path[len(prefix) :]).resolve()
+        # The URL is the owner's own setting, but it still can't reach
+        # outside the folder Home Assistant itself would serve it from.
+        if file.suffix != ".js" or not file.is_relative_to(root) or not file.is_file():
+            return None
+        stat = file.stat()
+    except (OSError, ValueError):
+        return None
+    return file, f"{stat.st_mtime_ns:x}-{stat.st_size:x}"
+
+
+def _script_url(name: str, version: str, entry) -> str:
+    """A script served by GamingStatusPublicScriptView: versioned, so
+    browsers fetch it again when it changes, and keyed on a private page."""
+    query = {"v": version}
+    if key := page_key(entry):
+        query["key"] = key
+    return f"{PUBLIC_SCRIPT_URL}/{name}?{urlencode(query)}"
+
+
 async def build_public_payload(hass: HomeAssistant) -> dict | None:
     cached = hass.data.get(_CACHE_KEY)
     if cached and time.monotonic() - cached[0] < CACHE_SECONDS:
@@ -981,8 +1042,15 @@ async def _build_public_payload(hass: HomeAssistant, now: float) -> dict | None:
         theme_name = (view or {}).get("theme")
 
     cards_url = await _cards_script_url(hass, entry)
+    cards_file = None
     if cards_url is None:
         notice = CARDS_MISSING_NOTICE
+    else:
+        cards_file = await hass.async_add_executor_job(
+            _local_script_file, hass, cards_url
+        )
+        if cards_file:
+            cards_url = _script_url(_CARDS_SCRIPT_NAME, cards_file[1], entry)
     payload = {
         "title": entry.options.get(OPT_PUBLIC_PAGE_TITLE) or DEFAULT_PUBLIC_PAGE_TITLE,
         "theme_mode": theme_mode(entry),
@@ -1000,6 +1068,7 @@ async def _build_public_payload(hass: HomeAssistant, now: float) -> dict | None:
     # Only images the current snapshot actually references can be served
     # by the avatar view; replaced together with the payload.
     hass.data[_AVATAR_ALIASES_KEY] = avatars.by_alias
+    hass.data[_CARDS_FILE_KEY] = cards_file[0] if cards_file else None
     hass.data[_CACHE_KEY] = (now, payload)
     return payload
 
@@ -1107,14 +1176,22 @@ _HANDLER_HASHES = " ".join(
 )
 
 
-def _icon_set_script_tag(hass: HomeAssistant) -> str:
+def _icon_set_script_tag(hass: HomeAssistant, entry) -> str:
     """The integration's "gaming-status:" icon set (Epic, Ubisoft, Discord,
-    Playnite logos), which the cards use like MDI icons. Same-origin, so the
-    page's script-src 'self' allows it."""
+    Playnite logos), which the cards use like MDI icons. Served by the page
+    itself rather than from /gaming_status_static/, so it's same-origin
+    (script-src 'self' allows it) and under the page's own address. Left
+    out until the icon set is registered, as before."""
     from .frontend_icons import icon_set_url
 
     url = icon_set_url(hass)
-    return f'<script type="module" src="{html.escape(url)}"></script>' if url else ""
+    if not url:
+        return ""
+    # The registered URL carries the integration version; reuse it so the
+    # icons are fetched again after an update.
+    version = parse_qs(urlsplit(url).query).get("v", [""])[0]
+    src = _script_url(_ICONS_SCRIPT_NAME, version, entry)
+    return f'<script type="module" src="{html.escape(src)}"></script>'
 
 
 # Characters that would end or split a CSP source expression.
@@ -1164,15 +1241,15 @@ class GamingStatusPublicPageView(HomeAssistantView):
         entry = _loaded_entry(hass)
         if not _request_allowed(request, entry):
             return web.Response(status=404, text="Not found")
-        nonce = secrets.token_urlsafe(16)
-        csp = _content_security_policy(
-            nonce, await _cards_script_url(hass, entry) or ""
-        )
         # Link previews (Discord, iMessage, Slack...) read these server-side,
         # so they're filled in here rather than by the page's script.
         # request.url reflects the proxy's public host once trusted_proxies
         # is set, so the preview image URL is reachable from outside.
         payload = await build_public_payload(hass)
+        nonce = secrets.token_urlsafe(16)
+        # The cards address the page will load: its own script URL when the
+        # file was found on disk, otherwise the original resource URL.
+        csp = _content_security_policy(nonce, (payload or {}).get("cards_url") or "")
         title = entry.options.get(OPT_PUBLIC_PAGE_TITLE) or DEFAULT_PUBLIC_PAGE_TITLE
         online = int(
             ((payload or {}).get("states", {}).get(_HUB_ONLINE) or {}).get("state") or 0
@@ -1196,7 +1273,7 @@ class GamingStatusPublicPageView(HomeAssistantView):
             .replace("__JSON_URL__", html.escape(with_key(PUBLIC_JSON_URL, entry)))
             .replace("__ICON_URL__", html.escape(with_key(PUBLIC_ICON_URL, entry)))
             .replace("__MDI_CSS__", MDI_FONT_CSS)
-            .replace("__ICON_SET_SCRIPT__", _icon_set_script_tag(hass))
+            .replace("__ICON_SET_SCRIPT__", _icon_set_script_tag(hass, entry))
             .replace("__THEME_MODE__", theme_mode(entry)),
             content_type="text/html",
             headers={
@@ -1229,6 +1306,52 @@ class GamingStatusPublicIconView(HomeAssistantView):
         cache = "private" if page_key(entry) else "public"
         return web.FileResponse(
             _ICON_PATH, headers={"Cache-Control": f"{cache}, max-age=86400"}
+        )
+
+
+class GamingStatusPublicScriptView(HomeAssistantView):
+    """The cards script and the icon set, under the page's own address so a
+    proxy or tunnel only has to pass /gaming_status/public and the data URL.
+    Only those two files: the cards file is the one the current snapshot
+    found for the owner's cards resource, never a path from the request."""
+
+    url = PUBLIC_SCRIPT_URL + "/{name}"
+    name = "gaming_status:public_script"
+    requires_auth = False
+
+    async def get(self, request: web.Request, name: str) -> web.StreamResponse:
+        hass = request.app["hass"]
+        if _rate_limited(hass, request):
+            return web.Response(status=429, text="Too many requests")
+        entry = _loaded_entry(hass)
+        if not _request_allowed(request, entry):
+            return web.Response(status=404, text="Not found")
+        path: Path | None = None
+        if name == _ICONS_SCRIPT_NAME:
+            from .frontend_icons import icon_set_path
+
+            path = icon_set_path()
+        elif name == _CARDS_SCRIPT_NAME:
+            # Refreshes a stale snapshot, so a cards update or a changed
+            # Cards script URL is picked up (cached otherwise).
+            if await build_public_payload(hass) is None:
+                return web.Response(status=404, text="Not found")
+            path = hass.data.get(_CARDS_FILE_KEY)
+        if path is None:
+            return web.Response(status=404, text="Not found")
+        # The URL is versioned, so it can be cached; a keyed page's URL
+        # carries the key, so it stays out of shared caches.
+        cache = "private" if page_key(entry) else "public"
+        return web.FileResponse(
+            path,
+            headers={
+                # Module scripts need a JavaScript type, and nosniff makes
+                # browsers enforce it; don't leave it to the host's guess.
+                "Content-Type": "text/javascript; charset=utf-8",
+                "Cache-Control": f"{cache}, max-age=86400",
+                "X-Content-Type-Options": "nosniff",
+                "X-Robots-Tag": "noindex",
+            },
         )
 
 
