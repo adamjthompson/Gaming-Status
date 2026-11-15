@@ -1,5 +1,5 @@
 # Public Page
-An optional page that anyone with the link can view **without logging in**, at `/gaming_status/public` on your Home Assistant address (e.g. `http://<your-ha-ip>:8123/gaming_status/public`). It uses the same cards as [Gaming Status Cards](https://github.com/adamjthompson/Gaming-Status-Cards), so it looks like your own dashboards, and refreshes about once a minute, showing when it was last updated at the bottom. Sharing the link in Discord, iMessage, Slack and similar apps shows a preview with the page title, icon, and how many players are online. The page needs Gaming Status Cards installed (as a dashboard resource, which HACS sets up for you); without it, the page says Gaming Status Cards needs to be installed instead of showing cards. For security, the page only ever runs the cards script you've installed, never one fetched from elsewhere. The settings screen shows the page's full link.
+An optional page that anyone with the link can view **without logging in**, at `/gaming_status/public` on your Home Assistant address (e.g. `http://<your-ha-ip>:8123/gaming_status/public`). It uses the same cards as [Gaming Status Cards](https://github.com/adamjthompson/Gaming-Status-Cards), so it looks like your own dashboards, and refreshes about once a minute, showing when it was last updated at the bottom. Sharing the link in Discord, iMessage, Slack and similar apps shows a preview with the page title, icon, and how many players are online. The page needs Gaming Status Cards installed (as a dashboard resource, which the Marketplace sets up for you, or HACS before Home Assistant 2026.11); without it, the page says Gaming Status Cards needs to be installed instead of showing cards. For security, the page only ever runs the cards script you've installed, never one fetched from elsewhere. The settings screen shows the page's full link.
 
 The page returns "Not found" until **Enable public page** is on *and* at least one player has **Show on public page** checked (Manage Players → Player Details). Only those players appear, and the page's "players online" counts include only them. Both can also be changed from switches on the devices; with **Restrict history edits, parental settings and the public page to admins** on (Advanced Settings), only administrators can use those switches.
 
@@ -13,7 +13,7 @@ The page returns "Not found" until **Enable public page** is on *and* at least o
 * **Light or dark mode:** **Auto** follows each visitor's device; **Light** or **Dark** forces it for everyone.
 * **Theme:** An installed Home Assistant theme for the page. The default uses the mirrored view's own theme if it sets one, otherwise Home Assistant's default colors.
 * **Show gamertags:** Off by default. When off, gamertags are removed before any data leaves Home Assistant. When on, the built-in layout shows them in the player list and Gamercards; on a mirrored view, also turn on **Show gamertags** in each card's editor.
-* **Cards script URL:** *(Optional)* Leave blank to use the Gaming Status Cards resource already installed in your dashboards; a cards script added with `frontend: extra_module_url:` in `configuration.yaml` is found too. If none is found, the page says Gaming Status Cards needs to be installed instead of showing cards. If the cards are found but can't be loaded (for example, a proxy or tunnel blocks their address), it says "Couldn’t load Gaming Status Cards."
+* **Cards script URL:** *(Optional)* Leave blank to use the Gaming Status Cards resource already installed in your dashboards; a cards script added with `frontend: extra_module_url:` in `configuration.yaml` is found too. If none is found, the page says Gaming Status Cards needs to be installed instead of showing cards. When the script is a file under `/local/` (where the Marketplace installs it, in `/local/community/`) or `/hacsfiles/` (HACS before Home Assistant 2026.11), the page serves it itself under its own address. Anything else, such as a URL on another site, is loaded from that URL. If the cards are found but can't be loaded, the page says "Couldn’t load Gaming Status Cards."
 
 **What's never shared:** Credentials, account IDs, parental control data, and (unless enabled) gamertags are stripped from the page's data. With gamertags hidden, Xbox, PlayStation and Discord avatars are served by the page itself under opaque addresses, since their usual addresses name the account. The page's data does include Home Assistant's time zone, so its charts split days the same way your dashboards do. The Game Management card is never shown, and the page can't call any services or change anything. Each visitor's address is limited to 120 requests a minute, which is well above what an open page uses. Visitors on public IPv6 are counted per /64 network, since one home can use any address in it.
 
@@ -22,10 +22,17 @@ If you put the page behind a reverse proxy or tunnel (e.g. Cloudflare Tunnel) an
 
 | Path | Why |
 | --- | --- |
-| `/gaming_status/public` | The page itself, its icon and (with gamertags hidden) Xbox, PlayStation and Discord avatars under `/gaming_status/public/avatar/` |
+| `/gaming_status/public` | The page itself, its icon, the Gaming Status Cards and icon scripts under `/gaming_status/public/script/`, and (with gamertags hidden) Xbox, PlayStation and Discord avatars under `/gaming_status/public/avatar/` |
 | `/api/gaming_status/public.json` | The data the page loads |
-| Your Gaming Status Cards resource, e.g. `/hacsfiles/Gaming-Status-Cards/` | The cards script (match the path and capitalization under Settings → Dashboards → Resources), unless you set **Cards script URL** to a public copy |
 | `/local/gaming_status_cache/` | Cached game artwork |
 | `/api/image_proxy/` | Xbox and PlayStation gamerpics, only when **Show gamertags** is on (their image addresses include the gamertag, so otherwise the page serves them itself) |
 
 Add any other `/local/` folders that hold images (such as `/local/gaming_status/`) you've set as overrides. Home Assistant also needs `use_x_forwarded_for` and `trusted_proxies` set under `http:` in `configuration.yaml` for proxied requests to be accepted.
+
+For example, as the **Path** of a Cloudflare Tunnel public hostname, this regular expression allows all of the above, including `/local/gaming_status/`:
+
+```text
+^/(gaming_status/public|api/gaming_status/public\.json|local/gaming_status(_cache)?/|api/image_proxy/)
+```
+
+The cards script doesn't need its own entry, because the page serves it from its own address. The exception is a cards resource or **Cards script URL** outside `/local/` and `/hacsfiles/`: the page loads that from its address, so allow it too if it's on your Home Assistant. Earlier versions of Gaming Status also needed the cards resource's path (such as `/hacsfiles/Gaming-Status-Cards/` or `/local/community/Gaming-Status-Cards/`) and `/gaming_status_static/`; you can remove those entries.

@@ -55,3 +55,8 @@ async def async_register_icon_set(hass: HomeAssistant) -> None:
 def icon_set_url(hass: HomeAssistant) -> str | None:
     """The icon set script's URL, once registered (for the public page)."""
     return hass.data.get(_REGISTERED_KEY)
+
+
+def icon_set_path() -> Path:
+    """The icon set script on disk, which the public page serves itself."""
+    return Path(__file__).parent / "frontend" / _ICON_FILE
