@@ -119,7 +119,11 @@ from .device import (
     safe_owner_slug,
 )
 from .library_scan import LibraryScanCoordinator
-from .library_sensor import TrophyLibraryPlatformSensor, TrophyLibrarySummarySensor
+from .library_sensor import (
+    TrophyLibraryLastSyncedSensor,
+    TrophyLibraryPlatformSensor,
+    TrophyLibrarySummarySensor,
+)
 from .utils import (
     _calculate_time_ago_v2,
     _elapsed_seconds,
@@ -6861,12 +6865,13 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             f"gaming_status_{new_safe}_pc_v2",
             f"sensor.gaming_status_{new_safe}_pc",
         )
-        _migrate_uid(
-            "sensor",
-            f"gaming_status_{old_safe}_library_summary",
-            f"gaming_status_{new_safe}_library_summary",
-            f"sensor.gaming_status_{new_safe}_library_summary",
-        )
+        for suffix in ("library_summary", "library_last_synced"):
+            _migrate_uid(
+                "sensor",
+                f"gaming_status_{old_safe}_{suffix}",
+                f"gaming_status_{new_safe}_{suffix}",
+                f"sensor.gaming_status_{new_safe}_{suffix}",
+            )
         for platform in ("steam", "xbox", "playstation", "epic", "ubisoft"):
             _migrate_uid(
                 "sensor",
@@ -7453,6 +7458,11 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     coordinator, player_name, safe_owner, device_info
                 )
             )
+            ents.append(
+                TrophyLibraryLastSyncedSensor(
+                    coordinator, player_name, safe_owner, device_info
+                )
+            )
             for platform in library_platform_sources:
                 ents.append(
                     TrophyLibraryPlatformSensor(
@@ -7491,9 +7501,10 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 target_id = f"sensor.gaming_status_{safe_owner}_library_{platform}"
                 if registry.async_get(target_id):
                     registry.async_remove(target_id)
-            summary_id = f"sensor.gaming_status_{safe_owner}_library_summary"
-            if registry.async_get(summary_id):
-                registry.async_remove(summary_id)
+            for suffix in ("library_summary", "library_last_synced"):
+                summary_id = f"sensor.gaming_status_{safe_owner}_{suffix}"
+                if registry.async_get(summary_id):
+                    registry.async_remove(summary_id)
             refresh_button_id = f"button.gaming_status_{safe_owner}_library_refresh"
             if registry.async_get(refresh_button_id):
                 registry.async_remove(refresh_button_id)

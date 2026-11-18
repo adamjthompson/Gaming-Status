@@ -50,6 +50,7 @@ spread across multiple scan cycles instead of one burst.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import time
 from datetime import timedelta
@@ -70,6 +71,7 @@ from .const import (
     GSA_ATTR_UBISOFT_TOPIC,
     LIBRARY_BACKFILL_MAX_ATTEMPTS,
     LIBRARY_ONLY_PLATFORM_CONFIG,
+    LIBRARY_PLATFORM_SCAN_STALL_TIMEOUT_SECONDS,
     PLATFORM_CONFIG,
     PSN_LIBRARY_BACKFILL_BUDGET_PER_CYCLE,
     TARGET_AGGREGATE_STEAM_SCAN_BUDGET,
@@ -91,6 +93,29 @@ _TIER_KEYS = ("bronze", "silver", "gold", "platinum")
 ART_NOT_FOUND_RECHECK_SECONDS = 86400  # 24 hours
 # hass.data key: [count] of library scans currently running, all players.
 _SCANS_RUNNING_KEY = "gaming_status_library_scans_running"
+
+# The stall timer (an asyncio.Timeout) of the platform scan running in the
+# current task -- see _scan_platform_safely. A context variable rather than
+# an attribute because a player's platforms scan concurrently, each in its
+# own gather() task with its own copy of the context, so each one sees only
+# its own timer. None outside a scan (backfill passes, current-game art).
+_platform_scan_timer: contextvars.ContextVar[asyncio.Timeout | None] = (
+    contextvars.ContextVar("gaming_status_platform_scan_timer", default=None)
+)
+
+
+def _note_scan_progress():
+    """Push the current platform scan's stall deadline back -- it just
+    finished another game. Every platform's per-game loop goes through
+    _async_art_for once per game, which calls this, so a scan only trips
+    the timer when a single game (its achievement fetches and artwork
+    included) or the platform's up-front list fetch stops moving."""
+    timer = _platform_scan_timer.get()
+    if timer is not None and not timer.expired():
+        timer.reschedule(
+            asyncio.get_running_loop().time()
+            + LIBRARY_PLATFORM_SCAN_STALL_TIMEOUT_SECONDS
+        )
 
 # Console disambiguation for PSN titles that exist as separate entries per
 # console generation (e.g. a PS3 disc version and a separate PS4 remaster
@@ -469,18 +494,49 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         per-title loops inside _scan_steam/_scan_xbox/_scan_psn already
         protect. Falls back to this platform's own last-known-good games
         list on either failure mode -- the same "never regress on a fetch
-        failure" principle already applied per-game, just one level up."""
+        failure" principle already applied per-game, just one level up.
+
+        Also stops a scan that has stopped making progress (see
+        LIBRARY_PLATFORM_SCAN_STALL_TIMEOUT_SECONDS) and treats it the same
+        way, so one stuck platform can't hold back the others' results."""
+        timer = None
+        token = None
         try:
-            raw = await scan_fn(source_entity_id)
+            async with asyncio.timeout(
+                LIBRARY_PLATFORM_SCAN_STALL_TIMEOUT_SECONDS
+            ) as timer:
+                token = _platform_scan_timer.set(timer)
+                raw = await scan_fn(source_entity_id)
         except Exception as e:
-            _LOGGER.warning(
-                "Gaming Status: %s library scan crashed for %s -- keeping last known data: %s: %s",
-                platform,
-                self._owner_name,
-                type(e).__name__,
-                e,
-            )
-            raw = {"games": [], "error": f"{type(e).__name__}: {e}"}
+            # expired() tells the stall timer apart from a TimeoutError
+            # raised by something inside the scan itself.
+            if isinstance(e, TimeoutError) and timer is not None and timer.expired():
+                stall_minutes = round(LIBRARY_PLATFORM_SCAN_STALL_TIMEOUT_SECONDS / 60)
+                _LOGGER.warning(
+                    "Gaming Status: %s library scan for %s made no progress for %d "
+                    "minutes -- stopped it and kept last known data",
+                    platform,
+                    self._owner_name,
+                    stall_minutes,
+                )
+                raw = {
+                    "games": [],
+                    "error": f"Scan stopped after {stall_minutes} minutes without progress",
+                }
+            else:
+                _LOGGER.warning(
+                    "Gaming Status: %s library scan crashed for %s -- keeping last known data: %s: %s",
+                    platform,
+                    self._owner_name,
+                    type(e).__name__,
+                    e,
+                )
+                raw = {"games": [], "error": f"{type(e).__name__}: {e}"}
+        finally:
+            # A Ubisoft-only refresh calls this directly, outside a gather()
+            # task, so the timer must not outlive the call in that context.
+            if token is not None:
+                _platform_scan_timer.reset(token)
 
         if not raw.get("games") and raw.get("error"):
             previous_games = previous_platforms.get(platform, {}).get("games")
@@ -623,6 +679,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             if cache_key in override_map:
                 art[asset_type] = override_map[cache_key]
 
+        _note_scan_progress()
         return art
 
     async def _scan_steam(self, source_entity_id):

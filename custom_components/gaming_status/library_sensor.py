@@ -9,10 +9,12 @@ per-game entities, to avoid entity explosion for large libraries.
 
 from __future__ import annotations
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import LIBRARY_ONLY_PLATFORM_CONFIG, PLATFORM_CONFIG
+from .utils import _safe_parse_datetime
 
 
 class TrophyLibrarySummarySensor(CoordinatorEntity, SensorEntity):
@@ -82,6 +84,40 @@ class TrophyLibrarySummarySensor(CoordinatorEntity, SensorEntity):
             "achievement_backfill_complete": backfill_pending == 0,
             "achievement_backfill_by_platform": backfill_by_platform,
             "games": data.get("games"),
+        }
+
+
+class TrophyLibraryLastSyncedSensor(CoordinatorEntity, SensorEntity):
+    """When this player's library scan last finished, as its own diagnostic
+    timestamp entity. The library sensors' values are achievement counts,
+    so on the device page they only show a change when a count moves -- a
+    player who earned nothing new looks exactly like a scan that stopped.
+    The summary sensor's `last_synced` attribute already holds this, but
+    it's buried in a long attribute list."""
+
+    _attr_should_poll = False
+    _attr_icon = "mdi:sync"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, owner_name, safe_owner, device_info=None):
+        super().__init__(coordinator)
+        self._attr_unique_id = f"gaming_status_{safe_owner}_library_last_synced"
+        self.entity_id = f"sensor.gaming_status_{safe_owner}_library_last_synced"
+        self._attr_name = f"{owner_name} Game Library Last Synced"
+        self._attr_device_info = device_info
+
+    @property
+    def native_value(self):
+        data = self.coordinator.data or {}
+        return _safe_parse_datetime(data.get("last_synced"))
+
+    @property
+    def extra_state_attributes(self):
+        data = self.coordinator.data or {}
+        return {
+            "last_sync_success": data.get("last_sync_success"),
+            "platform_errors": data.get("platform_errors"),
         }
 
 

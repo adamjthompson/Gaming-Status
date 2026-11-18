@@ -125,6 +125,8 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 
 The sensor's **state** on both the summary and per-platform Library sensors is a raw *count of achievements/trophies earned* — not a percentage and not a game count. On the summary sensor that's the total earned across every tracked platform combined; on a platform sensor (e.g. `..._library_steam`) it's earned on that platform only. The rest of the picture — totals, percentages, game counts — lives in the attributes below.
 
+Because the state is a count, a Library sensor only shows a change on its device page when that count changes. If a player hasn't earned anything new, the sensor stays the same even though scans are still running. To check when the library was last scanned, look at the **Last Synced** sensor described below.
+
 **Summary Sensor (`..._library_summary`)**
 
 | Attribute | Description |
@@ -144,7 +146,18 @@ The sensor's **state** on both the summary and per-platform Library sensors is a
 
 *Paced backfill:* Per-game achievement details on Xbox and PlayStation are fetched gradually in the background, every 15 minutes. A small batch per player (8 Xbox / 5 PlayStation titles), staggered between players, is used to stay within platform rate limits; a title that fails 5 times is skipped. Steam refreshes a rotating slice of the library each scan instead. A large library can therefore take a while to fully populate.
 
+*Stuck scans:* Each platform's scan is stopped if it goes 15 minutes without finishing another game, for example because a service stopped responding. That platform keeps its last known games until the next scan, the other platforms update as normal, and `platform_errors` shows `Scan stopped after 15 minutes without progress` for it. A large first scan that's still working through games isn't affected, however long it takes.
+
 *Steam account check:* Each Steam library remembers which Steam account it was scanned from. If that changes (or on the first scan after updating from a version that didn't record it), games that aren't in the current account's library are dropped instead of kept. This cleans up libraries where an older version mixed in games from the Steam API key owner's account.
+
+**Last Synced Sensor (`..._library_last_synced`)**
+
+A diagnostic sensor whose state is the time this player's library scan last finished. It's listed under **Diagnostic** on the player's device page and updates after every scan, whether or not anything in the library changed. A scan where some platforms failed still counts as finished, so check `last_sync_success` too.
+
+| Attribute | Description |
+| --- | --- |
+| last_sync_success | `true` if the most recent scan completed with no errors on any platform |
+| platform_errors | `"None"` if the last scan was clean, otherwise a dict of `{platform: error message}` |
 
 **Platform Sensors (`..._library_steam`, `..._library_xbox`, `..._library_playstation`, `..._library_epic`, `..._library_ubisoft`)**
 

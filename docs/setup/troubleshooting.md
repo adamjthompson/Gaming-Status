@@ -121,5 +121,13 @@ Ubisoft achievements come from Gaming Status Agent (see [Ubisoft Achievements](.
 - **Only games played on that PC** have Ubisoft achievement data, and only games launched from Ubisoft Connect get the live current-game counts.
 - **Diagnostics:** Gaming Status's own diagnostics download has a `ubisoft_feeds` section showing whether it's receiving the Agent's data.
 
+## My Game Library hasn't updated in days.
+The Library sensors show achievement counts, so they only change on the device page when a player earns something new. A library with no new achievements looks unchanged even though it's being scanned on schedule.
+
+- **Check Last Synced:** On the player's device page, open **Diagnostic** and look at **Game Library Last Synced**. If it's within your Library Scan Interval, scans are running normally.
+- **Check for errors:** The same sensor's `platform_errors` attribute names any platform whose last scan failed, and why. A platform that failed keeps its last known games until a scan succeeds.
+- **Scan now:** Press the player's **Game Library Refresh** button to run a scan straight away.
+- **If Last Synced stops moving:** Download the diagnostics (see [Reporting a problem](#reporting-a-problem)) and look at `library_scans` for that player's `last_exception`, then open an issue with it attached.
+
 ## I changed a game's title, but the old name is still showing.
 The Master Sensor caches history and states to prevent drop-outs. If things look stuck, simply restart Home Assistant to flush the cache and force it to rebuild from the current live data.

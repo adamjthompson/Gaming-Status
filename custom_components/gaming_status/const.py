@@ -134,6 +134,15 @@ LIBRARY_BACKFILL_STAGGER_SECONDS = 15
 # (marks it done with whatever summary data the bulk scan already has)
 # so the pass can actually reach completion instead of stalling forever.
 LIBRARY_BACKFILL_MAX_ATTEMPTS = 5
+# A platform's library scan is stopped (and falls back to its last known
+# games) once this long passes without it finishing another game. Measured
+# from the last game rather than from the start, because a first scan of a
+# large library legitimately takes longer than this (~2.5s of SteamGridDB
+# artwork lookups per new game) -- only a scan that has stopped moving
+# trips it. Without it, one stuck call froze every platform's library for
+# that player until a restart: the platforms are saved together, and the
+# next scan is only scheduled once the current one finishes.
+LIBRARY_PLATFORM_SCAN_STALL_TIMEOUT_SECONDS = 900
 
 # ZOMBIE ATTRIBUTE CLEANUP
 ZOMBIE_ATTRIBUTES = ["grace_period_active", "xbox_last_seen_game", "debug_sync"]
