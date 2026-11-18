@@ -2,6 +2,7 @@
   "domain": "gaming_status",
   "name": "Gaming Status",
   "after_dependencies": ["playstation_network", "xbox", "steam_online", "mqtt"],
+  "categories": ["media_entertainment.gaming"],
   "codeowners": ["@adamjthompson"],
   "config_flow": true,
   "dependencies": ["frontend", "http"],
