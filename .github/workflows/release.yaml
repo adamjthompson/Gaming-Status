@@ -1,0 +1,92 @@
+name: Release Zip
+
+# Builds gaming_status.zip (the contents of custom_components/gaming_status,
+# with manifest.json at the top level of the zip) and attaches it to a release.
+# HACS installs from this zip because hacs.json sets "zip_release": true, and
+# GitHub counts each download, which is what HACS shows as the download count.
+#
+# - Runs automatically when a release is published.
+# - Run it by hand (Actions > Release Zip > Run workflow) with a tag to rebuild
+#   one release's zip, or with "all" to add the zip to every release that is
+#   missing it.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to attach the zip to, or "all" to backfill every release missing it'
+        required: true
+        default: "all"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-zip
+  cancel-in-progress: false
+
+jobs:
+  zip:
+    name: Build and attach gaming_status.zip
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build and upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          ASSET="gaming_status.zip"
+          SRC="custom_components/gaming_status"
+
+          git fetch --force --tags origin
+
+          has_asset() {
+            gh release view "$1" --json assets --jq '.assets[].name' | grep -qx "$ASSET"
+          }
+
+          build_and_upload() {
+            local tag="$1"
+            if ! git cat-file -e "refs/tags/${tag}:${SRC}/manifest.json" 2>/dev/null; then
+              echo "::warning::${tag} has no ${SRC}/manifest.json; skipping"
+              return 0
+            fi
+            rm -rf dist && mkdir dist
+            # Archive only tracked files, with the integration's files at the zip root.
+            git archive --format=zip -o "dist/${ASSET}" "refs/tags/${tag}:${SRC}"
+            if ! unzip -Z1 "dist/${ASSET}" | grep -qx "manifest.json"; then
+              echo "::error::${ASSET} for ${tag} has no manifest.json at its root"
+              return 1
+            fi
+            gh release upload "$tag" "dist/${ASSET}" --clobber
+            if ! has_asset "$tag"; then
+              echo "::error::${ASSET} did not appear on release ${tag}"
+              return 1
+            fi
+            echo "Attached ${ASSET} to ${tag}"
+          }
+
+          if [ -n "${EVENT_TAG}" ]; then
+            build_and_upload "${EVENT_TAG}"
+          elif [ "${INPUT_TAG}" = "all" ]; then
+            gh release list --limit 1000 --json tagName,isDraft \
+              --jq '.[] | select(.isDraft | not) | .tagName' > tags.txt
+            echo "Found $(wc -l < tags.txt) releases"
+            while read -r tag; do
+              if has_asset "$tag"; then
+                echo "${tag} already has ${ASSET}"
+              else
+                build_and_upload "$tag"
+              fi
+            done < tags.txt
+          else
+            build_and_upload "${INPUT_TAG}"
+          fi
