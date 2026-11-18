@@ -1,5 +1,6 @@
 {
   "name": "Gaming Status",
   "render_readme": true,
-  "filename": "gaming_status"
+  "zip_release": true,
+  "filename": "gaming_status.zip"
 }
