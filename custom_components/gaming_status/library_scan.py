@@ -117,6 +117,7 @@ def _note_scan_progress():
             + LIBRARY_PLATFORM_SCAN_STALL_TIMEOUT_SECONDS
         )
 
+
 # Console disambiguation for PSN titles that exist as separate entries per
 # console generation (e.g. a PS3 disc version and a separate PS4 remaster
 # of the same game, sharing no other distinguishing text in their name) --
