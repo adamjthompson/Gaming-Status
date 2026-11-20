@@ -417,6 +417,24 @@ class GamingNotifier:
         self._prune_webhook_messages()
         self._schedule_webhook_save()
 
+    def _rekey_webhook_messages(
+        self, player: str, old_game: str, new_game: str
+    ) -> None:
+        """Move this player's tracked message(s) for old_game to new_game,
+        for a switch that continues the same session (launcher -> game)."""
+        changed = False
+        for ep_id in list(self._webhook_messages):
+            key = self._find_webhook_message_key(ep_id, player, old_game)
+            if key is None:
+                continue
+            games = self._webhook_messages[ep_id][player]
+            record = games.pop(key)
+            record["game"] = new_game
+            games[new_game.lower().strip()] = record
+            changed = True
+        if changed:
+            self._schedule_webhook_save()
+
     def _webhook_limiter(self, url: str) -> RateLimiter:
         key = discord_webhook.webhook_id(url) or "unknown"
         limiter = self._webhook_limiters.get(key)
@@ -1125,6 +1143,11 @@ class GamingNotifier:
             last_start = self._last_start_time.get(target_player)
             # If a game launcher transitioned to the real game within 90 seconds, suppress the switch alert
             if last_start and _elapsed_seconds(last_start, now) < 90:
+                # The "started" message already sent stays this session's
+                # message, so an edit-in-place webhook record moves to the
+                # game now running: its stop then edits that message instead
+                # of leaving it saying "started playing" forever.
+                self._rekey_webhook_messages(target_player, old_game, new_game)
                 return
 
             # Same wait as is_start: the new game's own state write happens

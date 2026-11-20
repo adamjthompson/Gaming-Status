@@ -65,7 +65,7 @@ With Gaming Status, you can set up global notification destinations (like a spec
 * **Name:** A friendly identifier for this notification method (e.g., "Player1's iPhone" or "Family Discord").
 * **Notification Type:**
     * `Discord Bot`: Sends a rich embed message complete with the game's title, session duration, and the selected artwork, through the official Discord integration's bot.
-    * `Discord Webhook`: Sends the same embed straight to one Discord channel through a webhook, with no bot or Discord integration needed. After you submit, a second screen asks for the webhook's details (see [Discord Webhook Settings](#discord-webhook-settings)).
+    * `Discord Webhook`: Sends the same embed straight to one Discord channel through a webhook, with no bot or Discord integration needed. When you add one, a second screen asks for the webhook's details after you submit. When you edit one, its details are on the same screen and Notifier and Target ID aren't shown. See [Discord Webhook Settings](#discord-webhook-settings).
     * `Mobile App`: Sends a Rich Notification directly to your iOS/Android Home Assistant app, featuring the game's art directly on your lock screen!
     * `SMS`: Sends a clean, text-only alert suitable for standard mobile text messages.
 * **Notifier:** A dynamic dropdown containing all available Home Assistant notify services (e.g., `notify.mobile_app_player1s_iphone`, `notify.discord_bot`, or `notify.twilio`). Not used for Discord Webhook.
@@ -87,7 +87,7 @@ A Discord webhook posts to one channel without a bot. It can't send Direct Messa
 
 Keep the URL private: anyone who has it can post to that channel. Gaming Status hides it in diagnostics downloads.
 
-**Settings on the second screen**
+**Webhook settings**
 
 * **Webhook URL:** The URL you copied. Gaming Status checks it with Discord when you submit.
 * **Sender name:** *(Optional)* The name the messages appear under. Leave blank to use the name set on the webhook in Discord.
@@ -95,6 +95,7 @@ Keep the URL private: anyone who has it can post to that channel. Gaming Status 
 * **Edit messages instead of posting new ones:** *(Off by default)* Each session leaves one message instead of two. The **started playing** message is posted as usual, and when the session ends that same message is edited to show the finished session and how long it lasted.
     * This applies when the webhook is in the player's **Session Start Notifications** and **Session End Notifications** lists. Achievement, parental and weekly report notifications are always new messages.
     * When a player switches games, the previous game's message is edited to show how long it was played, and a new **started playing** message is posted for the new game.
+    * A switch within 90 seconds of a session starting (for example, a launcher opening the game) doesn't send a notification, as with every notification type. The **started playing** message then belongs to the new game, and is edited when that game ends.
     * Discord doesn't send a notification for an edited message, so only session starts alert anyone.
     * Editing keeps working after Home Assistant restarts. If the message was deleted in Discord, a new **finished** message is posted instead.
 

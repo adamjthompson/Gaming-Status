@@ -569,6 +569,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         self._editing_endpoint: str | None = None
         # (endpoint id, endpoint dict) waiting on the Discord Webhook step.
         self._pending_endpoint: tuple[str, dict] | None = None
+        self._endpoint_draft: dict | None = None
         self._discord_members = []
 
     async def async_step_init(self, user_input=None):
@@ -1234,6 +1235,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 return await self.async_step_notification_artwork()
             if selection in endpoints:
                 self._editing_endpoint = selection
+                self._endpoint_draft = None
                 return await self.async_step_edit_endpoint()
 
             return await self._update_and_return()
@@ -1352,86 +1354,93 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             errors=errors,
         )
 
+    @staticmethod
+    def _webhook_values(source: dict) -> dict:
+        """The Discord Webhook fields, from a saved endpoint or form input."""
+        return {
+            EP_WEBHOOK_URL: str(source.get(EP_WEBHOOK_URL) or "").strip(),
+            EP_WEBHOOK_USERNAME: str(source.get(EP_WEBHOOK_USERNAME) or "").strip(),
+            EP_WEBHOOK_AVATAR_URL: str(source.get(EP_WEBHOOK_AVATAR_URL) or "").strip(),
+            EP_EDIT_SESSION_MESSAGES: bool(source.get(EP_EDIT_SESSION_MESSAGES)),
+        }
+
+    async def _webhook_errors(self, values: dict) -> dict[str, str]:
+        """Form errors for the Discord Webhook fields; checks the URL with
+        Discord last, only once everything else is valid."""
+        errors: dict[str, str] = {}
+        if not is_valid_webhook_url(values[EP_WEBHOOK_URL]):
+            errors[EP_WEBHOOK_URL] = "invalid_webhook_url"
+        name_error = username_error(values[EP_WEBHOOK_USERNAME])
+        if name_error:
+            errors[EP_WEBHOOK_USERNAME] = name_error
+        avatar = values[EP_WEBHOOK_AVATAR_URL]
+        if avatar and not avatar.lower().startswith("https://"):
+            errors[EP_WEBHOOK_AVATAR_URL] = "invalid_avatar_url"
+        if not errors:
+            url_error = await validate_webhook(
+                async_get_clientsession(self.hass), values[EP_WEBHOOK_URL]
+            )
+            if url_error:
+                errors[EP_WEBHOOK_URL] = url_error
+        return errors
+
+    @staticmethod
+    def _webhook_fields(values: dict) -> dict:
+        """Schema entries for the Discord Webhook fields."""
+        url_text = selector.TextSelector(
+            selector.TextSelectorConfig(type=selector.TextSelectorType.URL)
+        )
+        # suggested_value, not default, so an optional field can be cleared
+        # (a default would refill a cleared field).
+        return {
+            vol.Required(
+                EP_WEBHOOK_URL,
+                description={"suggested_value": values[EP_WEBHOOK_URL]},
+            ): url_text,
+            vol.Optional(
+                EP_WEBHOOK_USERNAME,
+                description={"suggested_value": values[EP_WEBHOOK_USERNAME]},
+            ): str,
+            vol.Optional(
+                EP_WEBHOOK_AVATAR_URL,
+                description={"suggested_value": values[EP_WEBHOOK_AVATAR_URL]},
+            ): url_text,
+            vol.Optional(
+                EP_EDIT_SESSION_MESSAGES,
+                default=values[EP_EDIT_SESSION_MESSAGES],
+            ): bool,
+        }
+
+    def _save_webhook_endpoint(self, ep_id: str, endpoint: dict, values: dict):
+        endpoint.update(values)
+        # Webhooks post directly, not through a notify.* service.
+        endpoint["notifier"] = ""
+        endpoint["target_id"] = ""
+        endpoints = _endpoints(self._options)
+        endpoints[ep_id] = endpoint
+        self._options[OPT_ENDPOINTS] = _dump_json(endpoints)
+
     async def async_step_webhook_endpoint(self, user_input=None):
-        """Second step for a Discord Webhook notification: the webhook URL,
-        optional sender name/avatar, and the opt-in edit-in-place mode."""
+        """Second step when a notification is added as, or changed to, a
+        Discord Webhook: the webhook URL, optional sender name/avatar, and
+        the opt-in edit-in-place mode."""
         if self._pending_endpoint is None:
             return await self.async_step_notifications()
         ep_id, endpoint = self._pending_endpoint
         errors: dict[str, str] = {}
-        values = {
-            EP_WEBHOOK_URL: endpoint.get(EP_WEBHOOK_URL, ""),
-            EP_WEBHOOK_USERNAME: endpoint.get(EP_WEBHOOK_USERNAME, ""),
-            EP_WEBHOOK_AVATAR_URL: endpoint.get(EP_WEBHOOK_AVATAR_URL, ""),
-            EP_EDIT_SESSION_MESSAGES: bool(endpoint.get(EP_EDIT_SESSION_MESSAGES)),
-        }
+        values = self._webhook_values(endpoint)
 
         if user_input is not None:
-            values = {
-                EP_WEBHOOK_URL: str(user_input.get(EP_WEBHOOK_URL, "")).strip(),
-                EP_WEBHOOK_USERNAME: str(
-                    user_input.get(EP_WEBHOOK_USERNAME, "")
-                ).strip(),
-                EP_WEBHOOK_AVATAR_URL: str(
-                    user_input.get(EP_WEBHOOK_AVATAR_URL, "")
-                ).strip(),
-                EP_EDIT_SESSION_MESSAGES: bool(
-                    user_input.get(EP_EDIT_SESSION_MESSAGES, False)
-                ),
-            }
-            if not is_valid_webhook_url(values[EP_WEBHOOK_URL]):
-                errors[EP_WEBHOOK_URL] = "invalid_webhook_url"
-            name_error = username_error(values[EP_WEBHOOK_USERNAME])
-            if name_error:
-                errors[EP_WEBHOOK_USERNAME] = name_error
-            avatar = values[EP_WEBHOOK_AVATAR_URL]
-            if avatar and not avatar.lower().startswith("https://"):
-                errors[EP_WEBHOOK_AVATAR_URL] = "invalid_avatar_url"
+            values = self._webhook_values(user_input)
+            errors = await self._webhook_errors(values)
             if not errors:
-                url_error = await validate_webhook(
-                    async_get_clientsession(self.hass), values[EP_WEBHOOK_URL]
-                )
-                if url_error:
-                    errors[EP_WEBHOOK_URL] = url_error
-
-            if not errors:
-                endpoint.update(values)
-                # Webhooks post directly, not through a notify.* service.
-                endpoint["notifier"] = ""
-                endpoint["target_id"] = ""
-                endpoints = _endpoints(self._options)
-                endpoints[ep_id] = endpoint
-                self._options[OPT_ENDPOINTS] = _dump_json(endpoints)
+                self._save_webhook_endpoint(ep_id, endpoint, values)
                 self._pending_endpoint = None
                 return await self._update_and_return()
 
-        url_text = selector.TextSelector(
-            selector.TextSelectorConfig(type=selector.TextSelectorType.URL)
-        )
         return self.async_show_form(
             step_id="webhook_endpoint",
-            data_schema=vol.Schema(
-                {
-                    # suggested_value, not default, so an optional field can
-                    # be cleared (a default would refill a cleared field).
-                    vol.Required(
-                        EP_WEBHOOK_URL,
-                        description={"suggested_value": values[EP_WEBHOOK_URL]},
-                    ): url_text,
-                    vol.Optional(
-                        EP_WEBHOOK_USERNAME,
-                        description={"suggested_value": values[EP_WEBHOOK_USERNAME]},
-                    ): str,
-                    vol.Optional(
-                        EP_WEBHOOK_AVATAR_URL,
-                        description={"suggested_value": values[EP_WEBHOOK_AVATAR_URL]},
-                    ): url_text,
-                    vol.Optional(
-                        EP_EDIT_SESSION_MESSAGES,
-                        default=values[EP_EDIT_SESSION_MESSAGES],
-                    ): bool,
-                }
-            ),
+            data_schema=vol.Schema(self._webhook_fields(values)),
             errors=errors,
             description_placeholders={"endpoint_name": endpoint.get("name", ep_id)},
         )
@@ -1439,38 +1448,71 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     async def async_step_edit_endpoint(self, user_input=None):
         endpoints = _endpoints(self._options)
         ep_id = self._editing_endpoint or ""
-        existing = endpoints.get(ep_id, {})
-        errors = {}
+        # A Discord Webhook changed to another type comes back here once more
+        # (as a draft, not yet saved) to fill in that type's fields.
+        existing = self._endpoint_draft or endpoints.get(ep_id, {})
+        is_webhook = existing.get("type") == ENDPOINT_TYPE_DISCORD_WEBHOOK
+        errors: dict[str, str] = {}
+        values = self._webhook_values(existing)
 
         if user_input is not None:
             if user_input.get("delete_endpoint"):
+                self._endpoint_draft = None
                 endpoints.pop(ep_id, None)
                 self._cleanup_endpoint_refs(ep_id)
                 self._options[OPT_ENDPOINTS] = _dump_json(endpoints)
                 return await self._update_and_return()
 
-            if not errors:
-                existing["name"] = user_input.get(
-                    "endpoint_name", existing.get("name")
-                ).strip()
-                existing["type"] = user_input.get(
-                    "notification_type", ENDPOINT_TYPE_MOBILE_APP
-                )
+            name = user_input.get("endpoint_name", existing.get("name", "")).strip()
+            new_type = user_input.get("notification_type", ENDPOINT_TYPE_MOBILE_APP)
+
+            if is_webhook:
+                if new_type == ENDPOINT_TYPE_DISCORD_WEBHOOK:
+                    values = self._webhook_values(user_input)
+                    errors = await self._webhook_errors(values)
+                    if not errors:
+                        existing["name"] = name
+                        self._save_webhook_endpoint(ep_id, existing, values)
+                        return await self._update_and_return()
+                else:
+                    # Changed away from Discord Webhook: drop its settings and
+                    # show this form again with the new type's fields.
+                    draft = {
+                        k: v
+                        for k, v in existing.items()
+                        if k not in WEBHOOK_ENDPOINT_KEYS
+                    }
+                    draft.update(name=name, type=new_type, notifier="", target_id="")
+                    self._endpoint_draft = draft
+                    return await self.async_step_edit_endpoint()
+            else:
+                self._endpoint_draft = None
+                existing["name"] = name
+                existing["type"] = new_type
                 existing["notifier"] = user_input.get("notifier", "").strip()
                 existing["target_id"] = user_input.get("target_id", "").strip()
                 if existing["type"] == ENDPOINT_TYPE_DISCORD_WEBHOOK:
                     self._pending_endpoint = (ep_id, existing)
                     return await self.async_step_webhook_endpoint()
-                # Switched away from Discord Webhook: drop its settings.
                 for key in WEBHOOK_ENDPOINT_KEYS:
                     existing.pop(key, None)
                 endpoints[ep_id] = existing
                 self._options[OPT_ENDPOINTS] = _dump_json(endpoints)
                 return await self._update_and_return()
 
+        if is_webhook:
+            # A Discord Webhook doesn't use Notifier or Target ID; its own
+            # settings are edited here instead of on a second screen.
+            schema = self._endpoint_type_fields(existing)
+            schema.update(self._webhook_fields(values))
+            schema[vol.Optional("delete_endpoint", default=False)] = bool
+            data_schema = vol.Schema(schema)
+        else:
+            data_schema = self._endpoint_schema(existing, include_delete=True)
+
         return self.async_show_form(
             step_id="edit_endpoint",
-            data_schema=self._endpoint_schema(existing, include_delete=True),
+            data_schema=data_schema,
             errors=errors,
             description_placeholders={"endpoint_name": existing.get("name", ep_id)},
         )
@@ -2648,13 +2690,15 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         services.sort()
         return services
 
-    def _endpoint_schema(
-        self, existing: dict | None = None, include_delete: bool = False
-    ) -> vol.Schema:
+    def _endpoint_type_fields(
+        self, existing: dict | None = None, editing: bool = True
+    ) -> dict:
+        """Name and Notification Type fields, shared by every endpoint form.
+        When editing, the name is prefilled with the current one."""
         existing = existing or {}
-        schema = {}
+        schema: dict = {}
 
-        if not include_delete:
+        if not editing:
             schema[vol.Required("endpoint_name")] = str
         else:
             schema[vol.Required("endpoint_name", default=existing.get("name", ""))] = (
@@ -2677,6 +2721,13 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 mode=selector.SelectSelectorMode.DROPDOWN,
             )
         )
+        return schema
+
+    def _endpoint_schema(
+        self, existing: dict | None = None, include_delete: bool = False
+    ) -> vol.Schema:
+        existing = existing or {}
+        schema = self._endpoint_type_fields(existing, editing=include_delete)
 
         services = self._get_notify_services()
         current_notifier = existing.get("notifier", "")
