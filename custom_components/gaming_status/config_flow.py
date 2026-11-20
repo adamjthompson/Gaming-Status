@@ -44,6 +44,7 @@ from .const import (
     ENDPOINT_TYPE_MOBILE_APP,
     ENDPOINT_TYPES,
     EP_EDIT_SESSION_MESSAGES,
+    EP_EDIT_TIMESTAMP,
     EP_WEBHOOK_AVATAR_URL,
     EP_WEBHOOK_URL,
     EP_WEBHOOK_USERNAME,
@@ -1359,6 +1360,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             EP_WEBHOOK_USERNAME: str(source.get(EP_WEBHOOK_USERNAME) or "").strip(),
             EP_WEBHOOK_AVATAR_URL: str(source.get(EP_WEBHOOK_AVATAR_URL) or "").strip(),
             EP_EDIT_SESSION_MESSAGES: bool(source.get(EP_EDIT_SESSION_MESSAGES)),
+            EP_EDIT_TIMESTAMP: bool(source.get(EP_EDIT_TIMESTAMP)),
         }
 
     async def _webhook_errors(self, values: dict) -> dict[str, str]:
@@ -1405,6 +1407,10 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 EP_EDIT_SESSION_MESSAGES,
                 default=values[EP_EDIT_SESSION_MESSAGES],
+            ): bool,
+            vol.Optional(
+                EP_EDIT_TIMESTAMP,
+                default=values[EP_EDIT_TIMESTAMP],
             ): bool,
         }
 

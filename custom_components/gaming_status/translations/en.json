@@ -223,13 +223,15 @@
           "webhook_username": "Sender name",
           "webhook_avatar_url": "Sender avatar URL",
           "edit_session_messages": "Edit messages instead of posting new ones",
+          "edit_timestamp": "Enable edit timestamp",
           "delete_endpoint": "Delete this notification"
         },
         "data_description": {
           "webhook_url": "Keep this private: anyone with the URL can post to the channel.",
           "webhook_username": "Optional. Leave blank to use the name set on the webhook in Discord.",
           "webhook_avatar_url": "Optional. A secure (https) image URL. Leave blank to use the webhook's own avatar.",
-          "edit_session_messages": "When a session ends, the \"started playing\" message is edited to show the finished session instead of a second message being posted. Discord doesn't notify anyone about edits, so only session starts send an alert."
+          "edit_session_messages": "When a session ends, the \"started playing\" message is edited to show the finished session instead of a second message being posted. Discord doesn't notify anyone about edits, so only session starts send an alert.",
+          "edit_timestamp": "Only used when editing messages is on. Adds a time at the bottom of the message that updates when the message is edited, which is useful for seeing what time a session ended. The time next to the sender's name stays the time the session started."
         }
       },
       "webhook_endpoint": {
@@ -239,13 +241,15 @@
           "webhook_url": "Webhook URL",
           "webhook_username": "Sender name",
           "webhook_avatar_url": "Sender avatar URL",
-          "edit_session_messages": "Edit messages instead of posting new ones"
+          "edit_session_messages": "Edit messages instead of posting new ones",
+          "edit_timestamp": "Enable edit timestamp"
         },
         "data_description": {
           "webhook_url": "Keep this private: anyone with the URL can post to the channel.",
           "webhook_username": "Optional. Leave blank to use the name set on the webhook in Discord.",
           "webhook_avatar_url": "Optional. A secure (https) image URL. Leave blank to use the webhook's own avatar.",
-          "edit_session_messages": "When a session ends, the \"started playing\" message is edited to show the finished session instead of a second message being posted. Discord doesn't notify anyone about edits, so only session starts send an alert."
+          "edit_session_messages": "When a session ends, the \"started playing\" message is edited to show the finished session instead of a second message being posted. Discord doesn't notify anyone about edits, so only session starts send an alert.",
+          "edit_timestamp": "Only used when editing messages is on. Adds a time at the bottom of the message that updates when the message is edited, which is useful for seeing what time a session ended. The time next to the sender's name stays the time the session started."
         }
       },
       "discord_colors": {

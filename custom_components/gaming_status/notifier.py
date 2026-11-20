@@ -32,6 +32,7 @@ from .const import (
     ENDPOINT_TYPE_MOBILE_APP,
     ENDPOINT_TYPE_SMS,
     EP_EDIT_SESSION_MESSAGES,
+    EP_EDIT_TIMESTAMP,
     EP_WEBHOOK_AVATAR_URL,
     EP_WEBHOOK_URL,
     EP_WEBHOOK_USERNAME,
@@ -471,6 +472,16 @@ class GamingNotifier:
             )
             return False
 
+        tracking = (
+            event_type in ("start", "stop")
+            and bool(session_player)
+            and bool(session_game)
+            and self._webhook_edit_enabled(ep_id)
+        )
+        if tracking and dest.get(EP_EDIT_TIMESTAMP):
+            # Shown at the bottom of the embed and refreshed by the edit, so
+            # a finished session shows when it ended.
+            embed = {**embed, "timestamp": dt_util.utcnow().isoformat()}
         payload = discord_webhook.build_payload(
             embed,
             str(dest.get(EP_WEBHOOK_USERNAME, "")).strip() or None,
@@ -478,12 +489,6 @@ class GamingNotifier:
         )
         session = async_get_clientsession(self.hass)
         limiter = self._webhook_limiter(url)
-        tracking = (
-            event_type in ("start", "stop")
-            and bool(session_player)
-            and bool(session_game)
-            and self._webhook_edit_enabled(ep_id)
-        )
 
         if tracking and event_type == "stop":
             message_id = self._pop_webhook_message(

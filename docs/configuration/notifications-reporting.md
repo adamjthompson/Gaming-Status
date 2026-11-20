@@ -98,6 +98,7 @@ Keep the URL private: anyone who has it can post to that channel. Gaming Status 
     * A switch within 90 seconds of a session starting (for example, a launcher opening the game) doesn't send a notification, as with every notification type. The **started playing** message then belongs to the new game, and is edited when that game ends.
     * Discord doesn't send a notification for an edited message, so only session starts alert anyone.
     * Editing keeps working after Home Assistant restarts. If the message was deleted in Discord, a new **finished** message is posted instead.
+* **Enable edit timestamp:** *(Off by default, only used when editing messages is on)* Adds a time at the bottom of each session message that updates when the message is edited, so a finished session shows what time it ended. Discord shows it in each reader's own time zone. The time next to the sender's name always stays the time the message was first posted, which is when the session started.
 
 **Discord Bot or Discord Webhook?**
 
