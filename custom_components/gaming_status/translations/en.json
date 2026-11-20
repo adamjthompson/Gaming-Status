@@ -207,7 +207,9 @@
         },
         "data_description": {
           "endpoint_name": "A friendly name, e.g. Dad's Phone",
-          "target_id": "Required for Discord (Channel ID) or SMS (Phone Number)."
+          "notification_type": "Discord Webhook posts straight to a Discord channel and doesn't need a Discord bot. You'll enter the webhook URL on the next screen.",
+          "notifier": "Not used for Discord Webhook.",
+          "target_id": "Required for Discord Bot (Channel ID) or SMS (Phone Number). Not used for Discord Webhook."
         }
       },
       "edit_endpoint": {
@@ -218,6 +220,22 @@
           "notifier": "Notifier",
           "target_id": "Target ID",
           "delete_endpoint": "Delete this notification"
+        }
+      },
+      "webhook_endpoint": {
+        "title": "Discord Webhook | {endpoint_name}",
+        "description": "In Discord, open the channel's settings, then Integrations > Webhooks, create a webhook and copy its URL. A webhook only posts to that channel and can't send Direct Messages; use Discord Bot for those.",
+        "data": {
+          "webhook_url": "Webhook URL",
+          "webhook_username": "Sender name",
+          "webhook_avatar_url": "Sender avatar URL",
+          "edit_session_messages": "Edit messages instead of posting new ones"
+        },
+        "data_description": {
+          "webhook_url": "Keep this private: anyone with the URL can post to the channel.",
+          "webhook_username": "Optional. Leave blank to use the name set on the webhook in Discord.",
+          "webhook_avatar_url": "Optional https:// image URL. Leave blank to use the webhook's own avatar.",
+          "edit_session_messages": "When a session ends, the \"started playing\" message is edited to show the finished session instead of a second message being posted. Discord doesn't notify anyone about edits, so only session starts send an alert."
         }
       },
       "discord_colors": {
@@ -442,7 +460,12 @@
       "invalid_npsso": "PlayStation rejected this NPSSO. Sign in at playstation.com, copy a fresh npsso value and try again.",
       "invalid_epic_account_id": "That doesn't look like an Epic account ID. Paste the link to your Epic Games Store profile, or the 32-character ID from your Epic account settings.",
       "epic_profile_private": "This Epic profile is private. Set the profile and its achievements to public in Epic's privacy settings, then try again.",
-      "epic_account_not_found": "Epic couldn't find an account with that ID. Check the profile link or account ID and try again."
+      "epic_account_not_found": "Epic couldn't find an account with that ID. Check the profile link or account ID and try again.",
+      "invalid_webhook_url": "That isn't a Discord webhook URL. It should start with https://discord.com/api/webhooks/ followed by the webhook ID and token.",
+      "webhook_not_found": "Discord didn't accept this webhook. It may have been deleted, or the URL is incomplete. Copy the URL again from Discord.",
+      "cannot_connect": "Couldn't reach Discord to check the webhook. Try again in a moment.",
+      "invalid_webhook_username": "Discord doesn't allow this sender name. It must be 80 characters or fewer and can't contain \"discord\" or \"clyde\".",
+      "invalid_avatar_url": "The avatar URL must start with https://."
     }
   },
   "issues": {

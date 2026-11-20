@@ -10,20 +10,31 @@ from datetime import datetime, time as dt_time, timedelta
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_change,
     async_track_time_interval,
 )
 from homeassistant.helpers.network import get_url
+from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from . import messages
+from . import discord_webhook, messages
 from .const import (
     CURFEW_END_HOUR,
     DEFAULT_ENABLE_ACHIEVEMENT_TRACKING,
     DEFAULT_SAME_GAME_PREFIX_WORDS,
+    DISCORD_ENDPOINT_TYPES,
     DOMAIN,
+    ENDPOINT_TYPE_DISCORD,
+    ENDPOINT_TYPE_DISCORD_WEBHOOK,
+    ENDPOINT_TYPE_MOBILE_APP,
+    ENDPOINT_TYPE_SMS,
+    EP_EDIT_SESSION_MESSAGES,
+    EP_WEBHOOK_AVATAR_URL,
+    EP_WEBHOOK_URL,
+    EP_WEBHOOK_USERNAME,
     EVENT_ACHIEVEMENT_UNLOCKED,
     EVENT_CURFEW_EXCEEDED,
     EVENT_RATING_EXCEEDED,
@@ -42,6 +53,9 @@ from .const import (
     OPT_SAME_GAME_PREFIX_WORDS,
     OPT_WEEKLY_REPORT,
     SAME_GAME_HANDOFF_WINDOW_SECONDS,
+    WEBHOOK_MESSAGE_MAX_AGE_DAYS,
+    WEBHOOK_RATE_LIMIT_CAPACITY,
+    WEBHOOK_RATE_LIMIT_PER_SECOND,
 )
 from .device import (
     async_fire_player_event,
@@ -50,6 +64,7 @@ from .device import (
     resolve_platform_entity_id,
     safe_owner_slug,
 )
+from .rate_limiter import RateLimiter
 from .utils import _elapsed_seconds
 
 _LOGGER = logging.getLogger(__name__)
@@ -91,6 +106,13 @@ def _active_curfew_start(now_dt, rule):
     return None
 
 
+def webhook_messages_store(hass: HomeAssistant, entry_id: str) -> Store:
+    """Where the edit-in-place mode keeps the IDs of "started playing"
+    webhook messages, so a session that ends after a restart or reload can
+    still edit its message."""
+    return Store(hass, 1, f"gaming_status.{entry_id}_webhook_messages")
+
+
 def _load_json(raw, fallback):
     if not raw:
         return fallback
@@ -116,6 +138,16 @@ class GamingNotifier:
         # otherwise re-fire the event every minute for a rule with no
         # destinations.
         self._parental_event_marks: dict = {}
+
+        # Edit-in-place Discord webhook messages still waiting for their
+        # session to end: {ep_id: {player: {game_key: {"id", "game", "at"}}}}.
+        # Keyed per game (not just per player) so a session that ends while
+        # the next game has already started edits its own message.
+        self._webhook_store = webhook_messages_store(hass, config_entry.entry_id)
+        self._webhook_messages: dict[str, dict[str, dict[str, dict]]] = {}
+        self._webhook_messages_dirty = False
+        # One limiter per webhook ID -- Discord's limit is per webhook.
+        self._webhook_limiters: dict[str, RateLimiter] = {}
 
         # Instant O(1) lookup map (entity_id -> player_name)
         # Built once at startup since entities require a full system reload to change
@@ -212,6 +244,8 @@ class GamingNotifier:
     async def async_start(self) -> None:
         self._startup_time = dt_util.now()
 
+        await self._async_load_webhook_messages()
+
         master_entities = list(self._entity_player_map.keys())
 
         if master_entities:
@@ -263,6 +297,214 @@ class GamingNotifier:
             *getattr(self, "_end_tasks", ()),
         }:
             task.cancel()
+        if self._webhook_messages_dirty:
+            # Write now instead of leaving it to the pending delayed save,
+            # so an options reload can't race it with the next load.
+            try:
+                await self._webhook_store.async_save(self._webhook_store_data())
+                self._webhook_messages_dirty = False
+            except Exception:
+                _LOGGER.debug(
+                    "Gaming Status: could not save webhook message IDs",
+                    exc_info=True,
+                )
+
+    # ------------------------------------------------------------------
+    # Discord webhook message tracking (opt-in edit-in-place mode)
+    # ------------------------------------------------------------------
+
+    def _webhook_edit_enabled(self, ep_id: str) -> bool:
+        dest = self._cached_endpoints.get(ep_id) or {}
+        return dest.get("type") == ENDPOINT_TYPE_DISCORD_WEBHOOK and bool(
+            dest.get(EP_EDIT_SESSION_MESSAGES)
+        )
+
+    def _webhook_store_data(self) -> dict:
+        return {"messages": self._webhook_messages}
+
+    def _schedule_webhook_save(self) -> None:
+        self._webhook_messages_dirty = True
+        self._webhook_store.async_delay_save(self._webhook_store_data, 5.0)
+
+    def _prune_webhook_messages(self) -> bool:
+        """Drop malformed or too-old records, and records for endpoints that
+        no longer exist or no longer edit. Returns True if anything changed."""
+        cutoff = dt_util.utcnow() - timedelta(days=WEBHOOK_MESSAGE_MAX_AGE_DAYS)
+        kept: dict[str, dict[str, dict[str, dict]]] = {}
+        for ep_id, players in self._webhook_messages.items():
+            if not isinstance(players, dict) or not self._webhook_edit_enabled(ep_id):
+                continue
+            for player, games in players.items():
+                if not isinstance(games, dict):
+                    continue
+                for game_key, record in games.items():
+                    if not isinstance(record, dict):
+                        continue
+                    if not str(record.get("id", "")).isdigit():
+                        continue
+                    at = dt_util.parse_datetime(str(record.get("at", "")))
+                    if at is None or at < cutoff:
+                        continue
+                    kept.setdefault(ep_id, {}).setdefault(player, {})[game_key] = record
+        changed = kept != self._webhook_messages
+        self._webhook_messages = kept
+        return changed
+
+    async def _async_load_webhook_messages(self) -> None:
+        try:
+            stored = await self._webhook_store.async_load()
+        except Exception:
+            _LOGGER.debug(
+                "Gaming Status: could not load webhook message IDs", exc_info=True
+            )
+            stored = None
+        messages_data = stored.get("messages") if isinstance(stored, dict) else None
+        self._webhook_messages = (
+            messages_data if isinstance(messages_data, dict) else {}
+        )
+        if self._prune_webhook_messages():
+            self._schedule_webhook_save()
+
+    def _find_webhook_message_key(
+        self, ep_id: str, player: str, game: str
+    ) -> str | None:
+        """The tracked message for this player's session of this game. An
+        exact (case-insensitive) title match first, then the same fuzzy
+        same-game match the cross-platform handoff uses -- a handoff keeps
+        one session going even when the new platform titles it slightly
+        differently."""
+        games = self._webhook_messages.get(ep_id, {}).get(player, {})
+        if not games:
+            return None
+        game_key = game.lower().strip()
+        if game_key in games:
+            return game_key
+        from .utils import _is_same_base_game
+
+        prefix_words = self._entry.options.get(
+            OPT_SAME_GAME_PREFIX_WORDS, DEFAULT_SAME_GAME_PREFIX_WORDS
+        )
+        for key in games:
+            if _is_same_base_game(key, game_key, prefix_words):
+                return key
+        return None
+
+    def _pop_webhook_message(self, ep_id: str, player: str, game: str) -> str | None:
+        key = self._find_webhook_message_key(ep_id, player, game)
+        if key is None:
+            return None
+        players = self._webhook_messages[ep_id]
+        record = players[player].pop(key)
+        if not players[player]:
+            players.pop(player)
+        if not players:
+            self._webhook_messages.pop(ep_id)
+        self._schedule_webhook_save()
+        return str(record.get("id", ""))
+
+    def _remember_webhook_message(
+        self, ep_id: str, player: str, game: str, message_id: str
+    ) -> None:
+        self._webhook_messages.setdefault(ep_id, {}).setdefault(player, {})[
+            game.lower().strip()
+        ] = {
+            "id": message_id,
+            "game": game,
+            "at": dt_util.utcnow().isoformat(),
+        }
+        # Cheap (a handful of records) and keeps a start-only destination's
+        # never-edited records from piling up between restarts.
+        self._prune_webhook_messages()
+        self._schedule_webhook_save()
+
+    def _webhook_limiter(self, url: str) -> RateLimiter:
+        key = discord_webhook.webhook_id(url) or "unknown"
+        limiter = self._webhook_limiters.get(key)
+        if limiter is None:
+            limiter = RateLimiter(
+                WEBHOOK_RATE_LIMIT_CAPACITY,
+                WEBHOOK_RATE_LIMIT_PER_SECOND,
+                name="discord_webhook",
+            )
+            self._webhook_limiters[key] = limiter
+        return limiter
+
+    async def _send_webhook(
+        self,
+        ep_id: str,
+        dest: dict,
+        embed: dict,
+        event_type: str,
+        session_player: str | None,
+        session_game: str | None,
+    ) -> bool:
+        """Send one embed to a Discord Webhook endpoint.
+
+        With edit-in-place on, a session "start" is posted with wait=true so
+        its message ID can be kept, and the matching "stop" edits that
+        message instead of posting a new one. A stop with nothing to edit,
+        or whose edit fails (e.g. the message was deleted), posts normally."""
+        url = str(dest.get(EP_WEBHOOK_URL, "")).strip()
+        if not discord_webhook.is_valid_webhook_url(url):
+            _LOGGER.warning(
+                "Gaming Status: notification skipped, endpoint '%s' has no "
+                "valid Discord webhook URL",
+                ep_id,
+            )
+            return False
+
+        payload = discord_webhook.build_payload(
+            embed,
+            str(dest.get(EP_WEBHOOK_USERNAME, "")).strip() or None,
+            str(dest.get(EP_WEBHOOK_AVATAR_URL, "")).strip() or None,
+        )
+        session = async_get_clientsession(self.hass)
+        limiter = self._webhook_limiter(url)
+        tracking = (
+            event_type in ("start", "stop")
+            and bool(session_player)
+            and bool(session_game)
+            and self._webhook_edit_enabled(ep_id)
+        )
+
+        if tracking and event_type == "stop":
+            message_id = self._pop_webhook_message(
+                ep_id, str(session_player), str(session_game)
+            )
+            if message_id:
+                edited = await discord_webhook.edit_message(
+                    session, url, message_id, payload, limiter=limiter
+                )
+                if edited.ok:
+                    return True
+                if not edited.not_found:
+                    _LOGGER.warning(
+                        "Gaming Status: could not edit Discord webhook message "
+                        "for endpoint '%s' (HTTP %s), posting a new one",
+                        ep_id,
+                        edited.status,
+                    )
+
+        posted = await discord_webhook.post_message(
+            session,
+            url,
+            payload,
+            wait=tracking and event_type == "start",
+            limiter=limiter,
+        )
+        if not posted.ok:
+            _LOGGER.warning(
+                "Gaming Status: notification failed for endpoint '%s' "
+                "(Discord webhook, HTTP %s)",
+                ep_id,
+                posted.status,
+            )
+            return False
+        if tracking and event_type == "start" and posted.message_id:
+            self._remember_webhook_message(
+                ep_id, str(session_player), str(session_game), posted.message_id
+            )
+        return True
 
     # ------------------------------------------------------------------
     # Generic Notification Helpers
@@ -368,6 +610,44 @@ class GamingNotifier:
             return hour_str
         return f"{hour_str} and {mins} minute{'s' if mins != 1 else ''}"
 
+    def _build_discord_embed(
+        self,
+        message: str,
+        image_url: str | None,
+        game_title: str | None,
+        event_type: str,
+        state_obj,
+        game_color: str | None,
+        embed_description: str | None,
+        image_as_thumbnail: bool,
+        platform: str | None,
+    ) -> dict:
+        """The embed both Discord endpoint types send (bot and webhook)."""
+        # Discord API strictly rejects relative local paths. If domain appending failed, strip the image to save the notification!
+        if image_url and not image_url.startswith("http"):
+            image_url = None
+
+        color = self._resolve_discord_color(
+            event_type,
+            state_obj,
+            game_color_override=game_color,
+            platform_override=platform,
+        )
+        embed: dict = {"color": color}
+
+        # Placing text in "description" puts it INSIDE the colored bar
+        if event_type == "info":
+            embed["title"] = "Gaming Status"
+            embed["description"] = message
+        else:
+            if game_title:
+                embed["title"] = game_title
+            embed["description"] = embed_description or message
+
+        if image_url:
+            embed["thumbnail" if image_as_thumbnail else "image"] = {"url": image_url}
+        return embed
+
     async def _send_to_endpoint(
         self,
         ep_id: str,
@@ -380,6 +660,8 @@ class GamingNotifier:
         embed_description: str = None,
         image_as_thumbnail: bool = False,
         platform: str = None,
+        session_player: str | None = None,
+        session_game: str | None = None,
     ) -> bool:
         """Dispatch a notification to a configured endpoint.
 
@@ -387,11 +669,30 @@ class GamingNotifier:
         given (e.g. Markdown-bolded achievement name). image_as_thumbnail
         puts the image in the embed's small thumbnail slot instead of the
         full-width image slot (suits square achievement icons). platform
-        feeds the Discord "platform" color mode when there's no state_obj."""
+        feeds the Discord "platform" color mode when there's no state_obj.
+        session_player/session_game identify a session start or stop, for
+        Discord Webhook endpoints that edit their messages in place."""
         dest = self._cached_endpoints.get(ep_id)
         if not dest:
             _LOGGER.warning("Gaming Status: endpoint '%s' not found in config", ep_id)
             return False
+
+        if dest.get("type") == ENDPOINT_TYPE_DISCORD_WEBHOOK:
+            # Posted directly to Discord, not through a notify.* service.
+            embed = self._build_discord_embed(
+                message,
+                image_url,
+                game_title,
+                event_type,
+                state_obj,
+                game_color,
+                embed_description,
+                image_as_thumbnail,
+                platform,
+            )
+            return await self._send_webhook(
+                ep_id, dest, embed, event_type, session_player, session_game
+            )
 
         service_str = dest.get("service", "")
         if not service_str or "." not in service_str:
@@ -405,7 +706,7 @@ class GamingNotifier:
 
         domain, service = service_str.split(".", 1)
 
-        # Every notification type this integration's config UI offers
+        # Every other notification type this integration's config UI offers
         # (Mobile App/Discord/SMS) maps to a notify.* service -- restricting
         # to that domain means a stray/malicious endpoint config can never
         # target an unrelated, more sensitive HA service.
@@ -427,51 +728,37 @@ class GamingNotifier:
             return False
 
         target_id = dest.get("target_id", "").strip()
-        ep_type = dest.get("type", "Mobile App")
+        ep_type = dest.get("type", ENDPOINT_TYPE_MOBILE_APP)
 
         service_data = {}
 
         if target_id and target_id.lower() != "n/a":
-            if ep_type == "Discord":
+            if ep_type == ENDPOINT_TYPE_DISCORD:
                 service_data["target"] = [target_id]
             else:
                 service_data["target"] = target_id
 
-        if ep_type == "Discord":
-            # Discord API strictly rejects relative local paths. If domain appending failed, strip the image to save the notification!
-            if image_url and not image_url.startswith("http"):
-                image_url = None
-
-            color = self._resolve_discord_color(
-                event_type,
-                state_obj,
-                game_color_override=game_color,
-                platform_override=platform,
-            )
-            embed = {"color": color}
-
-            # Placing text in "description" puts it INSIDE the colored bar
-            if event_type == "info":
-                embed["title"] = "Gaming Status"
-                embed["description"] = message
-            else:
-                if game_title:
-                    embed["title"] = game_title
-                embed["description"] = embed_description or message
-
-            if image_url:
-                embed["thumbnail" if image_as_thumbnail else "image"] = {
-                    "url": image_url
-                }
-
+        if ep_type == ENDPOINT_TYPE_DISCORD:
             service_data["message"] = ""
-            service_data["data"] = {"embed": embed}
+            service_data["data"] = {
+                "embed": self._build_discord_embed(
+                    message,
+                    image_url,
+                    game_title,
+                    event_type,
+                    state_obj,
+                    game_color,
+                    embed_description,
+                    image_as_thumbnail,
+                    platform,
+                )
+            }
 
         else:  # Standard Mobile App / SMS
             service_data["message"] = message
 
             if event_type == "achievement":
-                if ep_type == "SMS":
+                if ep_type == ENDPOINT_TYPE_SMS:
                     # Many SMS notifiers drop the title, so carry the
                     # headline in the body instead of losing it.
                     service_data["message"] = (
@@ -492,7 +779,7 @@ class GamingNotifier:
             else:
                 service_data["title"] = "Gaming Status"
 
-            if image_url and ep_type != "SMS":
+            if image_url and ep_type != ENDPOINT_TYPE_SMS:
                 service_data["data"] = {"image": image_url}
 
         try:
@@ -945,19 +1232,58 @@ class GamingNotifier:
             )
             image_url = await self._make_external_url(raw_url, new_game)
 
-            await asyncio.gather(
-                *(
-                    self._send_to_endpoint(
+            # Edit-in-place webhook endpoints still holding the previous
+            # game's message close it out on a switch (edited into its
+            # "finished" form) and post a fresh "started" message for the
+            # new game, instead of the single "switched" message.
+            close_out = (
+                {
+                    ep_id
+                    for ep_id in start_dests
+                    if self._find_webhook_message_key(ep_id, target_player, old_game)
+                    is not None
+                }
+                if is_switch
+                else set()
+            )
+            old_image_url = (
+                await self._end_image_url(old_state, old_game) if close_out else None
+            )
+
+            async def _send_start(ep_id: str) -> bool:
+                if ep_id in close_out:
+                    await self._send_to_endpoint(
                         ep_id,
-                        message=msg,
+                        message=messages.notify_ended(target_player, duration_str),
+                        image_url=old_image_url,
+                        game_title=old_game,
+                        event_type="stop",
+                        state_obj=old_state,
+                        session_player=target_player,
+                        session_game=old_game,
+                    )
+                    return await self._send_to_endpoint(
+                        ep_id,
+                        message=messages.notify_started(target_player),
                         image_url=image_url,
-                        game_title=display_title,
+                        game_title=new_game,
                         event_type="start",
                         state_obj=new_state,
+                        session_player=target_player,
+                        session_game=new_game,
                     )
-                    for ep_id in start_dests
+                return await self._send_to_endpoint(
+                    ep_id,
+                    message=msg,
+                    image_url=image_url,
+                    game_title=display_title,
+                    event_type="start",
+                    state_obj=new_state,
+                    session_player=target_player,
+                    session_game=new_game,
                 )
-            )
+
+            await asyncio.gather(*(_send_start(ep_id) for ep_id in start_dests))
 
         elif is_end:
             # Held for SAME_GAME_HANDOFF_WINDOW_SECONDS instead of sent
@@ -1018,17 +1344,7 @@ class GamingNotifier:
             return
 
         msg = messages.notify_ended(target_player, duration_str)
-
-        if self._cached_notify_artwork == "none":
-            raw_url = None
-        else:
-            raw_url = old_state.attributes.get(self._cached_notify_artwork)
-            if not raw_url:
-                raw_url = old_state.attributes.get(
-                    "game_cover_art"
-                ) or old_state.attributes.get("cached_game_cover")
-
-        image_url = await self._make_external_url(raw_url, old_game)
+        image_url = await self._end_image_url(old_state, old_game)
 
         # Pass the OLD state so the color is fully preserved!
         await asyncio.gather(
@@ -1040,10 +1356,26 @@ class GamingNotifier:
                     game_title=old_game,
                     event_type="stop",
                     state_obj=old_state,
+                    session_player=target_player,
+                    session_game=old_game,
                 )
                 for ep_id in end_dests
             )
         )
+
+    async def _end_image_url(self, old_state, old_game) -> str | None:
+        """Artwork for a "finished playing" notification, from the state
+        the game was played in."""
+        if self._cached_notify_artwork == "none":
+            raw_url = None
+        else:
+            raw_url = old_state.attributes.get(self._cached_notify_artwork)
+            if not raw_url:
+                raw_url = old_state.attributes.get(
+                    "game_cover_art"
+                ) or old_state.attributes.get("cached_game_cover")
+
+        return await self._make_external_url(raw_url, old_game)
 
     # ------------------------------------------------------------------
     # Achievement / trophy unlocks
@@ -1729,7 +2061,9 @@ class GamingNotifier:
 
         for ep_id in assigned:
             ep_type = self._cached_endpoints.get(ep_id, {}).get("type")
-            message = discord_message if ep_type == "Discord" else plain_message
+            message = (
+                discord_message if ep_type in DISCORD_ENDPOINT_TYPES else plain_message
+            )
             await self._send_to_endpoint(
                 ep_id,
                 message,

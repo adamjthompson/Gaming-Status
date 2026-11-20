@@ -31,9 +31,14 @@ _REDACT_KEY_RE = re.compile(
 # slot holds their Discord user ID.
 _REDACT_EXACT_KEYS = {"discord", "public_page_key"}
 # Secrets embedded inside otherwise-useful string values: image_proxy access
-# tokens, and the Discord user ID in avatar URLs.
+# tokens, Discord webhook tokens, and the Discord user ID in avatar URLs.
 _REDACT_IN_STRING = (
     (re.compile(r"([?&]token=)[^&]+"), r"\1" + REDACTED),
+    # A webhook URL's last path segment is its secret token.
+    (
+        re.compile(r"(discord(?:app)?\.com/api/(?:v\d+/)?webhooks/\d+/)[\w-]+"),
+        r"\1" + REDACTED,
+    ),
     (re.compile(r"(cdn\.discordapp\.com/avatars/)\d+"), r"\1" + REDACTED),
     # PSN account IDs inside request URLs carried by logged exceptions.
     (re.compile(r"(/users/)\d+"), r"\1" + REDACTED),

@@ -336,6 +336,51 @@ DISCORD_COLOR_PLATFORM = "platform"
 DISCORD_COLOR_GAME = "game"
 DISCORD_COLOR_CUSTOM = "custom"
 
+# Notification endpoint types (the stored "type" value is the label itself,
+# so these strings can never be renamed without migrating saved endpoints).
+ENDPOINT_TYPE_MOBILE_APP = "Mobile App"
+ENDPOINT_TYPE_DISCORD = "Discord"
+ENDPOINT_TYPE_SMS = "SMS"
+# Posts straight to a Discord webhook URL instead of through a notify.*
+# service, so it needs no Discord bot or HA Discord integration.
+ENDPOINT_TYPE_DISCORD_WEBHOOK = "Discord Webhook"
+ENDPOINT_TYPES = [
+    ENDPOINT_TYPE_MOBILE_APP,
+    ENDPOINT_TYPE_DISCORD,
+    ENDPOINT_TYPE_DISCORD_WEBHOOK,
+    ENDPOINT_TYPE_SMS,
+]
+# Dropdown labels where they differ from the stored value. "Discord" is
+# shown as "Discord Bot" to tell it apart from Discord Webhook, while saved
+# endpoints keep their original "Discord" value.
+ENDPOINT_TYPE_LABELS = {ENDPOINT_TYPE_DISCORD: "Discord Bot"}
+# Both Discord types render the same Markdown embed content.
+DISCORD_ENDPOINT_TYPES = (ENDPOINT_TYPE_DISCORD, ENDPOINT_TYPE_DISCORD_WEBHOOK)
+
+# Extra keys a Discord Webhook endpoint stores alongside name/type.
+EP_WEBHOOK_URL = "webhook_url"
+EP_WEBHOOK_USERNAME = "webhook_username"
+EP_WEBHOOK_AVATAR_URL = "webhook_avatar_url"
+# Opt-in (off by default): edit the session's "started playing" message into
+# the "finished" one instead of posting a second message.
+EP_EDIT_SESSION_MESSAGES = "edit_session_messages"
+WEBHOOK_ENDPOINT_KEYS = (
+    EP_WEBHOOK_URL,
+    EP_WEBHOOK_USERNAME,
+    EP_WEBHOOK_AVATAR_URL,
+    EP_EDIT_SESSION_MESSAGES,
+)
+
+WEBHOOK_TIMEOUT_SECONDS = 15
+# A tracked "started playing" message older than this is assumed orphaned
+# (its session never produced a stop) and is forgotten on load.
+WEBHOOK_MESSAGE_MAX_AGE_DAYS = 7
+# Discord allows ~5 requests per 2 seconds per webhook.
+WEBHOOK_RATE_LIMIT_CAPACITY = 5
+WEBHOOK_RATE_LIMIT_PER_SECOND = 2.5
+# On a 429, wait and retry once only if Discord asks for this long or less.
+WEBHOOK_MAX_RETRY_WAIT_SECONDS = 10
+
 # ---------------------------------------------------------------------------
 # Content/age rating thresholds (parental "ratings" rule)
 # ---------------------------------------------------------------------------

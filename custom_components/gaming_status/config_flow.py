@@ -39,6 +39,14 @@ from .const import (
     DEFAULT_SAME_GAME_PREFIX_WORDS,
     DEFAULT_USE_CACHE,
     DOMAIN,
+    ENDPOINT_TYPE_DISCORD_WEBHOOK,
+    ENDPOINT_TYPE_LABELS,
+    ENDPOINT_TYPE_MOBILE_APP,
+    ENDPOINT_TYPES,
+    EP_EDIT_SESSION_MESSAGES,
+    EP_WEBHOOK_AVATAR_URL,
+    EP_WEBHOOK_URL,
+    EP_WEBHOOK_USERNAME,
     MAX_LIBRARY_SCAN_INTERVAL_HOURS,
     MENU_ACHIEVEMENTS_RATINGS,
     MENU_ADVANCED,
@@ -86,8 +94,10 @@ from .const import (
     PLAYER_PLATFORMS,
     RATING_OVERRIDE_CODES,
     RATING_THRESHOLD_OPTIONS,
+    WEBHOOK_ENDPOINT_KEYS,
 )
 from .device import safe_owner_slug
+from .discord_webhook import is_valid_webhook_url, username_error, validate_webhook
 from .settings import LIBRARY_PLATFORMS, player_has_platform_source
 
 _LOGGER = logging.getLogger(__name__)
@@ -557,6 +567,8 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         self._options: dict = dict(config_entry.options)
         self._editing_player: str | None = None
         self._editing_endpoint: str | None = None
+        # (endpoint id, endpoint dict) waiting on the Discord Webhook step.
+        self._pending_endpoint: tuple[str, dict] | None = None
         self._discord_members = []
 
     async def async_step_init(self, user_input=None):
@@ -1319,12 +1331,18 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 while ep_id in endpoints:
                     ep_id = f"{base_id}_{suffix}"
                     suffix += 1
-                endpoints[ep_id] = {
+                endpoint = {
                     "name": ep_name,
-                    "type": user_input.get("notification_type", "Mobile App"),
+                    "type": user_input.get(
+                        "notification_type", ENDPOINT_TYPE_MOBILE_APP
+                    ),
                     "notifier": user_input.get("notifier", "").strip(),
                     "target_id": user_input.get("target_id", "").strip(),
                 }
+                if endpoint["type"] == ENDPOINT_TYPE_DISCORD_WEBHOOK:
+                    self._pending_endpoint = (ep_id, endpoint)
+                    return await self.async_step_webhook_endpoint()
+                endpoints[ep_id] = endpoint
                 self._options[OPT_ENDPOINTS] = _dump_json(endpoints)
                 return await self._update_and_return()
 
@@ -1332,6 +1350,90 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             step_id="add_endpoint",
             data_schema=self._endpoint_schema(),
             errors=errors,
+        )
+
+    async def async_step_webhook_endpoint(self, user_input=None):
+        """Second step for a Discord Webhook notification: the webhook URL,
+        optional sender name/avatar, and the opt-in edit-in-place mode."""
+        if self._pending_endpoint is None:
+            return await self.async_step_notifications()
+        ep_id, endpoint = self._pending_endpoint
+        errors: dict[str, str] = {}
+        values = {
+            EP_WEBHOOK_URL: endpoint.get(EP_WEBHOOK_URL, ""),
+            EP_WEBHOOK_USERNAME: endpoint.get(EP_WEBHOOK_USERNAME, ""),
+            EP_WEBHOOK_AVATAR_URL: endpoint.get(EP_WEBHOOK_AVATAR_URL, ""),
+            EP_EDIT_SESSION_MESSAGES: bool(endpoint.get(EP_EDIT_SESSION_MESSAGES)),
+        }
+
+        if user_input is not None:
+            values = {
+                EP_WEBHOOK_URL: str(user_input.get(EP_WEBHOOK_URL, "")).strip(),
+                EP_WEBHOOK_USERNAME: str(
+                    user_input.get(EP_WEBHOOK_USERNAME, "")
+                ).strip(),
+                EP_WEBHOOK_AVATAR_URL: str(
+                    user_input.get(EP_WEBHOOK_AVATAR_URL, "")
+                ).strip(),
+                EP_EDIT_SESSION_MESSAGES: bool(
+                    user_input.get(EP_EDIT_SESSION_MESSAGES, False)
+                ),
+            }
+            if not is_valid_webhook_url(values[EP_WEBHOOK_URL]):
+                errors[EP_WEBHOOK_URL] = "invalid_webhook_url"
+            name_error = username_error(values[EP_WEBHOOK_USERNAME])
+            if name_error:
+                errors[EP_WEBHOOK_USERNAME] = name_error
+            avatar = values[EP_WEBHOOK_AVATAR_URL]
+            if avatar and not avatar.lower().startswith("https://"):
+                errors[EP_WEBHOOK_AVATAR_URL] = "invalid_avatar_url"
+            if not errors:
+                url_error = await validate_webhook(
+                    async_get_clientsession(self.hass), values[EP_WEBHOOK_URL]
+                )
+                if url_error:
+                    errors[EP_WEBHOOK_URL] = url_error
+
+            if not errors:
+                endpoint.update(values)
+                # Webhooks post directly, not through a notify.* service.
+                endpoint["notifier"] = ""
+                endpoint["target_id"] = ""
+                endpoints = _endpoints(self._options)
+                endpoints[ep_id] = endpoint
+                self._options[OPT_ENDPOINTS] = _dump_json(endpoints)
+                self._pending_endpoint = None
+                return await self._update_and_return()
+
+        url_text = selector.TextSelector(
+            selector.TextSelectorConfig(type=selector.TextSelectorType.URL)
+        )
+        return self.async_show_form(
+            step_id="webhook_endpoint",
+            data_schema=vol.Schema(
+                {
+                    # suggested_value, not default, so an optional field can
+                    # be cleared (a default would refill a cleared field).
+                    vol.Required(
+                        EP_WEBHOOK_URL,
+                        description={"suggested_value": values[EP_WEBHOOK_URL]},
+                    ): url_text,
+                    vol.Optional(
+                        EP_WEBHOOK_USERNAME,
+                        description={"suggested_value": values[EP_WEBHOOK_USERNAME]},
+                    ): str,
+                    vol.Optional(
+                        EP_WEBHOOK_AVATAR_URL,
+                        description={"suggested_value": values[EP_WEBHOOK_AVATAR_URL]},
+                    ): url_text,
+                    vol.Optional(
+                        EP_EDIT_SESSION_MESSAGES,
+                        default=values[EP_EDIT_SESSION_MESSAGES],
+                    ): bool,
+                }
+            ),
+            errors=errors,
+            description_placeholders={"endpoint_name": endpoint.get("name", ep_id)},
         )
 
     async def async_step_edit_endpoint(self, user_input=None):
@@ -1351,9 +1453,17 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 existing["name"] = user_input.get(
                     "endpoint_name", existing.get("name")
                 ).strip()
-                existing["type"] = user_input.get("notification_type", "Mobile App")
+                existing["type"] = user_input.get(
+                    "notification_type", ENDPOINT_TYPE_MOBILE_APP
+                )
                 existing["notifier"] = user_input.get("notifier", "").strip()
                 existing["target_id"] = user_input.get("target_id", "").strip()
+                if existing["type"] == ENDPOINT_TYPE_DISCORD_WEBHOOK:
+                    self._pending_endpoint = (ep_id, existing)
+                    return await self.async_step_webhook_endpoint()
+                # Switched away from Discord Webhook: drop its settings.
+                for key in WEBHOOK_ENDPOINT_KEYS:
+                    existing.pop(key, None)
                 endpoints[ep_id] = existing
                 self._options[OPT_ENDPOINTS] = _dump_json(endpoints)
                 return await self._update_and_return()
@@ -2553,11 +2663,17 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
 
         schema[
             vol.Optional(
-                "notification_type", default=existing.get("type", "Mobile App")
+                "notification_type",
+                default=existing.get("type", ENDPOINT_TYPE_MOBILE_APP),
             )
         ] = selector.SelectSelector(
             selector.SelectSelectorConfig(
-                options=["Mobile App", "Discord", "SMS"],
+                options=[
+                    selector.SelectOptionDict(
+                        value=t, label=ENDPOINT_TYPE_LABELS.get(t, t)
+                    )
+                    for t in ENDPOINT_TYPES
+                ],
                 mode=selector.SelectSelectorMode.DROPDOWN,
             )
         )

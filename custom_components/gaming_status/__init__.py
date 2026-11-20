@@ -42,7 +42,7 @@ from .const import (
 )
 from .device import find_platform_sensor, safe_owner_slug
 from .library_scan import has_pending_library_backfill
-from .notifier import GamingNotifier
+from .notifier import GamingNotifier, webhook_messages_store
 from .public_page import async_invalidate_public_cache, async_register_public_views
 
 _LOGGER = logging.getLogger(__name__)
@@ -758,3 +758,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ):
             domain_data.pop(key, None)
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Delete the notifier's saved Discord webhook message IDs when the
+    integration itself is removed (they're meaningless without it)."""
+    try:
+        await webhook_messages_store(hass, entry.entry_id).async_remove()
+    except Exception:
+        _LOGGER.debug(
+            "Gaming Status: could not remove webhook message store", exc_info=True
+        )

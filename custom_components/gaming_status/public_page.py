@@ -215,7 +215,8 @@ _FORBIDDEN_CARD_TYPES = {"gaming-status-game-management-card"}
 # account-id and parental-control fields, including any added later.
 # Checked at every nesting level, not just top-level attribute names.
 _DENY_ATTR_RE = re.compile(
-    r"(token|npsso|oauth|password|secret|api_key|xuid|account|config_entry|"
+    r"(token|npsso|oauth|password|secret|api_key|webhook|xuid|account|"
+    r"config_entry|"
     r"discord_user|discord_data|user_id|steam_?id|online_id|"
     r"internal|blocked|limit|remaining|parental|snooze|"
     r"rating_exceeded|source_entit|debug|backup|"
