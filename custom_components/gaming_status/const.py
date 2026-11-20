@@ -364,12 +364,6 @@ EP_WEBHOOK_AVATAR_URL = "webhook_avatar_url"
 # Opt-in (off by default): edit the session's "started playing" message into
 # the "finished" one instead of posting a second message.
 EP_EDIT_SESSION_MESSAGES = "edit_session_messages"
-WEBHOOK_ENDPOINT_KEYS = (
-    EP_WEBHOOK_URL,
-    EP_WEBHOOK_USERNAME,
-    EP_WEBHOOK_AVATAR_URL,
-    EP_EDIT_SESSION_MESSAGES,
-)
 
 WEBHOOK_TIMEOUT_SECONDS = 15
 # A tracked "started playing" message older than this is assumed orphaned
