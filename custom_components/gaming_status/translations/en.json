@@ -228,7 +228,7 @@
         "data_description": {
           "webhook_url": "Keep this private: anyone with the URL can post to the channel.",
           "webhook_username": "Optional. Leave blank to use the name set on the webhook in Discord.",
-          "webhook_avatar_url": "Optional https:// image URL. Leave blank to use the webhook's own avatar.",
+          "webhook_avatar_url": "Optional. A secure (https) image URL. Leave blank to use the webhook's own avatar.",
           "edit_session_messages": "When a session ends, the \"started playing\" message is edited to show the finished session instead of a second message being posted. Discord doesn't notify anyone about edits, so only session starts send an alert."
         }
       },
@@ -244,7 +244,7 @@
         "data_description": {
           "webhook_url": "Keep this private: anyone with the URL can post to the channel.",
           "webhook_username": "Optional. Leave blank to use the name set on the webhook in Discord.",
-          "webhook_avatar_url": "Optional https:// image URL. Leave blank to use the webhook's own avatar.",
+          "webhook_avatar_url": "Optional. A secure (https) image URL. Leave blank to use the webhook's own avatar.",
           "edit_session_messages": "When a session ends, the \"started playing\" message is edited to show the finished session instead of a second message being posted. Discord doesn't notify anyone about edits, so only session starts send an alert."
         }
       },
@@ -471,11 +471,11 @@
       "invalid_epic_account_id": "That doesn't look like an Epic account ID. Paste the link to your Epic Games Store profile, or the 32-character ID from your Epic account settings.",
       "epic_profile_private": "This Epic profile is private. Set the profile and its achievements to public in Epic's privacy settings, then try again.",
       "epic_account_not_found": "Epic couldn't find an account with that ID. Check the profile link or account ID and try again.",
-      "invalid_webhook_url": "That isn't a Discord webhook URL. It should start with https://discord.com/api/webhooks/ followed by the webhook ID and token.",
+      "invalid_webhook_url": "That isn't a Discord webhook URL. Copy it in Discord from the channel's settings, under Integrations > Webhooks.",
       "webhook_not_found": "Discord didn't accept this webhook. It may have been deleted, or the URL is incomplete. Copy the URL again from Discord.",
       "cannot_connect": "Couldn't reach Discord to check the webhook. Try again in a moment.",
       "invalid_webhook_username": "Discord doesn't allow this sender name. It must be 80 characters or fewer and can't contain \"discord\" or \"clyde\".",
-      "invalid_avatar_url": "The avatar URL must start with https://."
+      "invalid_avatar_url": "The avatar URL must be a secure (https) link."
     }
   },
   "issues": {
