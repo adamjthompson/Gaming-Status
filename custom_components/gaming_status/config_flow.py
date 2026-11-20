@@ -1418,8 +1418,7 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         self._options[OPT_ENDPOINTS] = _dump_json(endpoints)
 
     async def async_step_webhook_endpoint(self, user_input=None):
-        """Second step when a notification is added as, or changed to, a
-        Discord Webhook: the webhook URL, optional sender name/avatar, and
+        """Second step when a notification is added as a Discord Webhook: the webhook URL, optional sender name/avatar, and
         the opt-in edit-in-place mode."""
         if self._pending_endpoint is None:
             return await self.async_step_notifications()
@@ -1473,18 +1472,15 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 )
                 existing["notifier"] = user_input.get("notifier", "").strip()
                 existing["target_id"] = user_input.get("target_id", "").strip()
-                if existing["type"] == ENDPOINT_TYPE_DISCORD_WEBHOOK:
-                    self._pending_endpoint = (ep_id, existing)
-                    return await self.async_step_webhook_endpoint()
                 endpoints[ep_id] = existing
                 self._options[OPT_ENDPOINTS] = _dump_json(endpoints)
                 return await self._update_and_return()
 
         if is_webhook:
             # A Discord Webhook is edited on one screen with its own settings.
-            # It has no Notification Type field: the form can't swap in
-            # another type's fields, so a different type means adding a new
-            # notification.
+            # Its type can't be changed here (nor can another type be changed
+            # to Discord Webhook): the form can't swap in another type's
+            # fields, so a different type means adding a new notification.
             schema: dict = {
                 vol.Required("endpoint_name", default=existing.get("name", "")): str,
             }
@@ -2699,6 +2695,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                         value=t, label=ENDPOINT_TYPE_LABELS.get(t, t)
                     )
                     for t in ENDPOINT_TYPES
+                    # Editing can't switch to Discord Webhook (its fields are
+                    # on their own screen); add a new notification instead.
+                    if not (include_delete and t == ENDPOINT_TYPE_DISCORD_WEBHOOK)
                 ],
                 mode=selector.SelectSelectorMode.DROPDOWN,
             )
