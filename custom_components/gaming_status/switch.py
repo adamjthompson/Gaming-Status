@@ -108,10 +108,15 @@ class GlobalSwitch(SettingEntityMixin, SwitchEntity):
 
     def __init__(self, entry, device_info, option, name, icon):
         self._option = option
-        # Turning parental controls off would lift every player's rules, and
+        # Turning parental controls off would lift every player's rules,
         # turning the public page on publishes presence to anyone with the
-        # link.
-        self._admin_only = option in (OPT_ENABLE_PARENTAL, OPT_PUBLIC_PAGE_ENABLED)
+        # link, and turning notifications off silences the alerts parents
+        # rely on.
+        self._admin_only = option in (
+            OPT_ENABLE_PARENTAL,
+            OPT_PUBLIC_PAGE_ENABLED,
+            OPT_ENABLE_NOTIFICATIONS,
+        )
         self._setup_setting(
             entry,
             f"gaming_status_setting_{option}",
@@ -147,6 +152,9 @@ class GlobalSwitch(SettingEntityMixin, SwitchEntity):
 
 
 class WeeklyReportSwitch(SettingEntityMixin, SwitchEntity):
+    # Turning it off stops the weekly report parents receive.
+    _admin_only = True
+
     def __init__(self, entry, device_info):
         self._setup_setting(
             entry,
@@ -164,9 +172,11 @@ class WeeklyReportSwitch(SettingEntityMixin, SwitchEntity):
         )
 
     async def async_turn_on(self, **_kwargs: Any) -> None:
+        await self._async_check_admin()
         self._set(True)
 
     async def async_turn_off(self, **_kwargs: Any) -> None:
+        await self._async_check_admin()
         self._set(False)
 
     def _set(self, value: bool) -> None:
