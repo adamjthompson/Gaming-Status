@@ -257,6 +257,9 @@ _CATASTROPHIC_BACKTRACKING_RE = re.compile(r"\([^()]*[+*][^()]*\)[+*{]")
 _ACCOUNT_IDS_IN_TEXT = (
     (re.compile(r"(xuids?\()[\d,]+"), r"\1***"),
     (re.compile(r"(/users/)\d+"), r"\1***"),
+    # PSN's own trophy-list errors name the account by its numeric id.
+    (re.compile(r"(PSN account )\d+"), r"\1***"),
+    (re.compile(r"(account ID ')\d+"), r"\1***"),
     (re.compile(r"(?<!\d)7656119\d{10}(?!\d)"), "***"),
 )
 
