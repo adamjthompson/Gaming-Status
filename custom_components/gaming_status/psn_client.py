@@ -66,6 +66,11 @@ _NPSSO_EXPIRED_ERROR_CODE = "4165"
 # Refresh proactively a little before the server-reported expiry rather than
 # waiting for an actual 401.
 _EXPIRY_SAFETY_MARGIN_SECONDS = 30
+# After PSN says the NPSSO is no good, calls fail straight away for this
+# long instead of each asking PSN again (an NPSSO doesn't come back to life;
+# a new one gets a new client). Without it every presence poll, recheck and
+# scan sent its own /authorize request -- up to the whole PSN rate budget.
+_REAUTH_RETRY_SECONDS = 600
 
 # Hard circuit breaker on the rare full trophyTitles fallback scan's
 # pagination loop -- purely defensive, the loop's own termination logic
@@ -105,6 +110,10 @@ class PsnClient:
         # using this NPSSO: when the token expires, one caller refreshes it
         # and the rest wait for that, rather than all refreshing at once.
         self._session_lock = asyncio.Lock()
+        # The last "NPSSO expired" error and until when it's repeated
+        # without asking PSN again (see _REAUTH_RETRY_SECONDS).
+        self._reauth_error: ReauthRequiredError | None = None
+        self._reauth_until = 0.0
 
     async def _request(self, method: str, url: str, **kwargs) -> tuple[int, dict]:
         await self._rate_limiter.async_acquire(
@@ -262,11 +271,17 @@ class PsnClient:
     async def _async_ensure_session(self) -> None:
         if self._access_token_valid():
             return
+        self._raise_if_reauth_pending()
         async with self._session_lock:
             # Another caller may have refreshed it while this one waited.
             if self._access_token_valid():
                 return
+            self._raise_if_reauth_pending()
             await self._async_renew_session()
+
+    def _raise_if_reauth_pending(self) -> None:
+        if self._reauth_error is not None and time.time() < self._reauth_until:
+            raise ReauthRequiredError(str(self._reauth_error))
 
     async def _async_renew_session(self) -> None:
         now = time.time()
@@ -284,10 +299,13 @@ class PsnClient:
 
         try:
             code = await self._async_get_authorization_code()
-        except ReauthRequiredError:
+        except ReauthRequiredError as err:
+            self._reauth_error = err
+            self._reauth_until = time.time() + _REAUTH_RETRY_SECONDS
             if self._on_reauth_state:
                 self._on_reauth_state(True)
             raise
+        self._reauth_error = None
         await self._async_exchange_code_for_tokens(code)
         if self._on_reauth_state:
             self._on_reauth_state(False)
@@ -298,7 +316,12 @@ class PsnClient:
         await self._async_ensure_session()
         headers = kwargs.pop("headers", {}) or {}
         headers["Authorization"] = f"Bearer {self._access_token}"
-        return await self._request(method, url, headers=headers, **kwargs)
+        status, body = await self._request(method, url, headers=headers, **kwargs)
+        if status == 401:
+            # Sony revoked the access token before its expiry: renew it on
+            # the next call instead of sending it until it times out.
+            self._access_token_expires_at = 0
+        return status, body
 
     # ---- Public API ------------------------------------------------------
 

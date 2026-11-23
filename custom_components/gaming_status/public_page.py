@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import functools
 import gzip
 import hashlib
 import hmac
@@ -227,6 +228,17 @@ _DENY_ATTR_RE = re.compile(
 )
 # Real account names: removed unless Show gamertags is on.
 _GAMERTAG_RE = re.compile(r"(gamertag|display_name|persona)", re.IGNORECASE)
+
+
+@functools.lru_cache(maxsize=4096)
+def _key_flags(key: str) -> tuple[bool, bool]:
+    """(never public, is a gamertag) for an attribute key. Cached because the
+    same few keys repeat on every game of every library list, and running
+    both regexes per key made rebuilding a large snapshot block the event
+    loop; the answer for a key never changes."""
+    return bool(_DENY_ATTR_RE.search(key)), bool(_GAMERTAG_RE.search(key))
+
+
 # Where the frontend integration keeps installed themes (themes: in
 # configuration.yaml), keyed by theme name.
 _FRONTEND_THEMES_KEY = "frontend_themes"
@@ -619,9 +631,8 @@ def _filter_attrs(
     out = {}
     for key, value in attrs.items():
         key_str = str(key)
-        if _DENY_ATTR_RE.search(key_str):
-            continue
-        if not show_gamertags and _GAMERTAG_RE.search(key_str):
+        denied, gamertag = _key_flags(key_str)
+        if denied or (gamertag and not show_gamertags):
             continue
         filtered = _filter_value(value, show_gamertags, avatars, key_str)
         if filtered is not _DROP:

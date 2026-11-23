@@ -14,8 +14,14 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote, urlparse
 
+import aiohttp
+from aiohttp.abc import AbstractResolver
 from dateutil import parser
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.const import EVENT_HOMEASSISTANT_CLOSE
+from homeassistant.helpers.aiohttp_client import (
+    SERVER_SOFTWARE,
+    async_get_clientsession,
+)
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 from homeassistant.util import dt as dt_util
 from yarl import URL
@@ -56,6 +62,15 @@ PSN_TITLE_ID_CACHE = (
 # (or the Agent's "Epic Sandbox ID" attribute). Same forever-LRU reasoning.
 EPIC_SANDBOX_CACHE = OrderedDict()
 MAX_ENRICHMENT_CACHE_SIZE = 500
+# appid -> (achievement total, time.monotonic() when fetched): just the
+# total, for the library scan's restricted (non-owner) Steam accounts, which
+# need nothing else but ask for every owned game on every scan. A library
+# bigger than STEAM_SCHEMA_CACHE would otherwise cycle through it and
+# re-fetch every game's schema each scan. Integers only, so it can hold far
+# more games; refreshed daily so new DLC achievements still show up.
+STEAM_SCHEMA_TOTALS = OrderedDict()
+MAX_STEAM_SCHEMA_TOTALS = 20_000
+STEAM_SCHEMA_TOTAL_TTL_SECONDS = 24 * 3600
 
 # Cache Settings
 USE_LOCAL_CACHE = True
@@ -248,6 +263,9 @@ _CATASTROPHIC_BACKTRACKING_RE = re.compile(r"\([^()]*[+*][^()]*\)[+*{]")
 _ACCOUNT_IDS_IN_TEXT = (
     (re.compile(r"(xuids?\()[\d,]+"), r"\1***"),
     (re.compile(r"(/users/)\d+"), r"\1***"),
+    # PSN's own trophy-list errors name the account by its numeric id.
+    (re.compile(r"(PSN account )\d+"), r"\1***"),
+    (re.compile(r"(account ID ')\d+"), r"\1***"),
     (re.compile(r"(?<!\d)7656119\d{10}(?!\d)"), "***"),
 )
 
@@ -1498,6 +1516,16 @@ async def fetch_steam_achievements(
     try:
         client = _get_steam_client(hass, api_key)
 
+        if skip_earned:
+            hit = STEAM_SCHEMA_TOTALS.get(appid)
+            if hit and time.monotonic() - hit[1] < STEAM_SCHEMA_TOTAL_TTL_SECONDS:
+                return {
+                    "earned": None,
+                    "total": hit[0],
+                    "recent_unlocks": [],
+                    "last_achievement_at": None,
+                }
+
         if appid in STEAM_SCHEMA_CACHE:
             STEAM_SCHEMA_CACHE.move_to_end(appid)
             total, display_names, icons, descriptions = STEAM_SCHEMA_CACHE[appid]
@@ -1511,6 +1539,10 @@ async def fetch_steam_achievements(
             STEAM_SCHEMA_CACHE.move_to_end(appid)
             if len(STEAM_SCHEMA_CACHE) > MAX_ENRICHMENT_CACHE_SIZE:
                 STEAM_SCHEMA_CACHE.popitem(last=False)
+            STEAM_SCHEMA_TOTALS[appid] = (total, time.monotonic())
+            STEAM_SCHEMA_TOTALS.move_to_end(appid)
+            if len(STEAM_SCHEMA_TOTALS) > MAX_STEAM_SCHEMA_TOTALS:
+                STEAM_SCHEMA_TOTALS.popitem(last=False)
 
         if skip_earned:
             return {
@@ -2410,7 +2442,12 @@ async def _fetch_public_image(hass, session, url, request_timeout):
     """GET an image, following redirects by hand so every hop is checked
     with is_public_url *before* it's requested. aiohttp's own redirect
     handling would send the request to a private target first and only
-    let us reject the response afterwards. Returns the bytes or None."""
+    let us reject the response afterwards. Returns the bytes or None.
+
+    Always fetched through public_fetch_session (the `session` argument is
+    kept for callers' sake), so the connection itself can only go to the
+    public addresses is_public_url approved."""
+    session = public_fetch_session(hass)
     for _ in range(_MAX_IMAGE_REDIRECTS + 1):
         async with session.get(
             url, timeout=request_timeout, allow_redirects=False
@@ -2439,6 +2476,66 @@ def safe_image_ext(url, default="png"):
     return raw if raw in _SAFE_IMAGE_EXTENSIONS else default
 
 
+def _is_public_ip(addr) -> bool:
+    try:
+        ip = ipaddress.ip_address(addr)
+    except ValueError:
+        return False
+    # is_global is a strict superset of the six checks this replaced for
+    # every case EXCEPT multicast, which Python's ipaddress module counts as
+    # "global" -- verified empirically (e.g. 224.0.0.1, ff0e::1) -- so it
+    # needs its own check.
+    return ip.is_global and not ip.is_multicast
+
+
+class _PublicOnlyResolver(AbstractResolver):
+    """Resolves like aiohttp's default resolver, but refuses a host with any
+    non-public address. is_public_url checks a URL's host before it's
+    fetched; this repeats that check on the addresses the connection
+    actually uses, so a host whose DNS answer changes in between (DNS
+    rebinding) can't steer the request into Home Assistant's own network."""
+
+    def __init__(self) -> None:
+        self._resolver = aiohttp.DefaultResolver()
+
+    async def resolve(self, host, port=0, family=socket.AF_INET):
+        hosts = await self._resolver.resolve(host, port, family)
+        if not hosts or not all(_is_public_ip(h.get("host")) for h in hosts):
+            raise OSError(f"{host} does not resolve to a public address")
+        return hosts
+
+    async def close(self) -> None:
+        await self._resolver.close()
+
+
+_PUBLIC_FETCH_SESSION_KEY = "gaming_status_public_fetch_session"
+
+
+def public_fetch_session(hass):
+    """The session that downloads images from URLs Gaming Status doesn't
+    control (artwork, overrides, avatars): like Home Assistant's own, but
+    it can only connect to public addresses (see _PublicOnlyResolver).
+    Closed when Home Assistant shuts down."""
+    session = hass.data.get(_PUBLIC_FETCH_SESSION_KEY)
+    if session is not None and not session.closed:
+        return session
+    from homeassistant.util.ssl import client_context
+
+    session = aiohttp.ClientSession(
+        connector=aiohttp.TCPConnector(
+            resolver=_PublicOnlyResolver(), ssl=client_context()
+        ),
+        headers={"User-Agent": SERVER_SOFTWARE},
+    )
+    hass.data[_PUBLIC_FETCH_SESSION_KEY] = session
+
+    async def _close(_event) -> None:
+        await session.close()
+
+    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_CLOSE, _close)
+    return session
+
+
 async def is_public_url(hass, url):
     """Reject non-http(s) URLs and URLs whose host resolves to a private/loopback/link-local address, to prevent SSRF."""
     try:
@@ -2451,17 +2548,7 @@ async def is_public_url(hass, url):
             return {info[4][0] for info in socket.getaddrinfo(hostname, None)}
 
         addrs = await hass.async_add_executor_job(_resolve)
-        if not addrs:
-            return False
-        for addr in addrs:
-            ip = ipaddress.ip_address(addr)
-            # is_global is a strict superset of the six checks this
-            # replaced for every case EXCEPT multicast, which Python's
-            # ipaddress module counts as "global" -- verified empirically
-            # (e.g. 224.0.0.1, ff0e::1) -- so it needs its own check.
-            if not ip.is_global or ip.is_multicast:
-                return False
-        return True
+        return bool(addrs) and all(_is_public_ip(addr) for addr in addrs)
     except Exception:
         return False
 

@@ -309,6 +309,25 @@ def async_sync_parental_entities(hass: HomeAssistant, entry) -> None:
 # ---------------------------------------------------------------------------
 
 
+async def async_check_admin(hass: HomeAssistant, entry, context) -> None:
+    """Enforces the opt-in admin restriction ("Restrict history edits,
+    parental settings and the public page to admins"), the same way
+    __init__._admin_gate does for the history services. Read at call time,
+    so toggling the option needs no reload. A call with no user
+    (automations, scripts run by them) is trusted; a script a non-admin
+    starts from a dashboard carries their user and is gated, so it can't be
+    used to get around this. The option itself can only be changed in
+    Configure (admins only)."""
+    if not entry.options.get(OPT_RESTRICT_HISTORY_EDITS):
+        return
+    user_id = context.user_id if context else None
+    if not user_id:
+        return
+    user = await hass.auth.async_get_user(user_id)
+    if user is None or not user.is_admin:
+        raise Unauthorized(context=context)
+
+
 class SettingEntityMixin:
     """Shared behavior for number/select/switch/time setting entities: no
     state of their own (every value is read from entry.options when the
@@ -317,32 +336,19 @@ class SettingEntityMixin:
     hass: HomeAssistant
     _attr_should_poll = False
     _attr_entity_category = EntityCategory.CONFIG
-    # Parental and public page settings: limited to admins while "Restrict
-    # history edits, parental settings and the public page to admins" is on
-    # (see _async_check_admin).
+    # Parental, public page and notification settings: limited to admins
+    # while "Restrict history edits, parental settings and the public page
+    # to admins" is on (see async_check_admin).
     _admin_only = False
 
     async def _async_check_admin(self) -> None:
-        """Enforces the opt-in admin restriction on this entity's writes,
-        the same way __init__._admin_gate does for the history services.
-        Read at call time, so toggling the option needs no reload. A call
-        with no user (automations, scripts run by them) is trusted; a script
-        a non-admin starts from a dashboard carries their user and is gated,
-        so it can't be used to get around this. The option itself can only
-        be changed in Configure (admins only)."""
-        if not self._admin_only or not self._entry.options.get(
-            OPT_RESTRICT_HISTORY_EDITS
-        ):
+        """Enforces the opt-in admin restriction on this entity's writes
+        (see async_check_admin). Home Assistant sets the calling service's
+        context on the entity before invoking its turn_on/set_value/...
+        method."""
+        if not self._admin_only:
             return
-        # Home Assistant sets the calling service's context on the entity
-        # before invoking its turn_on/set_value/... method.
-        context = getattr(self, "_context", None)
-        user_id = context.user_id if context else None
-        if not user_id:
-            return
-        user = await self.hass.auth.async_get_user(user_id)
-        if user is None or not user.is_admin:
-            raise Unauthorized(context=context)
+        await async_check_admin(self.hass, self._entry, getattr(self, "_context", None))
 
     def _setup_setting(
         self,

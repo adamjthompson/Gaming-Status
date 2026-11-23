@@ -37,6 +37,7 @@ from .const import (
 )
 from .device import hub_device_info, player_device_info, safe_owner_slug
 from .sensor import _load_opt_json
+from .settings import async_check_admin
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -85,7 +86,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     weekly_report = _load_opt_json(opts, OPT_WEEKLY_REPORT, {})
     if weekly_report.get("enabled"):
-        entities.append(WeeklyReportSendButton(hass))
+        entities.append(WeeklyReportSendButton(hass, config_entry))
 
     async_add_entities(entities)
 
@@ -130,14 +131,19 @@ class WeeklyReportSendButton(ButtonEntity):
     _attr_should_poll = False
     _attr_icon = "mdi:calendar"
 
-    def __init__(self, hass):
+    def __init__(self, hass, entry):
         self.hass = hass
+        self._entry = entry
         self._attr_unique_id = "gaming_status_send_weekly_report_now"
         self.entity_id = "button.gaming_status_send_weekly_report_now"
         self._attr_name = "Send Weekly Report Now"
         self._attr_device_info = hub_device_info()
 
     async def async_press(self) -> None:
+        # Sends to every weekly report destination, so it's limited to
+        # admins along with the report's own switch while the admin
+        # restriction is on (pressing it repeatedly would spam them).
+        await async_check_admin(self.hass, self._entry, self._context)
         # Looked up lazily, same reasoning as LibraryScanRefreshButton
         # above -- by the time a user can press a button in the UI,
         # __init__.py has long since finished setting up the notifier.
