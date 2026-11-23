@@ -292,6 +292,10 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         # in meanwhile (then it runs once more, rather than overlapping).
         self._ubisoft_refreshing = False
         self._ubisoft_refresh_again = False
+        # Set when the full scan in progress (if any) finishes, so a
+        # Ubisoft push during the first scan waits for it instead of
+        # starting a second full scan alongside it.
+        self._full_scan_done: asyncio.Event | None = None
 
     async def async_shutdown(self):
         """Stops this coordinator's own timer and any in-flight backfill
@@ -439,10 +443,14 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         # backfill has to yield to ANY player's scan (see _backfill_art).
         running = self.hass.data.setdefault(_SCANS_RUNNING_KEY, [0])
         running[0] += 1
+        done = self._full_scan_done = asyncio.Event()
         try:
             return await self._async_scan_all_platforms()
         finally:
             running[0] -= 1
+            done.set()
+            if self._full_scan_done is done:
+                self._full_scan_done = None
 
     async def _async_scan_all_platforms(self):
         previous_platforms = (self.data or {}).get("platforms", {})
@@ -1414,6 +1422,16 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             self._ubisoft_refreshing = False
 
     async def _async_refresh_ubisoft_once(self, source):
+        if not self.data and self._full_scan_done is not None:
+            # The first full scan (nothing stored yet) is still running --
+            # typically it's what subscribed to this feed, so the retained
+            # data arrives mid-scan. Wait for it rather than starting a
+            # second full scan of every platform alongside it, then merge
+            # Ubisoft below in case the scan read the feed before this data
+            # arrived.
+            await self._full_scan_done.wait()
+            if self._shut_down:
+                return
         if not self.data:
             await self.async_request_refresh()
             return
