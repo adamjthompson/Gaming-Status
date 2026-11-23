@@ -14,7 +14,6 @@ from pathlib import Path
 import aiohttp
 from homeassistant.components.image import ImageEntity
 from homeassistant.core import callback
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util import dt as dt_util
 
@@ -24,7 +23,7 @@ from .device import (
     resolve_master_entity_id,
     safe_owner_slug,
 )
-from .utils import _read_capped, is_public_url
+from .utils import _read_capped, is_public_url, public_fetch_session
 
 _ART_ATTRIBUTE = "game_cover_art"
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024
@@ -105,7 +104,8 @@ class GameArtImage(ImageEntity):
             self.hass, url
         ):
             return None
-        session = async_get_clientsession(self.hass)
+        # Connects only to public addresses, like is_public_url checked.
+        session = public_fetch_session(self.hass)
         try:
             # No redirects: is_public_url only vetted this URL's own host.
             async with session.get(url, timeout=15, allow_redirects=False) as resp:
