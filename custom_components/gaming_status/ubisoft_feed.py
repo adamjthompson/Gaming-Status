@@ -17,6 +17,7 @@ There is no polling: the Agent republishes whenever an achievement unlocks.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import logging
@@ -48,6 +49,9 @@ MAX_ICON_BYTES = 256 * 1024
 MAX_ICON_STORE_FILES = 50_000
 MAX_ICON_STORE_BYTES = 512 * 1024 * 1024
 _ICON_USAGE_KEY = "gaming_status_ubisoft_icon_usage"
+_ICON_USAGE_PENDING_KEY = "gaming_status_ubisoft_icon_usage_pending"
+_ICON_WRITE_SLOTS_KEY = "gaming_status_ubisoft_icon_write_slots"
+MAX_CONCURRENT_ICON_WRITES = 4
 MAX_GAMES = 2000
 MAX_RECENT = 20
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -272,9 +276,14 @@ class UbisoftFeed:
 
     async def _async_icon_usage(self) -> list[int]:
         """[file count, bytes] of the whole icon store: counted from disk
-        once, then kept up to date as icons are written."""
+        once, then kept up to date as icons are written. Retained icons all
+        arrive together when MQTT (re)subscribes, so they share a single
+        count instead of each walking the store."""
         usage = self.hass.data.get(_ICON_USAGE_KEY)
-        if usage is None:
+        if usage is not None:
+            return usage
+        pending = self.hass.data.get(_ICON_USAGE_PENDING_KEY)
+        if pending is None:
             icon_dir = self._icon_dir
 
             def _count() -> list[int]:
@@ -286,37 +295,76 @@ class UbisoftFeed:
                             files += 1
                 return [files, size]
 
-            counted = await self.hass.async_add_executor_job(_count)
-            usage = self.hass.data.setdefault(_ICON_USAGE_KEY, counted)
-        return usage
+            pending = self.hass.async_add_executor_job(_count)
+            self.hass.data[_ICON_USAGE_PENDING_KEY] = pending
+        try:
+            counted = await asyncio.shield(pending)
+        finally:
+            if pending.done() and (
+                self.hass.data.get(_ICON_USAGE_PENDING_KEY) is pending
+            ):
+                # A failed count is retried by the next icon.
+                del self.hass.data[_ICON_USAGE_PENDING_KEY]
+        return self.hass.data.setdefault(_ICON_USAGE_KEY, counted)
+
+    def _icon_write_slots(self) -> asyncio.Semaphore:
+        """Bounds how many icon writes run at once (shared by every Agent),
+        so a burst of icon messages queues here instead of filling Home
+        Assistant's executor."""
+        slots = self.hass.data.get(_ICON_WRITE_SLOTS_KEY)
+        if slots is None:
+            slots = self.hass.data[_ICON_WRITE_SLOTS_KEY] = asyncio.Semaphore(
+                MAX_CONCURRENT_ICON_WRITES
+            )
+        return slots
 
     async def _async_write_icon(self, game_id: int, ach_id: int, data: bytes) -> None:
         # Both parts are plain integers, so the path can't leave the cache.
         path = self._icon_dir / str(game_id) / f"{ach_id}.png"
         usage = await self._async_icon_usage()
-        files_now, bytes_now = usage
+        async with self._icon_write_slots():
+            # Room for one more new icon is checked and reserved here, on
+            # the event loop, before the write starts -- not inside it -- so
+            # writes running at the same time can't all pass the check on
+            # the same count and overshoot the cap together. Settled below
+            # once the write says what it actually added.
+            files_now, bytes_now = usage
+            room = (
+                files_now < MAX_ICON_STORE_FILES
+                and bytes_now + len(data) <= MAX_ICON_STORE_BYTES
+            )
+            if room:
+                usage[0] += 1
+                usage[1] += len(data)
 
-        def _write() -> tuple[int, int] | None:
-            """(files added, bytes added) -- (0, 0) if the icon was already
-            there -- or None if it's a new icon and the store is full."""
-            old_size = path.stat().st_size if path.exists() else None
-            if old_size == len(data):
-                return 0, 0
-            if old_size is None and (
-                files_now >= MAX_ICON_STORE_FILES
-                or bytes_now + len(data) > MAX_ICON_STORE_BYTES
-            ):
-                return None
-            path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_suffix(".tmp")
-            tmp.write_bytes(data)
-            tmp.replace(path)
-            return (0 if old_size is not None else 1), len(data) - (old_size or 0)
+            def _write() -> tuple[int, int] | None:
+                """(files added, bytes added) -- (0, 0) if the icon was
+                already there -- or None if it's a new icon and the store is
+                full. An icon already stored can still be updated."""
+                old_size = path.stat().st_size if path.exists() else None
+                if old_size == len(data):
+                    return 0, 0
+                if old_size is None and not room:
+                    return None
+                path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = path.with_suffix(".tmp")
+                tmp.write_bytes(data)
+                tmp.replace(path)
+                return (0 if old_size is not None else 1), len(data) - (old_size or 0)
 
-        try:
-            added = await self.hass.async_add_executor_job(_write)
-        except OSError as err:
-            _LOGGER.debug("Gaming Status: couldn't cache Ubisoft icon: %s", err)
+            try:
+                added = await self.hass.async_add_executor_job(_write)
+            except OSError as err:
+                added = None
+                _LOGGER.debug("Gaming Status: couldn't cache Ubisoft icon: %s", err)
+                failed = True
+            else:
+                failed = False
+            finally:
+                if room:
+                    usage[0] -= 1
+                    usage[1] -= len(data)
+        if failed:
             return
         if added is None:
             self.rejected += 1
@@ -325,8 +373,8 @@ class UbisoftFeed:
                 _LOGGER.warning(
                     "Gaming Status: the Ubisoft achievement icon store is full "
                     "(%s files, %s MB); new icons won't be saved",
-                    files_now,
-                    bytes_now // (1024 * 1024),
+                    usage[0],
+                    usage[1] // (1024 * 1024),
                 )
             return
         if added != (0, 0):
