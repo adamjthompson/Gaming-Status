@@ -56,6 +56,15 @@ PSN_TITLE_ID_CACHE = (
 # (or the Agent's "Epic Sandbox ID" attribute). Same forever-LRU reasoning.
 EPIC_SANDBOX_CACHE = OrderedDict()
 MAX_ENRICHMENT_CACHE_SIZE = 500
+# appid -> (achievement total, time.monotonic() when fetched): just the
+# total, for the library scan's restricted (non-owner) Steam accounts, which
+# need nothing else but ask for every owned game on every scan. A library
+# bigger than STEAM_SCHEMA_CACHE would otherwise cycle through it and
+# re-fetch every game's schema each scan. Integers only, so it can hold far
+# more games; refreshed daily so new DLC achievements still show up.
+STEAM_SCHEMA_TOTALS = OrderedDict()
+MAX_STEAM_SCHEMA_TOTALS = 20_000
+STEAM_SCHEMA_TOTAL_TTL_SECONDS = 24 * 3600
 
 # Cache Settings
 USE_LOCAL_CACHE = True
@@ -1498,6 +1507,16 @@ async def fetch_steam_achievements(
     try:
         client = _get_steam_client(hass, api_key)
 
+        if skip_earned:
+            hit = STEAM_SCHEMA_TOTALS.get(appid)
+            if hit and time.monotonic() - hit[1] < STEAM_SCHEMA_TOTAL_TTL_SECONDS:
+                return {
+                    "earned": None,
+                    "total": hit[0],
+                    "recent_unlocks": [],
+                    "last_achievement_at": None,
+                }
+
         if appid in STEAM_SCHEMA_CACHE:
             STEAM_SCHEMA_CACHE.move_to_end(appid)
             total, display_names, icons, descriptions = STEAM_SCHEMA_CACHE[appid]
@@ -1511,6 +1530,10 @@ async def fetch_steam_achievements(
             STEAM_SCHEMA_CACHE.move_to_end(appid)
             if len(STEAM_SCHEMA_CACHE) > MAX_ENRICHMENT_CACHE_SIZE:
                 STEAM_SCHEMA_CACHE.popitem(last=False)
+            STEAM_SCHEMA_TOTALS[appid] = (total, time.monotonic())
+            STEAM_SCHEMA_TOTALS.move_to_end(appid)
+            if len(STEAM_SCHEMA_TOTALS) > MAX_STEAM_SCHEMA_TOTALS:
+                STEAM_SCHEMA_TOTALS.popitem(last=False)
 
         if skip_earned:
             return {
