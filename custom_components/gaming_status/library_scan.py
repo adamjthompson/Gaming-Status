@@ -84,6 +84,12 @@ from .utils import _elapsed_seconds, _normalize_game_name, _safe_parse_datetime
 _LOGGER = logging.getLogger(__name__)
 
 _STORAGE_VERSION = 1
+# Achievement/art backfill passes (every 15 minutes, for days on a large
+# library) and Ubisoft-only refreshes change the library a little at a time,
+# so their saves are batched: at most one per this many seconds. A finished
+# full scan still saves straight away, and a batched save is written out on
+# unload/reload and when Home Assistant stops.
+_DEFERRED_SAVE_SECONDS = 3600
 _TIER_KEYS = ("bronze", "silver", "gold", "platinum")
 
 # A "SteamGridDB has no art for this title" result is cached too, but isn't
@@ -296,6 +302,9 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         # Ubisoft push during the first scan waits for it instead of
         # starting a second full scan alongside it.
         self._full_scan_done: asyncio.Event | None = None
+        # See _DEFERRED_SAVE_SECONDS.
+        self._last_saved = 0.0
+        self._save_pending = False
 
     async def async_shutdown(self):
         """Stops this coordinator's own timer and any in-flight backfill
@@ -311,6 +320,10 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         if self._unsub_resume is not None:
             self._unsub_resume()
             self._unsub_resume = None
+        # After a reload the new coordinator loads this same file, so a
+        # batched save must be written now, not left to fire later over it.
+        if self._save_pending and self.data:
+            await self._async_save(self.data)
         await super().async_shutdown()
 
     def _store_payload(self, data):
@@ -323,7 +336,13 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         ran -- the backfill timer fires every 15 minutes (see
         __init__.py's _library_backfill_tick), so that loss would be
         quick and invisible. Funnelling both through here makes that
-        class of bug structurally impossible."""
+        class of bug structurally impossible.
+
+        The summary's "games" list is left out: it's every platform's
+        "games" list joined in order (see _aggregate), so storing it too
+        would write every game twice. async_load_stored rebuilds it."""
+        if isinstance(data, dict) and isinstance(data.get("platforms"), dict):
+            data = {key: value for key, value in data.items() if key != "games"}
         return {
             "data": data,
             "art_cache": self._art_cache,
@@ -357,7 +376,26 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 "playstation": {},
             }
             self._steam_scan_offset = stored.get("steam_scan_offset") or 0
-            self.data = stored.get("data")
+            self.data = _with_summary_games(stored.get("data"))
+
+    async def _async_save(self, data):
+        """Saves now, replacing any batched save still waiting."""
+        self._save_pending = False
+        self._last_saved = time.monotonic()
+        await self._store.async_save(self._store_payload(data))
+
+    @callback
+    def _schedule_save(self):
+        """Saves the current data soon -- at most once per
+        _DEFERRED_SAVE_SECONDS -- for the small, frequent updates."""
+        delay = _DEFERRED_SAVE_SECONDS - (time.monotonic() - self._last_saved)
+        self._save_pending = True
+        self._store.async_delay_save(self._deferred_payload, max(delay, 1.0))
+
+    def _deferred_payload(self):
+        self._save_pending = False
+        self._last_saved = time.monotonic()
+        return self._store_payload(self.data)
 
     async def async_schedule_or_refresh(self):
         """Call after async_load_stored(), instead of an unconditional
@@ -482,7 +520,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         raw_by_platform = {platform: raw for (platform, _), raw in zip(scans, results)}
 
         result = _aggregate(raw_by_platform)
-        await self._store.async_save(self._store_payload(result))
+        await self._async_save(result)
         # This scan's scope is now what's persisted -- keeps the
         # scope-change check in async_schedule_or_refresh accurate without
         # needing to re-read the file.
@@ -1466,7 +1504,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         # platforms' scheduled scans (same approach as the backfill pass).
         self.data = result
         self.async_update_listeners()
-        await self._store.async_save(self._store_payload(result))
+        self._schedule_save()
 
     async def _scan_psn(self, source_entity_id):
         npsso, account_id = utils.resolve_psn_credentials(self.hass, source_entity_id)
@@ -1729,7 +1767,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 self._owner_name,
                 total_resolved,
             )
-        await self._store.async_save(self._store_payload(self.data))
+        self._schedule_save()
 
     async def _backfill_art(self, budget):
         """Swaps SteamGridDB art in for Xbox titles the scan showed with
@@ -2020,6 +2058,27 @@ def has_pending_library_backfill(coordinator) -> bool:
             return True
     xbox_games = coordinator.data.get("platforms", {}).get("xbox", {}).get("games", [])
     return any(coordinator._art_needs_lookup(g.get("title")) for g in xbox_games)
+
+
+def _with_summary_games(data):
+    """Stored library data with the summary's "games" list rebuilt from the
+    per-platform lists it's left out of on disk (see _store_payload): the
+    same games, in the same order, as _aggregate built it. Data saved before
+    that (which still has the list) is returned unchanged."""
+    if not isinstance(data, dict) or "games" in data:
+        return data
+    platforms = data.get("platforms")
+    if not isinstance(platforms, dict):
+        return data
+    return {
+        **data,
+        "games": [
+            game
+            for summary in platforms.values()
+            if isinstance(summary, dict)
+            for game in summary.get("games") or []
+        ],
+    }
 
 
 def _aggregate(raw_by_platform):
