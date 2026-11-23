@@ -658,14 +658,18 @@ class GamingNotifier:
         )
         embed: dict = {"color": color}
 
-        # Placing text in "description" puts it INSIDE the colored bar
+        # Placing text in "description" puts it INSIDE the colored bar.
+        # (Embed titles don't render links, so only the description needs
+        # escaping.)
         if event_type == "info":
             embed["title"] = "Gaming Status"
-            embed["description"] = message
+            embed["description"] = discord_webhook.escape_masked_links(message)
         else:
             if game_title:
                 embed["title"] = game_title
-            embed["description"] = embed_description or message
+            embed["description"] = discord_webhook.escape_masked_links(
+                embed_description or message
+            )
 
         if image_url:
             embed["thumbnail" if image_as_thumbnail else "image"] = {"url": image_url}

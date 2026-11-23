@@ -65,6 +65,18 @@ class WebhookResult:
         return self.status == 404
 
 
+def escape_masked_links(text: Any) -> Any:
+    """Discord renders [label](https://...) in an embed's description as a
+    link that shows only the label. Game and achievement names come from
+    players, developers and the Agent, so a "game" named like that would
+    turn a notification into a disguised link. Escaping the brackets (which
+    Gaming Status's own text never uses) shows them exactly as before, just
+    never as a link."""
+    if not isinstance(text, str):
+        return text
+    return text.replace("[", "\\[").replace("]", "\\]")
+
+
 def is_valid_webhook_url(url: Any) -> bool:
     return isinstance(url, str) and WEBHOOK_URL_RE.match(url.strip()) is not None
 
