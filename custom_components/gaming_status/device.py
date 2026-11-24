@@ -133,6 +133,28 @@ def player_device_info(
     )
 
 
+def async_get_player_device(hass, player_name: str, config_entry_id=None):
+    """The player's device in the device registry, or None.
+
+    Home Assistant deprecated looking a device up by identifiers alone
+    (identifiers are only unique within a config entry now), so this uses
+    async_get_device_by_identifier with Gaming Status's own entry where that
+    exists, and the old lookup on Home Assistant versions that predate it."""
+    from homeassistant.helpers import device_registry as dr
+
+    registry = dr.async_get(hass)
+    identifier = (DOMAIN, safe_owner_slug(player_name))
+    by_identifier = getattr(registry, "async_get_device_by_identifier", None)
+    if by_identifier is None:
+        return registry.async_get_device(identifiers={identifier})
+    if config_entry_id is None:
+        entries = hass.config_entries.async_entries(DOMAIN)
+        if not entries:
+            return None
+        config_entry_id = entries[0].entry_id
+    return by_identifier(identifier, config_entry_id)
+
+
 def ensure_player_device(hass, config_entry, player_name: str) -> DeviceInfo:
     """Link-only DeviceInfo for platforms that add entities to a player's
     existing device (event.py, image.py). Platforms set up concurrently, so
@@ -143,7 +165,7 @@ def ensure_player_device(hass, config_entry, player_name: str) -> DeviceInfo:
 
     identifiers = {(DOMAIN, safe_owner_slug(player_name))}
     registry = dr.async_get(hass)
-    if registry.async_get_device(identifiers=identifiers) is None:
+    if async_get_player_device(hass, player_name, config_entry.entry_id) is None:
         registry.async_get_or_create(
             config_entry_id=config_entry.entry_id,
             identifiers=identifiers,
@@ -157,11 +179,7 @@ def async_fire_player_event(hass, event_type: str, player_name: str, data: dict)
     """Fires one of this integration's bus events with the fields every
     one of them carries -- player, master entity_id and device_id (what
     trigger.py/device_trigger.py match on) -- plus the event's own data."""
-    from homeassistant.helpers import device_registry as dr
-
-    device = dr.async_get(hass).async_get_device(
-        identifiers={(DOMAIN, safe_owner_slug(player_name))}
-    )
+    device = async_get_player_device(hass, player_name)
     from .messages import event_message
 
     payload = {

@@ -17,6 +17,7 @@ Configure save:
 
 from __future__ import annotations
 
+import copy
 import json
 from collections.abc import Callable
 from typing import Any
@@ -160,7 +161,11 @@ def async_update_options(
     `mutate` receives a dict of option -> value, where the JSON options
     (players, parental_controls, weekly_report) are parsed dicts.
     """
-    new_options = dict(entry.options)
+    # Deep copies throughout: `mutate` edits nested values, and a JSON option
+    # stored as a dict (rather than text) would otherwise be edited in the
+    # live options -- the comparison below would then see no change and
+    # drop the write.
+    new_options = copy.deepcopy(dict(entry.options))
     parsed: dict[str, Any] = {}
     for key, raw in new_options.items():
         if key in _JSON_OPTIONS:

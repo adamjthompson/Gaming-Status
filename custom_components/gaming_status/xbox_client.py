@@ -101,11 +101,15 @@ def get_xbox_client(hass, entry, oauth_session):
     # scans, backfill passes) builds its own OAuth2Session object, so only
     # rebuild for one that's genuinely different: rebuilding on any new
     # object kept closing the HTTP client under another caller's in-flight
-    # request and signing in again.
+    # request and signing in again. The cache outlives a Gaming Status
+    # reload (like the rate limiters), so a reload reuses the same client.
+    #
+    # A replaced client is never closed here: Home Assistant closes clients
+    # from create_async_httpx_client itself when it stops, and their aclose()
+    # only logs "closes the Home Assistant httpx client" without closing.
     clients = hass.data.setdefault("gaming_status_xbox_clients", {})
     cached = clients.get(entry.entry_id)
     if cached is not None and not _same_oauth_source(cached[0], oauth_session):
-        hass.async_create_task(cached[1].aclose())
         cached = None
     if cached is None:
         xbox_http_client = create_async_httpx_client(hass, timeout=30.0)

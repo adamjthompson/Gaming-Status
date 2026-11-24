@@ -701,7 +701,9 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
     from .settings import consume_skip_reload
 
     if consume_skip_reload(hass):
+        _LOGGER.debug("Gaming Status: live setting saved, not reloading")
         return
+    _LOGGER.debug("Gaming Status: options changed, reloading")
     await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -730,15 +732,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.error(
                 "Gaming Status Discord Bot task failed during shutdown: %s", e
             )
-
-    # The Xbox client cache is keyed by the *Xbox* entry id (see
-    # xbox_client.get_xbox_client), never this entry's, and only this
-    # integration uses it -- so drop and close every client in it. (Steam/PSN
-    # caches are keyed by credential value and left alone.)
-    for _session, http_client, _client in hass.data.pop(
-        "gaming_status_xbox_clients", {}
-    ).values():
-        hass.async_create_task(http_client.aclose())
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
