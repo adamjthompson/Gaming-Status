@@ -119,6 +119,32 @@ def find_platform_sensor(hass, player_name: str, platform: str):
     )
 
 
+# Platforms whose account name comes from the player's library scan rather
+# than a status sensor: Epic's public-profile display name, the GOG profile's
+# username, and the Ubisoft name set in Gaming Status Agent's Gamertags menu.
+LIBRARY_GAMERTAG_PLATFORMS = ("epic", "gog", "ubisoft")
+
+
+def library_gamertag(hass, player_name: str, platform: str) -> str | None:
+    """The account name one player's library scan found for Epic, GOG or
+    Ubisoft, or None (library scan off for that platform, not scanned yet,
+    or an Agent too old to send a Ubisoft name). Read from the coordinator's
+    data, which is restored from storage before any sensor is added, so it's
+    there from startup."""
+    if platform not in LIBRARY_GAMERTAG_PLATFORMS:
+        return None
+    coordinators = hass.data.get(DOMAIN, {}).get("library_coordinators", {})
+    coordinator = coordinators.get(safe_owner_slug(player_name or ""))
+    data = getattr(coordinator, "data", None)
+    if not isinstance(data, dict):
+        return None
+    summary = (data.get("platforms") or {}).get(platform)
+    if not isinstance(summary, dict):
+        return None
+    gamertag = summary.get("gamertag")
+    return gamertag.strip() or None if isinstance(gamertag, str) else None
+
+
 def player_device_info(
     player_name: str, safe_owner: str, platforms: list[str]
 ) -> DeviceInfo:

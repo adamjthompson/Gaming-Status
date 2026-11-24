@@ -158,7 +158,11 @@ def parse_library(payload: Any) -> dict | None:
         owned_count = _int(payload.get("owned_game_count") or 0)
     except (TypeError, ValueError):
         owned_count = 0
-    return {"owned_game_count": owned_count, "games": games}
+    # The Ubisoft name set in the Agent's Gamertags menu. Optional: older
+    # Agents don't send it, and a non-string is ignored rather than fatal.
+    gamertag = payload.get("gamertag")
+    gamertag = _text(gamertag, 100).strip() or None if isinstance(gamertag, str) else None
+    return {"owned_game_count": owned_count, "games": games, "gamertag": gamertag}
 
 
 def recent_unlocks_for(game: dict) -> list[dict]:

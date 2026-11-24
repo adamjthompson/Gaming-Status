@@ -114,9 +114,11 @@ from .const import (
     ZOMBIE_ATTRIBUTES,
 )
 from .device import (
+    LIBRARY_GAMERTAG_PLATFORMS,
     _raw_owner_slug,
     async_fire_player_event,
     hub_device_info,
+    library_gamertag,
     player_device_info,
     resolve_registered_entity_id,
     safe_owner_slug,
@@ -1708,7 +1710,14 @@ class PersistentStatusSensor(RestoreEntity, SensorEntity):
             # moment it closes. A sensor that has never seen a game still
             # takes it, so the gamertag is never blank.
             if (launcher and launcher.lower() != "none") or not self._cached_gamertag:
-                data["gamertag"] = attrs.get("Profile Name") or None
+                # For Epic/GOG/Ubisoft the library scan's account name wins:
+                # the Agent's Profile Name is the PC's device name whenever
+                # its Gamertags field for that launcher is blank.
+                data["gamertag"] = (
+                    library_gamertag(self.hass, self._owner_name, launcher.lower())
+                    or attrs.get("Profile Name")
+                    or None
+                )
             # Sent in every payload, offline too, so the Ubisoft library
             # stays reachable while the PC is off.
             data["ubisoft_topic"] = _agent_attr(attrs, GSA_ATTR_UBISOFT_TOPIC)
@@ -5480,6 +5489,9 @@ class MasterGamingSensor(RestoreSensor):
             "xbox_gamertag",
             "psn_gamertag",
             "discord_gamertag",
+            "epic_gamertag",
+            "gog_gamertag",
+            "ubisoft_gamertag",
             "gamertag",
         }
     )
@@ -6129,6 +6141,12 @@ class MasterGamingSensor(RestoreSensor):
         new_attrs["psn_gamertag"] = gamertags_by_platform.get("playstation")
         new_attrs["discord_gamertag"] = gamertags_by_platform.get("discord")
         new_attrs["gsa_gamertag"] = gamertags_by_platform.get("gsa")
+        # Epic/GOG/Ubisoft have no platform sensor; their account names come
+        # from the player's library scan (see device.library_gamertag).
+        for library_platform in LIBRARY_GAMERTAG_PLATFORMS:
+            new_attrs[f"{library_platform}_gamertag"] = library_gamertag(
+                self.hass, self._player_name, library_platform
+            )
         new_attrs["gamertag"] = (
             active_state.attributes.get("gamertag") if active_state else None
         ) or (

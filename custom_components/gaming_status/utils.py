@@ -2081,19 +2081,25 @@ async def fetch_epic_achievements(hass, account_id, game_name, sandbox_id=None):
 
 async def fetch_epic_library(hass, account_id):
     """Full-library-scan source for Epic -- every game on the public profile
-    with achievement progress. Never raises; returns (games, error) -- see
-    fetch_steam_owned_games for why error matters."""
+    with achievement progress. Never raises; returns (games, error,
+    display_name) -- see fetch_steam_owned_games for why error matters.
+    display_name is the profile's Epic name (None when the fetch failed)."""
     if not account_id:
-        return [], None
+        return [], None, None
     try:
         profile = await _get_epic_client(hass).async_get_profile(account_id)
-        return profile["games"], None
+        display_name = profile.get("display_name")
+        return (
+            profile["games"],
+            None,
+            display_name.strip() or None if isinstance(display_name, str) else None,
+        )
     except ApiError as e:
         _LOGGER.debug("[Gaming Status] Epic profile fetch failed: %s", e)
-        return [], str(e)
+        return [], str(e), None
     except Exception as e:
         _LOGGER.debug("[Gaming Status] Epic profile fetch failed: %s", e)
-        return [], f"{type(e).__name__}: {e}"
+        return [], f"{type(e).__name__}: {e}", None
 
 
 async def fetch_epic_game_unlocks(hass, account_id, sandbox_id):

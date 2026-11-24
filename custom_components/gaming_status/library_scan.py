@@ -606,6 +606,8 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 }
                 if previous.get("owned_game_count") is not None:
                     raw.setdefault("owned_game_count", previous["owned_game_count"])
+                if previous.get("gamertag") and not raw.get("gamertag"):
+                    raw["gamertag"] = previous["gamertag"]
 
         return raw
 
@@ -1275,7 +1277,9 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         scans. That includes a first scan, which seeds real history (Epic
         reports true unlock times, and the unlock event only fires for
         recent ones, so old unlocks never notify)."""
-        games_raw, fetch_error = await utils.fetch_epic_library(self.hass, account_id)
+        games_raw, fetch_error, display_name = await utils.fetch_epic_library(
+            self.hass, account_id
+        )
         if fetch_error and not games_raw:
             return {"games": [], "error": fetch_error}
 
@@ -1333,7 +1337,13 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                     "game_icon_art": art.get("icon"),
                 }
             )
-        return {"games": games, "error": fetch_error, "account_id": account_id}
+        return {
+            "games": games,
+            "error": fetch_error,
+            "account_id": account_id,
+            # The profile's Epic display name -- the player's Epic gamertag.
+            "gamertag": display_name,
+        }
 
     async def _scan_gog(self, username):
         """GOG library from the player's public profile: every game GOG has
@@ -1432,6 +1442,9 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             "games": games,
             "error": fetch_error,
             "account_id": username,
+            # GOG shows the username as the profile's name, and it's stored
+            # with GOG's own capitalization once the profile is verified.
+            "gamertag": username,
             "owned_game_count": library.get("owned_count"),
         }
 
@@ -1494,6 +1507,10 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
             "games": games,
             "error": None,
             "owned_game_count": library["owned_game_count"],
+            # The Ubisoft name set in the Agent's Gamertags menu (Ubisoft
+            # Connect's local data has no account name); None from Agents
+            # that don't send one.
+            "gamertag": library.get("gamertag"),
         }
 
     def _watch_ubisoft_source(self, gsa_entity_id):
@@ -1592,6 +1609,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 "error": errors.get(platform),
                 "account_id": summary.get("account_id"),
                 "owned_game_count": summary.get("owned_game_count"),
+                "gamertag": summary.get("gamertag"),
             }
             for platform, summary in current.get("platforms", {}).items()
             if platform != "ubisoft"
@@ -2220,6 +2238,11 @@ def _aggregate(raw_by_platform):
             # Persisted only (not a sensor attribute) -- lets the next scan
             # tell whether the stored games belong to the same account.
             summary["account_id"] = raw["account_id"]
+        if raw.get("gamertag"):
+            # Epic/GOG/Ubisoft account name: exposed on the library sensor
+            # and read by the player's Agent and master sensors (see
+            # device.library_gamertag).
+            summary["gamertag"] = raw["gamertag"]
         if platform == "steam":
             summary["playtime_hours"] = round(
                 sum(g.get("playtime_hours", 0) for g in games), 1

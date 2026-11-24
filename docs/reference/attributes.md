@@ -57,7 +57,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | play_start_time | Inherited from the most active underlying platform tracker |
 | last_played_game | Title of the most recent game detected across all tracked platforms |
 | last_online_valid_timestamp | Timestamp of the last time detected online |
-| gamertag | The real account name (Steam persona name, Xbox gamertag, PSN online ID, Discord username, or Gaming Status Agent `Profile Name`) of whichever platform is currently active, or the most recently active platform if everything's offline. The `..._pc` sub-master sensor exposes this same attribute, scoped to just its own PC platforms (Playnite, Gaming Status Agent, Custom, Steam, Discord) |
+| gamertag | The real account name (Steam persona name, Xbox gamertag, PSN online ID, Discord username, or Gaming Status Agent `Profile Name`, which for an Epic, GOG or Ubisoft game is that platform's library account name when known) of whichever platform is currently active, or the most recently active platform if everything's offline. The `..._pc` sub-master sensor exposes this same attribute, scoped to just its own PC platforms (Playnite, Gaming Status Agent, Custom, Steam, Discord) |
 
 **Identity (per platform)**
 
@@ -68,6 +68,9 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | psn_gamertag | This player's PlayStation Network online ID, if PlayStation is configured |
 | discord_gamertag | This player's permanent Discord username (not their server nickname), if Discord is configured |
 | gsa_gamertag | The `Profile Name` reported by this player's Gaming Status Agent sensor, if Gaming Status Agent is configured. Keeps the last game's gamertag while the Agent is idle or offline |
+| epic_gamertag | This player's Epic display name, read from their public Epic profile by the Epic [Full Game Library Scan](../configuration/achievements-ratings.md). `null` until that scan has run |
+| gog_gamertag | This player's GOG username, from the GOG [Full Game Library Scan](../configuration/achievements-ratings.md). `null` until that scan has run |
+| ubisoft_gamertag | This player's Ubisoft name, as entered under **Gamertags** in Gaming Status Agent and sent with its Ubisoft library (Ubisoft Connect doesn't store the account name on the PC). Needs the Ubisoft [Full Game Library Scan](../configuration/achievements-ratings.md) and an Agent version that sends it; otherwise `null` |
 
 ## Attributes for Platform Sensors
 Each sensor has a set of attributes that can be utilized in dashboards charts, etc. The individual `*_steam`, `*_xbox`, `*_playstation`, `*_discord`, `*_playnite`, `*_gsa`, and `*_custom` sensors provide the following attributes:
@@ -91,7 +94,7 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | game_icon_art | URL of icon art, either local or SteamGridDB |
 | game_dominant_color | The automatically extracted vibrant hex color from the game's artwork, or a manually assigned color |
 | game_content_rating | Rating metadata for the currently active/cached game: `{esrb, pegi, age_floor, descriptors, unrated, source}` (`source` is `"steam_native"`, `"xbox_native"`, `"psn_native"`, `"override"`, or `null` if unrated/never looked up) |
-| gamertag | This player's real account name for this platform (Steam persona name, Xbox gamertag, PSN online ID, Discord username, or the Gaming Status Agent `Profile Name`, which keeps the last game's gamertag while the Agent is idle or offline). Always `null` for Playnite sensors, which have no equivalent identity concept |
+| gamertag | This player's real account name for this platform (Steam persona name, Xbox gamertag, PSN online ID, Discord username, or the Gaming Status Agent `Profile Name`, which keeps the last game's gamertag while the Agent is idle or offline). For an Epic, GOG or Ubisoft game, the Agent sensor uses that platform's library account name (see `epic_gamertag`, `gog_gamertag` and `ubisoft_gamertag` above) when the library scan has one, since the Agent sends its device name when its gamertag for that launcher is blank. Always `null` for Playnite sensors, which have no equivalent identity concept |
 | launcher | Gaming Status Agent sensors only. The launcher the current or last game came from (e.g. `Epic`, `GOG`, `Custom`), kept while offline for "last seen" displays |
 
 **Rich Tracking & Analytics**
@@ -170,6 +173,7 @@ A diagnostic sensor whose state is the time this player's library scan last fini
 | gamerscore_earned / gamerscore_total | *(Xbox only)* Total gamerscore earned / possible, summed across all Xbox games |
 | trophies_bronze / trophies_silver / trophies_gold / trophies_platinum (+ `_total` variants) | *(PlayStation only)* Trophy counts earned / possible, per tier, summed across all PlayStation games |
 | xp_earned / xp_total | *(Epic only)* Epic achievement XP earned / possible, summed across all Epic games |
+| gamertag | *(Epic, GOG and Ubisoft)* The account name for this library: the Epic profile's display name, the GOG username, or the Ubisoft name set in Gaming Status Agent's **Gamertags** menu (`null` if it's blank, or the Agent is too old to send it) |
 | owned_game_count | *(Ubisoft and GOG)* How many games the account owns, including ones not listed in `games` (Ubisoft games without achievement data, GOG games never played through GOG Galaxy) |
 
 **Each entry in a `games` list**

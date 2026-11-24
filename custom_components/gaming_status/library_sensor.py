@@ -14,6 +14,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import LIBRARY_ONLY_PLATFORM_CONFIG, PLATFORM_CONFIG
+from .device import LIBRARY_GAMERTAG_PLATFORMS
 from .utils import _safe_parse_datetime
 
 
@@ -166,7 +167,11 @@ class TrophyLibraryPlatformSensor(CoordinatorEntity, SensorEntity):
         elif self._platform == "gog":
             attrs["playtime_hours"] = pdata.get("playtime_hours")
             attrs["owned_game_count"] = pdata.get("owned_game_count")
-        elif self._platform == "playstation":
+        if self._platform in LIBRARY_GAMERTAG_PLATFORMS:
+            # Epic/GOG/Ubisoft have no status sensor to carry the account
+            # name, so the library sensor does.
+            attrs["gamertag"] = pdata.get("gamertag")
+        if self._platform == "playstation":
             trophies_earned = pdata.get("trophies_earned") or {}
             trophies_total = pdata.get("trophies_total") or {}
             for tier in ("bronze", "silver", "gold", "platinum"):
