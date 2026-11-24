@@ -701,7 +701,9 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
     from .settings import consume_skip_reload
 
     if consume_skip_reload(hass):
+        _LOGGER.debug("Gaming Status: live setting saved, not reloading")
         return
+    _LOGGER.debug("Gaming Status: options changed, reloading")
     await hass.config_entries.async_reload(entry.entry_id)
 
 
