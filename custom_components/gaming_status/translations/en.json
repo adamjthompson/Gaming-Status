@@ -35,12 +35,12 @@
           "playnite": "Playnite Sensor",
           "gsa": "Gaming Status Agent Sensor",
           "custom": "Custom Sensor",
-          "epic_account_id": "Epic Account (optional)",
-          "gog_username": "GOG Profile (optional)"
+          "epic_account_id": "Epic Account",
+          "gog_username": "GOG Profile"
         },
         "data_description": {
-          "epic_account_id": "Paste the link to this player's Epic Games Store profile, or their 32-character Epic account ID. Their Epic profile and achievements must be public. This alone is enough for the Epic library scan. Epic online status, the current game, and live Epic achievements need Gaming Status Agent, which reports games from the Epic launcher.",
-          "gog_username": "Paste the link to this player's GOG profile, or just their GOG username. Their GOG profile and games must be public. This alone is enough for the GOG library scan. GOG only records playtime and achievements for games played through GOG Galaxy. The current game and live GOG achievements need Gaming Status Agent, which reports games from GOG."
+          "epic_account_id": "Paste the link to this player's Epic Games Store profile or their 32-character Epic account ID.",
+          "gog_username": "Paste the link to this player's GOG profile or just their GOG username."
         }
       }
     },
@@ -95,8 +95,8 @@
           "gsa": "Gaming Status Agent sensor",
           "custom": "Custom sensor",
           "playnite": "Playnite sensor",
-          "epic_account_id": "Epic account (optional)",
-          "gog_username": "GOG profile (optional)"
+          "epic_account_id": "Epic account",
+          "gog_username": "GOG profile"
         },
         "data_description": {
           "player_name": "e.g. John",
@@ -125,8 +125,8 @@
           "custom": "Custom sensor",
           "playnite": "Playnite sensor",
           "delete_player": "Delete this player",
-          "epic_account_id": "Epic account (optional)",
-          "gog_username": "GOG profile (optional)"
+          "epic_account_id": "Epic account",
+          "gog_username": "GOG profile"
         },
         "data_description": {
           "xbox": "Select the 'Status' sensor — the suffix varies by HA language",
@@ -388,13 +388,13 @@
           "steam_achievements_api_key_override": "Steam Web API Key Override (Optional)",
           "psn_npsso_override": "PSN NPSSO Override (Optional)",
           "same_game_prefix_words": "Same-Game Prefix Match (leading words, 0 = off)",
-          "restrict_history_edits": "Restrict history edits, parental settings and the public page to admins"
+          "restrict_history_edits": "Restrict history edits, parental settings, and the public page to admins"
         },
         "data_description": {
           "steam_achievements_api_key_override": "Only needed if the Steam integration isn't installed, or you want a different key than the one already configured there. Leave blank to auto-detect.",
           "psn_npsso_override": "Only needed if the PlayStation Network integration isn't installed, or you want a different account's NPSSO than the one already configured there. Leave blank to auto-detect. Used by both native ratings and achievement tracking. Checked with PlayStation when you save.",
           "same_game_prefix_words": "Game names starting with this many matching words (e.g. \"Call of Duty ...\") are treated as the same game instead of a switch. Default: 2. Set to 0 to disable.",
-          "restrict_history_edits": "When on, only Home Assistant administrators can rename or delete games and add, delete or reassign sessions (including from the Game Management card), change parental controls from their switches, numbers, selects and times (including the Parental controls switch on the hub), turn the public page or a player's Show on public page switch on or off, and turn the hub's Notifications or Weekly report switch on or off or press Send Weekly Report Now. Stops non-admin users, such as a child's account, from editing their own play history, lifting their own limits, publishing anyone's activity or silencing the notifications sent to you. Automations are still allowed."
+          "restrict_history_edits": "When on, only Home Assistant administrators can rename or delete games and add, delete or reassign sessions (including from the Game Management card), change parental controls from their switches, numbers, selects and times (including the Parental controls switch on the hub), turn the public page or a player's Show on public page switch on or off, and turn the hub's Notifications or Weekly report switch on or off, or press Send Weekly Report Now. Stops non-admin users, such as a child's account, from editing their own play history, lifting their own limits, publishing anyone's activity, or silencing the notifications sent to you. Automations are still allowed."
         }
       },
       "global_settings": {
