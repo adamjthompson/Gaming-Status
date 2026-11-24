@@ -865,6 +865,7 @@ def _build_layout(
                 }
                 tabs["show_platform_epic"] = _library_earned(hass, name, "epic")
                 tabs["show_platform_ubisoft"] = _library_earned(hass, name, "ubisoft")
+                tabs["show_platform_gog"] = _library_earned(hass, name, "gog")
                 group.append(
                     {
                         "type": card_type,

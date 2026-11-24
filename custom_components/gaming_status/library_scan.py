@@ -68,6 +68,7 @@ from homeassistant.util import dt as dt_util
 from . import ubisoft_feed, utils
 from .const import (
     EPIC_LIBRARY_DETAIL_BUDGET,
+    GOG_LIBRARY_DETAIL_BUDGET,
     GSA_ATTR_UBISOFT_TOPIC,
     LIBRARY_BACKFILL_MAX_ATTEMPTS,
     LIBRARY_ONLY_PLATFORM_CONFIG,
@@ -494,7 +495,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
         previous_platforms = (self.data or {}).get("platforms", {})
         # Each platform has its own API and rate limiter, so they scan
         # concurrently; results are keyed back in steam/xbox/playstation/
-        # epic order so _aggregate's output order is unchanged.
+        # epic/ubisoft/gog order so _aggregate's output order is unchanged.
         scans = [
             (platform, scan_fn)
             for platform, scan_fn in (
@@ -503,6 +504,7 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 ("playstation", self._scan_psn),
                 ("epic", self._scan_epic),
                 ("ubisoft", self._scan_ubisoft),
+                ("gog", self._scan_gog),
             )
             if platform in self._platform_sources
         ]
@@ -596,13 +598,14 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                     raw["error"],
                     len(previous_games),
                 )
+                previous = previous_platforms.get(platform, {})
                 raw = {
                     **raw,
                     "games": previous_games,
-                    "account_id": previous_platforms.get(platform, {}).get(
-                        "account_id"
-                    ),
+                    "account_id": previous.get("account_id"),
                 }
+                if previous.get("owned_game_count") is not None:
+                    raw.setdefault("owned_game_count", previous["owned_game_count"])
 
         return raw
 
@@ -1331,6 +1334,106 @@ class LibraryScanCoordinator(DataUpdateCoordinator):
                 }
             )
         return {"games": games, "error": fetch_error, "account_id": account_id}
+
+    async def _scan_gog(self, username):
+        """GOG library from the player's public profile: every game GOG has
+        a play record for (GOG only records games run through GOG Galaxy),
+        with playtime, last session and achievement counts. How many games
+        the account owns in all comes along as a count.
+
+        The games list carries only an achievement percentage, so a game's
+        counts and unlock history come from its own profile page. That page
+        is read for games whose percentage changed since it was last read,
+        or that have never been read, at most GOG_LIBRARY_DETAIL_BUDGET per
+        scan; the rest catch up on later scans. The counts are remembered in
+        _activity_cursor["gog"] ({game_id: {"percent", "earned", "total"}})
+        so unchanged games cost nothing. Unlocks go into the player's Agent
+        sensor history (GOG reports true unlock times, and the unlock event
+        only fires for recent ones, so old unlocks never notify)."""
+        library, fetch_error = await utils.fetch_gog_library(self.hass, username)
+        if library is None:
+            return {"games": [], "error": fetch_error}
+
+        gog_cursor = self._activity_cursor.setdefault("gog", {})
+        target_sensor = _target_sensor(self.hass, self._owner_name, "gsa")
+        label = LIBRARY_ONLY_PLATFORM_CONFIG["gog"]["name_suffix"]
+        details_left = GOG_LIBRARY_DETAIL_BUDGET
+        games = []
+        for item in library.get("games") or []:
+            game_id = item.get("id")
+            name = item.get("title") or ""
+            if not item.get("played") or not game_id or not name:
+                continue
+            if _normalize_game_name(name) in self._excluded_normalized:
+                continue
+            name = utils._format_game_name_for_display(name)
+            art = await self._async_art_for(name)
+            percent_now = item.get("percent") or 0
+
+            earned = total = None
+            percent = None
+            if item.get("achievement_support"):
+                known = gog_cursor.get(game_id)
+                if not isinstance(known, dict):
+                    known = None
+                if (
+                    known is None or known.get("percent") != percent_now
+                ) and details_left > 0:
+                    details_left -= 1
+                    detail = await utils.fetch_gog_game_achievements(
+                        self.hass, username, game_id
+                    )
+                    if detail is not None:
+                        if target_sensor is not None and detail["recent_unlocks"]:
+                            target_sensor._ingest_recent_unlocks(
+                                detail["recent_unlocks"],
+                                game_name=name,
+                                platform_label=label,
+                                hero_art_url=art.get("hero"),
+                                game_dominant_color=_dominant_color_for(
+                                    target_sensor, name
+                                ),
+                            )
+                        known = {
+                            "percent": percent_now,
+                            "earned": detail["earned"],
+                            "total": detail["total"],
+                        }
+                        gog_cursor[game_id] = known
+                    # else: failed -- cursor untouched, retried next scan.
+                if known is not None:
+                    earned, total = known.get("earned"), known.get("total")
+                    percent = _percent(earned or 0, total)
+                elif item.get("percent") is not None:
+                    # Counts not read yet: GOG's own (rounded down) figure.
+                    percent = float(item["percent"])
+            else:
+                earned, total, percent = 0, 0, 0.0
+
+            minutes = item.get("playtime_minutes") or 0
+            games.append(
+                {
+                    "title": name,
+                    "platform": "gog",
+                    "id": game_id,
+                    "achievements_earned": earned,
+                    "achievements_total": total,
+                    "percent": percent,
+                    "playtime_hours": round(minutes / 60, 1),
+                    "game_cover_art": art.get("grid"),
+                    "game_hero_art": art.get("hero"),
+                    "game_logo_art": art.get("logo"),
+                    "game_icon_art": art.get("icon"),
+                    # GOG's true last-played time.
+                    "_activity_ts": item.get("last_session"),
+                }
+            )
+        return {
+            "games": games,
+            "error": fetch_error,
+            "account_id": username,
+            "owned_game_count": library.get("owned_count"),
+        }
 
     async def _scan_ubisoft(self, gsa_entity_id):
         """Ubisoft library from Gaming Status Agent's pushed data -- no
@@ -2132,6 +2235,11 @@ def _aggregate(raw_by_platform):
             summary["xp_earned"] = sum(g.get("xp_earned", 0) for g in games)
             summary["xp_total"] = sum(g.get("xp_total", 0) for g in games)
         elif platform == "ubisoft":
+            summary["owned_game_count"] = raw.get("owned_game_count")
+        elif platform == "gog":
+            summary["playtime_hours"] = round(
+                sum(g.get("playtime_hours", 0) for g in games), 1
+            )
             summary["owned_game_count"] = raw.get("owned_game_count")
         elif platform == "playstation":
             summary["trophies_earned"] = {

@@ -49,6 +49,23 @@ Without the Agent, the Epic library sensor still works on its own; it just has n
 
 *Note: only games that use Epic's own achievement system have Epic achievements; many Epic games don't (for example, Marvel's Guardians of the Galaxy), and those simply show none. A game also only appears on a public profile after its first achievement is unlocked.*
 
+### GOG Achievements
+GOG achievements and playtime are read from a player's **public GOG profile**, so no GOG sign-in is needed. GOG works like Epic, with no status sensor of its own:
+
+| Feature | Requirement(s) |
+| --- | --- |
+| GOG library (games, playtime, completion) via the [Full Game Library Scan](../configuration/achievements-ratings.md) | The player's GOG profile only |
+| Online status and the GOG game being played | [Gaming Status Agent](../setup/pc-tracking.md) with GOG enabled |
+| Live achievement counts and unlocks for the current GOG game | Gaming Status Agent plus the GOG profile |
+| GOG unlocks in the player's achievement history and unlock notifications | Gaming Status Agent plus the GOG profile (the history is kept on the Agent sensor) |
+
+1. Check **GOG** under **Platforms to Track** in [Global Settings](../configuration/global-settings.md). This adds the **GOG profile** field to each player.
+2. Make the profile public: sign in at [gog.com](https://www.gog.com/), open **Settings > Privacy**, and set your profile and your games to public.
+3. Copy the profile link: open your profile on gog.com (it looks like `https://www.gog.com/u/<username>`). Any page of your profile works, and so does just the username.
+4. Paste it into the player's **GOG profile** field under [Manage Players](../configuration/manage-players.md). Gaming Status checks the profile when you save and tells you if it's private or can't be found.
+
+*Note: GOG only records playtime and achievements for games played through GOG Galaxy. A GOG game started straight from its own shortcut is still detected by Gaming Status Agent, but GOG has no achievements or playtime for that session, and the game isn't in the GOG library until it's been played through Galaxy.*
+
 ### Ubisoft Achievements
 Ubisoft keeps achievement data only on the gaming PC, inside Ubisoft Connect, so it comes entirely from [Gaming Status Agent](../setup/pc-tracking.md). The Agent reads Ubisoft Connect's local files (read-only) and sends the library and unlocks to Home Assistant over MQTT, including each achievement's real icon.
 

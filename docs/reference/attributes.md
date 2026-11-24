@@ -109,10 +109,10 @@ Each sensor has a set of attributes that can be utilized in dashboards charts, e
 | calendar_weekly_breakdown_last_week | Same as `calendar_weekly_breakdown`, for the previous calendar week |
 | all_time_total_hours / all_time_session_count / all_time_top_games | Lifetime hours, session count, and top 20 games on this platform |
 | recent_achievements | Cross-game history of achievement/trophy unlocks on this platform (newest first, capped at 30) |
-| current_game_achievements_earned / current_game_achievements_total / achievements_source | *(Achievement tracking only)* Earned/possible counts for the current game and where they came from (`steam`, `xbox`, `psn`, or `epic`/`ubisoft` on a Gaming Status Agent sensor playing an Epic or Ubisoft game) |
+| current_game_achievements_earned / current_game_achievements_total / achievements_source | *(Achievement tracking only)* Earned/possible counts for the current game and where they came from (`steam`, `xbox`, `psn`, or `epic`/`gog`/`ubisoft` on a Gaming Status Agent sensor playing an Epic, GOG or Ubisoft game) |
 | current_game_gamerscore_earned / current_game_gamerscore_total | *(Xbox only)* Gamerscore for the current game |
 | current_game_trophies_bronze / _silver / _gold / _platinum (+ `_total` variants) | *(PlayStation only)* Trophy counts for the current game |
-| recent_unlocked_achievements / recent_unlocked_trophies | Recent unlocks for the current game (achievements on Steam/Xbox, Epic and Ubisoft, trophies on PlayStation) |
+| recent_unlocked_achievements / recent_unlocked_trophies | Recent unlocks for the current game (achievements on Steam/Xbox, Epic, GOG and Ubisoft, trophies on PlayStation) |
 | color_extraction_enabled | Whether automatic vibrant color extraction is on |
 | play_history | Per-day, per-game playtime for this platform: `{"YYYY-MM-DD": {"Game Title": seconds, ...}}` |
 | recent_sessions | List of the most recently completed play sessions on this platform (newest first, capped at 20): `{game, platform, platform_key, gamertag, duration_seconds, date, start_time, end_time, hero_art_url, game_dominant_color}`. `platform` is a display label (a Gaming Status Agent session shows its launcher); `platform_key` is the internal platform key; `gamertag` is the account name in use for that session (missing on sessions recorded before it was added). A session only appears here once it has ended |
@@ -159,29 +159,29 @@ A diagnostic sensor whose state is the time this player's library scan last fini
 | last_sync_success | `true` if the most recent scan completed with no errors on any platform |
 | platform_errors | `"None"` if the last scan was clean, otherwise a dict of `{platform: error message}` |
 
-**Platform Sensors (`..._library_steam`, `..._library_xbox`, `..._library_playstation`, `..._library_epic`, `..._library_ubisoft`)**
+**Platform Sensors (`..._library_steam`, `..._library_xbox`, `..._library_playstation`, `..._library_epic`, `..._library_ubisoft`, `..._library_gog`)**
 
 | Attribute | Description |
 | --- | --- |
 | achievements_total | Sum of every achievement/trophy that exists across this platform's tracked games |
 | game_count | Number of games tracked on this platform |
 | games | List of games on this platform — see below for each entry's shape |
-| playtime_hours | *(Steam only)* Total hours played across every owned Steam game, summed from Steam's own playtime data |
+| playtime_hours | *(Steam and GOG)* Total hours played across every listed game, summed from the platform's own playtime data |
 | gamerscore_earned / gamerscore_total | *(Xbox only)* Total gamerscore earned / possible, summed across all Xbox games |
 | trophies_bronze / trophies_silver / trophies_gold / trophies_platinum (+ `_total` variants) | *(PlayStation only)* Trophy counts earned / possible, per tier, summed across all PlayStation games |
 | xp_earned / xp_total | *(Epic only)* Epic achievement XP earned / possible, summed across all Epic games |
-| owned_game_count | *(Ubisoft only)* How many Ubisoft games the account owns, including ones without achievement data (which aren't listed in `games`) |
+| owned_game_count | *(Ubisoft and GOG)* How many games the account owns, including ones not listed in `games` (Ubisoft games without achievement data, GOG games never played through GOG Galaxy) |
 
 **Each entry in a `games` list**
 
 | Field | Description |
 | --- | --- |
 | title | Game name |
-| platform | `steam`, `xbox`, `playstation`, `epic`, or `ubisoft` |
-| id | Platform-specific game identifier (Steam appid, Xbox title_id, PSN npCommunicationId, Epic sandbox ID, or Ubisoft game ID) |
-| achievements_earned / achievements_total | Earned / possible achievements or trophies for this game |
+| platform | `steam`, `xbox`, `playstation`, `epic`, `ubisoft`, or `gog` |
+| id | Platform-specific game identifier (Steam appid, Xbox title_id, PSN npCommunicationId, Epic sandbox ID, Ubisoft game ID, or GOG product ID) |
+| achievements_earned / achievements_total | Earned / possible achievements or trophies for this game. `null` for a GOG game whose achievement page hasn't been read yet (its `percent` is GOG's own figure until then) |
 | percent | Completion percentage for this game, `0.0` if the game has no achievements/trophies at all |
-| playtime_hours | *(Steam only)* Hours played, from Steam's own playtime data |
+| playtime_hours | *(Steam and GOG)* Hours played, from the platform's own playtime data |
 | gamerscore_earned / gamerscore_total | *(Xbox only)* Gamerscore earned / possible for this game |
 | trophies_earned / trophies_total | *(PlayStation only)* Dicts of `{bronze, silver, gold, platinum}` counts earned / possible |
 | xp_earned / xp_total | *(Epic only)* Epic achievement XP earned / possible for this game |

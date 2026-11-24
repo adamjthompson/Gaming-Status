@@ -64,6 +64,11 @@ class EpicProfilePrivateError(ApiError):
     unauthenticated profile queries can't see it."""
 
 
+class GogProfilePrivateError(ApiError):
+    """GOG: the user's profile (or its games list) isn't public, so the
+    unauthenticated profile pages can't see it."""
+
+
 class GameDetailsPrivateError(ApiError):
     """Steam: the account's own "Game details" privacy toggle is set to
     Private, independent of the overall profile visibility -- GetOwnedGames

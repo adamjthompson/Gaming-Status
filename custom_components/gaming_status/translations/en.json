@@ -35,10 +35,12 @@
           "playnite": "Playnite Sensor",
           "gsa": "Gaming Status Agent Sensor",
           "custom": "Custom Sensor",
-          "epic_account_id": "Epic Account (optional)"
+          "epic_account_id": "Epic Account (optional)",
+          "gog_username": "GOG Profile (optional)"
         },
         "data_description": {
-          "epic_account_id": "Paste the link to this player's Epic Games Store profile, or their 32-character Epic account ID. Their Epic profile and achievements must be public. This alone is enough for the Epic library scan. Epic online status, the current game, and live Epic achievements need Gaming Status Agent, which reports games from the Epic launcher."
+          "epic_account_id": "Paste the link to this player's Epic Games Store profile, or their 32-character Epic account ID. Their Epic profile and achievements must be public. This alone is enough for the Epic library scan. Epic online status, the current game, and live Epic achievements need Gaming Status Agent, which reports games from the Epic launcher.",
+          "gog_username": "Paste the link to this player's GOG profile, or just their GOG username. Their GOG profile and games must be public. This alone is enough for the GOG library scan. GOG only records playtime and achievements for games played through GOG Galaxy. The current game and live GOG achievements need Gaming Status Agent, which reports games from GOG."
         }
       }
     },
@@ -47,7 +49,10 @@
       "custom_duplicates_gsa": "The Custom sensor can't be the same entity as the Gaming Status Agent sensor.",
       "invalid_epic_account_id": "That doesn't look like an Epic account ID. Paste the link to your Epic Games Store profile, or the 32-character ID from your Epic account settings.",
       "epic_profile_private": "This Epic profile is private. Set the profile and its achievements to public in Epic's privacy settings, then try again.",
-      "epic_account_not_found": "Epic couldn't find an account with that ID. Check the profile link or account ID and try again."
+      "epic_account_not_found": "Epic couldn't find an account with that ID. Check the profile link or account ID and try again.",
+      "invalid_gog_username": "That doesn't look like a GOG username. Paste the link to your GOG profile, or just the username from it.",
+      "gog_profile_private": "This GOG profile or its games list is private. Set your profile and games to public in GOG's privacy settings, then try again.",
+      "gog_profile_not_found": "GOG couldn't find a profile with that username. Check the profile link or username and try again."
     },
     "abort": {
       "single_instance_allowed": "Only one instance of Gaming Status can be configured."
@@ -90,7 +95,8 @@
           "gsa": "Gaming Status Agent sensor",
           "custom": "Custom sensor",
           "playnite": "Playnite sensor",
-          "epic_account_id": "Epic account (optional)"
+          "epic_account_id": "Epic account (optional)",
+          "gog_username": "GOG profile (optional)"
         },
         "data_description": {
           "player_name": "e.g. John",
@@ -102,7 +108,8 @@
           "gsa": "Select this player's Gaming Status Agent sensor, e.g. sensor.gsa_player_one",
           "custom": "Any sensor whose state is the game title (or on/off), e.g. sensor.player_one_active_pc_game",
           "playnite": "e.g. sensor.playnite_playing_game",
-          "epic_account_id": "Paste the link to this player's Epic Games Store profile, or their 32-character Epic account ID. Their Epic profile and achievements must be public. This alone is enough for the Epic library scan. Epic online status, the current game, and live Epic achievements need Gaming Status Agent, which reports games from the Epic launcher."
+          "epic_account_id": "Paste the link to this player's Epic Games Store profile, or their 32-character Epic account ID. Their Epic profile and achievements must be public. This alone is enough for the Epic library scan. Epic online status, the current game, and live Epic achievements need Gaming Status Agent, which reports games from the Epic launcher.",
+          "gog_username": "Paste the link to this player's GOG profile, or just their GOG username. Their GOG profile and games must be public. This alone is enough for the GOG library scan. GOG only records playtime and achievements for games played through GOG Galaxy. The current game and live GOG achievements need Gaming Status Agent, which reports games from GOG."
         }
       },
       "edit_player": {
@@ -118,7 +125,8 @@
           "custom": "Custom sensor",
           "playnite": "Playnite sensor",
           "delete_player": "Delete this player",
-          "epic_account_id": "Epic account (optional)"
+          "epic_account_id": "Epic account (optional)",
+          "gog_username": "GOG profile (optional)"
         },
         "data_description": {
           "xbox": "Select the 'Status' sensor — the suffix varies by HA language",
@@ -127,7 +135,8 @@
           "discord": "Select the Discord user from the dropdown.",
           "gsa": "Select this player's Gaming Status Agent sensor (sensor.gsa_*)",
           "custom": "Any sensor whose state is the game title (or on/off), e.g. a HASS.Agent or template sensor",
-          "epic_account_id": "Paste the link to this player's Epic Games Store profile, or their 32-character Epic account ID. Their Epic profile and achievements must be public. This alone is enough for the Epic library scan. Epic online status, the current game, and live Epic achievements need Gaming Status Agent, which reports games from the Epic launcher."
+          "epic_account_id": "Paste the link to this player's Epic Games Store profile, or their 32-character Epic account ID. Their Epic profile and achievements must be public. This alone is enough for the Epic library scan. Epic online status, the current game, and live Epic achievements need Gaming Status Agent, which reports games from the Epic launcher.",
+          "gog_username": "Paste the link to this player's GOG profile, or just their GOG username. Their GOG profile and games must be public. This alone is enough for the GOG library scan. GOG only records playtime and achievements for games played through GOG Galaxy. The current game and live GOG achievements need Gaming Status Agent, which reports games from GOG."
         }
       },
       "player_details": {
@@ -160,7 +169,8 @@
               "enable_achievement_tracking_xbox": "Xbox",
               "enable_achievement_tracking_playstation": "PlayStation",
               "enable_achievement_tracking_epic": "Epic",
-              "enable_achievement_tracking_ubisoft": "Ubisoft"
+              "enable_achievement_tracking_ubisoft": "Ubisoft",
+              "enable_achievement_tracking_gog": "GOG"
             }
           },
           "library_scan_section": {
@@ -171,7 +181,8 @@
               "enable_library_scan_xbox": "Xbox",
               "enable_library_scan_playstation": "PlayStation",
               "enable_library_scan_epic": "Epic",
-              "enable_library_scan_ubisoft": "Ubisoft"
+              "enable_library_scan_ubisoft": "Ubisoft",
+              "enable_library_scan_gog": "GOG"
             }
           }
         }
@@ -361,9 +372,9 @@
         },
         "data_description": {
           "enable_native_ratings": "Looks up each game's ESRB rating directly from Steam/Xbox/PlayStation -- feeds the game_content_rating sensor attribute and Parental Controls' Content Rating Limit rule. Independent of achievement tracking below: Steam and Xbox ratings need no credential at all, PlayStation reuses the same session achievement tracking uses. Off by default. Also shown on the per-player Parental Controls screen (same setting, shown in both places for convenience).",
-          "enable_achievement_tracking": "Adds achievement/trophy counts and unlock details to the current game's Steam/Xbox/PlayStation sensor, reusing credentials already configured on the official integrations where possible, and to the Gaming Status Agent sensor for Epic and Ubisoft games when those are checked under Platforms to Track (Epic needs the player's Epic account, read from their public Epic profile; Ubisoft is sent by the Agent itself). Off by default. The recheck interval, credential overrides, and library scan fields below only take effect once this is on.",
-          "achievement_recheck_seconds": "How often to re-check for newly-earned achievements/trophies while a game keeps running (Steam, PlayStation and Epic; Ubisoft unlocks arrive within seconds, pushed by Gaming Status Agent). Default 900 (15 min), minimum 300 (5 min).",
-          "enable_library_scan": "Adds a Game Library sensor (plus one per tracked platform) with your full game collection -- total achievements/trophies, completion percentage, and per-game details -- scanned periodically in the background. Only created for platforms you already track, plus Epic for players with an Epic account set (listing the games with at least one Epic achievement unlocked) and Ubisoft for players with a Gaming Status Agent sensor (listing the games with achievement data on that PC). Off by default.",
+          "enable_achievement_tracking": "Adds achievement/trophy counts and unlock details to the current game's Steam/Xbox/PlayStation sensor, reusing credentials already configured on the official integrations where possible, and to the Gaming Status Agent sensor for Epic, GOG and Ubisoft games when those are checked under Platforms to Track (Epic needs the player's Epic account and GOG their GOG username, each read from their public profile; Ubisoft is sent by the Agent itself). Off by default. The recheck interval, credential overrides, and library scan fields below only take effect once this is on.",
+          "achievement_recheck_seconds": "How often to re-check for newly-earned achievements/trophies while a game keeps running (Steam, PlayStation, Epic and GOG; Ubisoft unlocks arrive within seconds, pushed by Gaming Status Agent). Default 900 (15 min), minimum 300 (5 min).",
+          "enable_library_scan": "Adds a Game Library sensor (plus one per tracked platform) with your full game collection -- total achievements/trophies, completion percentage, and per-game details -- scanned periodically in the background. Only created for platforms you already track, plus Epic for players with an Epic account set (listing the games with at least one Epic achievement unlocked), GOG for players with a GOG username set (listing the games played through GOG Galaxy) and Ubisoft for players with a Gaming Status Agent sensor (listing the games with achievement data on that PC). Off by default.",
           "library_scan_interval_hours": "How often to rescan your full game library. Default 12 hours, range 1-24. Doesn't apply to Ubisoft: its library updates as soon as Gaming Status Agent sends new data."
         }
       },
@@ -405,7 +416,7 @@
           "enable_ps3_tracking": "Enable PS3 Tracking"
         },
         "data_description": {
-          "enabled_platforms": "Select which platforms should appear in the player configuration menus. Epic Games and Ubisoft work differently from the others: neither has a sensor of its own. Epic Games adds an Epic account field to each player; that account alone powers the Epic library scan, while Epic online status and live Epic achievements come from Gaming Status Agent. Ubisoft's achievements and library come entirely from Gaming Status Agent, which reads them from Ubisoft Connect on the gaming PC.",
+          "enabled_platforms": "Select which platforms should appear in the player configuration menus. Epic Games, GOG and Ubisoft work differently from the others: none has a sensor of its own. Epic Games adds an Epic account field to each player, and GOG a GOG profile field; that account alone powers its library scan, while online status and live achievements come from Gaming Status Agent. Ubisoft's achievements and library come entirely from Gaming Status Agent, which reads them from Ubisoft Connect on the gaming PC.",
           "use_local_cache": "Downloads artwork to your local storage. Disable this to use raw web URLs (recommended if you use Discord notifications without remote HA access).",
           "extract_colors": "Automatically calculates the dominant vibrant color of game artwork for use in dashboard cards. *Note: This will be automatically ignored if Local Caching is disabled.*",
           "cache_max_files": "The maximum number of images to keep on your drive. Set to 0 for unlimited. Default: 200",
@@ -475,6 +486,9 @@
       "invalid_epic_account_id": "That doesn't look like an Epic account ID. Paste the link to your Epic Games Store profile, or the 32-character ID from your Epic account settings.",
       "epic_profile_private": "This Epic profile is private. Set the profile and its achievements to public in Epic's privacy settings, then try again.",
       "epic_account_not_found": "Epic couldn't find an account with that ID. Check the profile link or account ID and try again.",
+      "invalid_gog_username": "That doesn't look like a GOG username. Paste the link to your GOG profile, or just the username from it.",
+      "gog_profile_private": "This GOG profile or its games list is private. Set your profile and games to public in GOG's privacy settings, then try again.",
+      "gog_profile_not_found": "GOG couldn't find a profile with that username. Check the profile link or username and try again.",
       "invalid_webhook_url": "That isn't a Discord webhook URL. Copy it in Discord from the channel's settings, under Integrations > Webhooks.",
       "webhook_not_found": "Discord didn't accept this webhook. It may have been deleted, or the URL is incomplete. Copy the URL again from Discord.",
       "cannot_connect": "Couldn't reach Discord to check the webhook. Try again in a moment.",

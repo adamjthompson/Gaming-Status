@@ -45,6 +45,7 @@ _PLATFORM_LABELS = {
     "playstation": "PlayStation",
     "epic": "Epic",
     "ubisoft": "Ubisoft",
+    "gog": "GOG",
 }
 
 
