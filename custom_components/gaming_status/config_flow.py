@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
@@ -607,7 +608,9 @@ _PLATFORM_CHOICES = [
 class GamingStatusOptionsFlow(config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self._config_entry = config_entry
-        self._options: dict = dict(config_entry.options)
+        # A deep copy: editing a nested value (a list of platforms, say) in
+        # place must not change the live options before they're saved.
+        self._options: dict = copy.deepcopy(dict(config_entry.options))
         self._editing_player: str | None = None
         self._editing_endpoint: str | None = None
         # (endpoint id, endpoint dict) waiting on the Discord Webhook step.
@@ -2472,7 +2475,9 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 # ones -- _update_and_return's own update-entry call would
                 # otherwise duplicate the one this replaces.
                 self.hass.config_entries.async_update_entry(
-                    self._config_entry, data=new_data, options=self._options
+                    self._config_entry,
+                    data=new_data,
+                    options=copy.deepcopy(self._options),
                 )
                 return await self.async_step_init()
 
@@ -3111,8 +3116,14 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
         )
 
     async def _update_and_return(self):
-        """Save the updated options to Home Assistant and return to the main menu."""
+        """Save the updated options to Home Assistant and return to the main menu.
+
+        Home Assistant keeps the dict it's given as the entry's options
+        without copying it, so it gets a copy. Handing over self._options
+        itself made every later edit in the same Configure session change
+        the live options in place: the next save then looked unchanged, so
+        it neither reloaded Gaming Status nor wrote the options to disk."""
         self.hass.config_entries.async_update_entry(
-            self._config_entry, options=self._options
+            self._config_entry, options=copy.deepcopy(self._options)
         )
         return await self.async_step_init()
