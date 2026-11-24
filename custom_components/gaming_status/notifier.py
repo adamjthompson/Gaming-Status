@@ -60,6 +60,7 @@ from .const import (
 )
 from .device import (
     async_fire_player_event,
+    async_get_player_device,
     resolve_master_entity_id,
     resolve_pc_entity_id,
     resolve_platform_entity_id,
@@ -1027,11 +1028,7 @@ class GamingNotifier:
         launcher-cooldown and cross-platform handoff filtering applied,
         unlike a raw state trigger on the master sensor. Fired whether or
         not notifications are enabled."""
-        from homeassistant.helpers import device_registry as dr
-
-        device = dr.async_get(self.hass).async_get_device(
-            identifiers={(DOMAIN, safe_owner_slug(player))}
-        )
+        device = async_get_player_device(self.hass, player)
         data = {
             "player": player,
             "game": game,

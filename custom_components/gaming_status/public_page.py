@@ -58,7 +58,7 @@ from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.json import json_bytes
 from homeassistant.util import dt as dt_util
@@ -89,7 +89,11 @@ from .const import (
     PUBLIC_PAGE_THEME_DEFAULT,
     PUBLIC_PAGE_THEME_MODES,
 )
-from .device import resolve_master_entity_id, safe_owner_slug
+from .device import (
+    async_get_player_device,
+    resolve_master_entity_id,
+    safe_owner_slug,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -651,9 +655,8 @@ def _state_dict(state, attrs) -> dict:
 
 
 def _player_entity_ids(hass, name: str) -> list[str]:
-    dev_reg = dr.async_get(hass)
     ent_reg = er.async_get(hass)
-    device = dev_reg.async_get_device(identifiers={(DOMAIN, safe_owner_slug(name))})
+    device = async_get_player_device(hass, name)
     if device is None:
         return [resolve_master_entity_id(hass, name)]
     return [
