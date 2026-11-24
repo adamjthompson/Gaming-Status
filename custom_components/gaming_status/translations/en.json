@@ -40,7 +40,7 @@
         },
         "data_description": {
           "epic_account_id": "Paste the link to this player's Epic Games Store profile, or their 32-character Epic account ID. Their Epic profile and achievements must be public. This alone is enough for the Epic library scan. Epic online status, the current game, and live Epic achievements need Gaming Status Agent, which reports games from the Epic launcher.",
-          "gog_username": "Paste the link to this player's GOG profile (for example https://www.gog.com/u/name), or just their GOG username. Their GOG profile and games must be public. This alone is enough for the GOG library scan. GOG only records playtime and achievements for games played through GOG Galaxy. The current game and live GOG achievements need Gaming Status Agent, which reports games from GOG."
+          "gog_username": "Paste the link to this player's GOG profile, or just their GOG username. Their GOG profile and games must be public. This alone is enough for the GOG library scan. GOG only records playtime and achievements for games played through GOG Galaxy. The current game and live GOG achievements need Gaming Status Agent, which reports games from GOG."
         }
       }
     },
@@ -109,7 +109,7 @@
           "custom": "Any sensor whose state is the game title (or on/off), e.g. sensor.player_one_active_pc_game",
           "playnite": "e.g. sensor.playnite_playing_game",
           "epic_account_id": "Paste the link to this player's Epic Games Store profile, or their 32-character Epic account ID. Their Epic profile and achievements must be public. This alone is enough for the Epic library scan. Epic online status, the current game, and live Epic achievements need Gaming Status Agent, which reports games from the Epic launcher.",
-          "gog_username": "Paste the link to this player's GOG profile (for example https://www.gog.com/u/name), or just their GOG username. Their GOG profile and games must be public. This alone is enough for the GOG library scan. GOG only records playtime and achievements for games played through GOG Galaxy. The current game and live GOG achievements need Gaming Status Agent, which reports games from GOG."
+          "gog_username": "Paste the link to this player's GOG profile, or just their GOG username. Their GOG profile and games must be public. This alone is enough for the GOG library scan. GOG only records playtime and achievements for games played through GOG Galaxy. The current game and live GOG achievements need Gaming Status Agent, which reports games from GOG."
         }
       },
       "edit_player": {
@@ -136,7 +136,7 @@
           "gsa": "Select this player's Gaming Status Agent sensor (sensor.gsa_*)",
           "custom": "Any sensor whose state is the game title (or on/off), e.g. a HASS.Agent or template sensor",
           "epic_account_id": "Paste the link to this player's Epic Games Store profile, or their 32-character Epic account ID. Their Epic profile and achievements must be public. This alone is enough for the Epic library scan. Epic online status, the current game, and live Epic achievements need Gaming Status Agent, which reports games from the Epic launcher.",
-          "gog_username": "Paste the link to this player's GOG profile (for example https://www.gog.com/u/name), or just their GOG username. Their GOG profile and games must be public. This alone is enough for the GOG library scan. GOG only records playtime and achievements for games played through GOG Galaxy. The current game and live GOG achievements need Gaming Status Agent, which reports games from GOG."
+          "gog_username": "Paste the link to this player's GOG profile, or just their GOG username. Their GOG profile and games must be public. This alone is enough for the GOG library scan. GOG only records playtime and achievements for games played through GOG Galaxy. The current game and live GOG achievements need Gaming Status Agent, which reports games from GOG."
         }
       },
       "player_details": {
