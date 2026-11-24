@@ -92,6 +92,7 @@ from .const import (
     OPT_USE_CACHE,
     OPT_WEEKLY_REPORT,
     PLAYER_EPIC_ACCOUNT_ID,
+    PLAYER_GOG_USERNAME,
     PLAYER_PLATFORMS,
     RATING_OVERRIDE_CODES,
     RATING_THRESHOLD_OPTIONS,
@@ -316,6 +317,12 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
             )[1]:
                 errors[PLAYER_EPIC_ACCOUNT_ID] = epic_result[1]
+            elif (
+                gog_result := await _async_validate_gog_account(
+                    self.hass, user_input.get(PLAYER_GOG_USERNAME)
+                )
+            )[1]:
+                errors[PLAYER_GOG_USERNAME] = gog_result[1]
             else:
                 player_data = {}
                 platforms = [
@@ -335,6 +342,8 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             player_data[platform] = val
                 if epic_result[0]:
                     player_data[PLAYER_EPIC_ACCOUNT_ID] = epic_result[0]
+                if gog_result[0]:
+                    player_data[PLAYER_GOG_USERNAME] = gog_result[0]
 
                 from .const import OPT_PLAYERS
 
@@ -389,6 +398,8 @@ class GamingStatusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         if "epic" in enabled_platforms:
             schema[vol.Optional(PLAYER_EPIC_ACCOUNT_ID)] = str
+        if "gog" in enabled_platforms:
+            schema[vol.Optional(PLAYER_GOG_USERNAME)] = str
         if "discord" in enabled_platforms:
             token = self._temp_user_input.get(CONF_DISCORD_TOKEN)
             server_id = self._temp_user_input.get(CONF_DISCORD_SERVER)
@@ -519,6 +530,37 @@ async def _async_validate_epic_account(hass, raw):
     return account_id, None
 
 
+async def _async_validate_gog_account(hass, raw):
+    """Parse (profile link or bare username) and check a newly entered GOG
+    profile.
+
+    Returns (username, error_key), the username as GOG spells it. An empty
+    value is (None, None) -- the field is optional. A private profile or
+    games list, or an unknown username, blocks saving, since nothing would
+    ever work for it; a network/rate-limit failure doesn't, as it says
+    nothing about the profile itself."""
+    from .platform_exceptions import ApiError, GogProfilePrivateError, NotFoundError
+
+    raw = str(raw or "").strip()
+    if not raw:
+        return None, None
+    username = utils.parse_gog_username(raw)
+    if not username:
+        return None, "invalid_gog_username"
+    try:
+        profile = await utils._get_gog_client(hass).async_get_profile(username)
+    except GogProfilePrivateError:
+        return username, "gog_profile_private"
+    except NotFoundError:
+        return username, "gog_profile_not_found"
+    except ApiError as err:
+        _LOGGER.debug("Gaming Status: couldn't verify the GOG profile: %s", err)
+        return username, None
+    if not profile["games_public"]:
+        return profile["username"], "gog_profile_private"
+    return profile["username"], None
+
+
 def _entity_dropdown(options, current_val: str = ""):
     """The one picker used for every sensor slot (Steam, Xbox, PlayStation,
     Gaming Status Agent, Playnite, Custom), so they all look alike -- label
@@ -554,6 +596,7 @@ _PLATFORM_CHOICES = [
     selector.SelectOptionDict(value="playstation", label="PlayStation"),
     selector.SelectOptionDict(value="epic", label="Epic Games"),
     selector.SelectOptionDict(value="ubisoft", label="Ubisoft"),
+    selector.SelectOptionDict(value="gog", label="GOG"),
     selector.SelectOptionDict(value="discord", label="Discord"),
     selector.SelectOptionDict(value="gsa", label="Gaming Status Agent"),
     selector.SelectOptionDict(value="custom", label="Custom"),
@@ -844,12 +887,19 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                     epic_id, epic_error = await _async_validate_epic_account(
                         self.hass, user_input.get(PLAYER_EPIC_ACCOUNT_ID)
                     )
+                    gog_name, gog_error = await _async_validate_gog_account(
+                        self.hass, user_input.get(PLAYER_GOG_USERNAME)
+                    )
                     if epic_error:
                         errors[PLAYER_EPIC_ACCOUNT_ID] = epic_error
-                    else:
+                    if gog_error:
+                        errors[PLAYER_GOG_USERNAME] = gog_error
+                    if not errors:
                         data = self._player_data_from_input(user_input)
                         if epic_id:
                             data[PLAYER_EPIC_ACCOUNT_ID] = epic_id
+                        if gog_name:
+                            data[PLAYER_GOG_USERNAME] = gog_name
                         players[name] = data
                         self._options[OPT_PLAYERS] = _dump_json(players)
                         self._editing_player = name
@@ -876,12 +926,19 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             user_input = None
 
         epic_id = None
+        gog_name = None
         if user_input is not None and not user_input.get("delete_player"):
             epic_id, epic_error = await _async_validate_epic_account(
                 self.hass, user_input.get(PLAYER_EPIC_ACCOUNT_ID)
             )
+            gog_name, gog_error = await _async_validate_gog_account(
+                self.hass, user_input.get(PLAYER_GOG_USERNAME)
+            )
             if epic_error:
                 errors[PLAYER_EPIC_ACCOUNT_ID] = epic_error
+            if gog_error:
+                errors[PLAYER_GOG_USERNAME] = gog_error
+            if errors:
                 user_input = None
 
         if user_input is not None:
@@ -940,6 +997,13 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
                 elif PLAYER_EPIC_ACCOUNT_ID in existing:
                     del existing[PLAYER_EPIC_ACCOUNT_ID]
                     await self._cleanup_player_entities(name, ["epic"])
+            # Same for the GOG username.
+            if "gog" in enabled_platforms:
+                if gog_name:
+                    existing[PLAYER_GOG_USERNAME] = gog_name
+                elif PLAYER_GOG_USERNAME in existing:
+                    del existing[PLAYER_GOG_USERNAME]
+                    await self._cleanup_player_entities(name, ["gog"])
 
             players[name] = existing
             self._options[OPT_PLAYERS] = _dump_json(players)
@@ -2601,6 +2665,12 @@ class GamingStatusOptionsFlow(config_entries.OptionsFlow):
             # Epic achievements on games the Agent reports from the Epic
             # launcher and for the Epic library scan.
             schema[_field(PLAYER_EPIC_ACCOUNT_ID)] = str
+
+        if "gog" in enabled_platforms:
+            # Not a sensor slot either: the player's public GOG profile, used
+            # for GOG achievements on games the Agent reports from GOG and
+            # for the GOG library scan.
+            schema[_field(PLAYER_GOG_USERNAME)] = str
 
         if "discord" in enabled_platforms:
             if self._discord_members:

@@ -247,9 +247,19 @@ GSA_ATTR_EPIC_SANDBOX_ID = "Epic Sandbox ID"
 GSA_LAUNCHER_UBISOFT = "ubisoft"
 GSA_ATTR_UBISOFT_GAME_ID = "Ubisoft Game ID"
 GSA_ATTR_UBISOFT_TOPIC = "Ubisoft Topic"
+# GOG works like Epic: no status sensor (its games arrive through the Agent,
+# Launcher "GOG"), with achievements and the library read from the player's
+# public GOG profile, keyed by their GOG username.
+PLAYER_GOG_USERNAME = "gog_username"
+GSA_LAUNCHER_GOG = "gog"
+# Optional Agent attribute carrying the running GOG game's product ID (the
+# registry key GOG Galaxy installs it under), which is the game id GOG's
+# profile pages use. When absent the game is matched by title.
+GSA_ATTR_GOG_GAME_ID = "GOG Game ID"
 LIBRARY_ONLY_PLATFORM_CONFIG = {
     "epic": {"icon": "gaming-status:epic", "name_suffix": "Epic"},
     "ubisoft": {"icon": "gaming-status:ubisoft", "name_suffix": "Ubisoft"},
+    "gog": {"icon": "gaming-status:gog", "name_suffix": "GOG"},
 }
 
 # ---------------------------------------------------------------------------
@@ -290,6 +300,7 @@ DEFAULT_ENABLED_PLATFORMS = [
     "playstation",
     "epic",
     "ubisoft",
+    "gog",
     "discord",
     "gsa",
     "custom",
@@ -484,6 +495,18 @@ EPIC_DEFINITIONS_CACHE_SECONDS = 24 * 3600
 # per scan; the rest catch up on later scans.
 EPIC_LIBRARY_DETAIL_BUDGET = 5
 
+# GOG public-profile data -- unofficial, undocumented endpoints behind
+# gog.com's own profile pages. No sign-in: only works while the profile and
+# its games are public. The games list is JSON; a game's achievements are
+# embedded as JSON in its (HTML) profile page.
+GOG_PROFILE_BASE = "https://www.gog.com/u"
+# How long the current-game lookup reuses one read of the games list.
+GOG_LIBRARY_CACHE_SECONDS = 30 * 60
+# Library scan: played games whose achievement percentage changed since the
+# last scan (or whose counts aren't known yet) get their achievement page
+# read, at most this many per scan; the rest catch up on later scans.
+GOG_LIBRARY_DETAIL_BUDGET = 10
+
 # PSN Trophy/Catalog API -- unofficial but stable, community-documented
 # (https://andshrew.github.io/PlayStation-Trophies/#/APIv2). Base URLs
 # confirmed live against psnawp_api's own endpoints.py (the library HA
@@ -512,6 +535,9 @@ PSN_RATE_LIMIT_PER_SECOND = 250 / 900  # ~250/15min effective ceiling
 # website visitor would generate.
 EPIC_RATE_LIMIT_CAPACITY = 5
 EPIC_RATE_LIMIT_PER_SECOND = 0.5
+# GOG publishes no limits either; same website-visitor pace as Epic.
+GOG_RATE_LIMIT_CAPACITY = 5
+GOG_RATE_LIMIT_PER_SECOND = 0.5
 
 # SteamGridDB pacing for the full-library scan's remote-URL-only art lookup
 # (utils.fetch_game_grid_urls_remote), since a library scan can mean

@@ -113,6 +113,15 @@ Epic achievements come from the player's public Epic profile (see [Epic Games Ac
 - **The game must come from Gaming Status Agent:** Epic online status and live Epic achievements only apply when the Agent reports the game with the `Epic` launcher. Epic games seen only through Discord aren't covered. The Epic library sensor works without the Agent, but its unlocks only reach the achievement history when the player has an Agent sensor.
 - **Renamed titles:** Without the Agent's Epic game ID, the game is matched to the profile by its title. A Title Override changes only what's displayed, so it doesn't affect this.
 
+## My GOG achievements aren't showing.
+GOG achievements come from the player's public GOG profile (see [GOG Achievements](../getting-started/prerequisites.md#gog-achievements)).
+
+- **The game must be played through GOG Galaxy:** GOG only records achievements and playtime for games run through Galaxy. A game started from its own shortcut without Galaxy has nothing to show.
+- **The game may not have GOG achievements:** Many GOG games, especially older ones, have none.
+- **The profile or its games may be private:** Both must be public. Re-saving the player's GOG profile under Manage Players reports a private profile.
+- **The game must come from Gaming Status Agent:** Live GOG achievements only apply when the Agent reports the game with the `GOG` launcher. The GOG library sensor works without the Agent, but its unlocks only reach the achievement history when the player has an Agent sensor.
+- **Renamed titles:** Without the Agent's GOG game ID (older Agents), the game is matched to the profile by its title. A Title Override changes only what's displayed, so it doesn't affect this.
+
 ## My Ubisoft achievements aren't showing.
 Ubisoft achievements come from Gaming Status Agent (see [Ubisoft Achievements](../getting-started/prerequisites.md#ubisoft-achievements)).
 

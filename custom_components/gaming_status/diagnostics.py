@@ -24,7 +24,8 @@ REDACTED = "**REDACTED**"
 # Gamertags are deliberately kept -- they're what a bug report is about.
 _REDACT_KEY_RE = re.compile(
     r"(token|npsso|oauth|password|secret|api_key|webhook|target|phone|email|"
-    r"xuid|account_id|user_id|steam_?id|online_id|discord_server|backup)",
+    r"xuid|account_id|user_id|steam_?id|online_id|gog_user|discord_server|"
+    r"backup)",
     re.IGNORECASE,
 )
 # Exact-match keys too generic for the pattern above: a player's "discord"
@@ -44,6 +45,8 @@ _REDACT_IN_STRING = (
     (re.compile(r"(/users/)\d+"), r"\1" + REDACTED),
     # Xbox XUIDs in request URLs, e.g. ".../users/xuid(2535...)/titles".
     (re.compile(r"(xuids?\()[\d,]+"), r"\1" + REDACTED),
+    # GOG usernames in profile URLs carried by logged exceptions.
+    (re.compile(r"(gog\.com/u/)[^/?#\s'\"]+"), r"\1" + REDACTED),
     # SteamID64s anywhere, e.g. a player's "sensor.steam_<id>" source entity.
     (re.compile(r"(?<!\d)7656119\d{10}(?!\d)"), REDACTED),
 )

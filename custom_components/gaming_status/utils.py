@@ -61,6 +61,9 @@ PSN_TITLE_ID_CACHE = (
 # normalized_game_name -> Epic sandboxId, learned from the player's profile
 # (or the Agent's "Epic Sandbox ID" attribute). Same forever-LRU reasoning.
 EPIC_SANDBOX_CACHE = OrderedDict()
+# normalized_game_name -> GOG product id, learned from the player's games
+# list (or the Agent's "GOG Game ID" attribute). Same forever-LRU reasoning.
+GOG_GAME_ID_CACHE = OrderedDict()
 MAX_ENRICHMENT_CACHE_SIZE = 500
 # appid -> (achievement total, time.monotonic() when fetched): just the
 # total, for the library scan's restricted (non-owner) Steam accounts, which
@@ -267,6 +270,8 @@ _ACCOUNT_IDS_IN_TEXT = (
     (re.compile(r"(PSN account )\d+"), r"\1***"),
     (re.compile(r"(account ID ')\d+"), r"\1***"),
     (re.compile(r"(?<!\d)7656119\d{10}(?!\d)"), "***"),
+    # GOG usernames inside profile URLs carried by transport errors.
+    (re.compile(r"(gog\.com/u/)[^/?#\s'\"]+"), r"\1***"),
 )
 
 
@@ -1189,6 +1194,8 @@ def _get_rate_limiter(hass, platform: str):
     from .const import (
         EPIC_RATE_LIMIT_CAPACITY,
         EPIC_RATE_LIMIT_PER_SECOND,
+        GOG_RATE_LIMIT_CAPACITY,
+        GOG_RATE_LIMIT_PER_SECOND,
         PSN_RATE_LIMIT_CAPACITY,
         PSN_RATE_LIMIT_PER_SECOND,
         STEAM_RATE_LIMIT_CAPACITY,
@@ -1211,6 +1218,10 @@ def _get_rate_limiter(hass, platform: str):
         elif platform == "epic":
             limiters[platform] = RateLimiter(
                 EPIC_RATE_LIMIT_CAPACITY, EPIC_RATE_LIMIT_PER_SECOND, name="epic"
+            )
+        elif platform == "gog":
+            limiters[platform] = RateLimiter(
+                GOG_RATE_LIMIT_CAPACITY, GOG_RATE_LIMIT_PER_SECOND, name="gog"
             )
         elif platform == "steamgriddb":
             limiters[platform] = RateLimiter(
@@ -1285,6 +1296,39 @@ def parse_epic_account_id(text) -> str | None:
     if len(matches) != 1:
         return None
     return matches.pop()
+
+
+def _get_gog_client(hass):
+    """GOG public-profile client -- one shared instance (no credentials;
+    it also holds the games-list cache the current-game lookup reuses)."""
+    from .gog_client import GogClient
+
+    client = hass.data.get("gaming_status_gog_client")
+    if client is None:
+        client = GogClient(
+            async_get_clientsession(hass), _get_rate_limiter(hass, "gog")
+        )
+        hass.data["gaming_status_gog_client"] = client
+    return client
+
+
+_GOG_PROFILE_LINK_RE = re.compile(
+    r"gog\.com/(?:[a-z]{2}(?:-[a-z]{2})?/)?u/([^/?#\s]+)", re.IGNORECASE
+)
+
+
+def parse_gog_username(text) -> str | None:
+    """Pull a GOG username out of whatever the user pasted: the bare
+    username, or any link to their public profile such as
+    https://www.gog.com/u/<name>/games. None if it isn't a valid username."""
+    from .gog_client import valid_username
+
+    text = str(text or "").strip()
+    if not text:
+        return None
+    match = _GOG_PROFILE_LINK_RE.search(text)
+    username = match.group(1) if match else text
+    return username if valid_username(username) else None
 
 
 def _set_psn_reauth_issue(hass, npsso, expired):
@@ -2074,6 +2118,131 @@ async def fetch_epic_game_unlocks(hass, account_id, sandbox_id):
             e,
         )
         return None, None
+
+
+def build_gog_recent_unlocks(achievements, limit=RECENT_UNLOCKS_LIMIT):
+    """A GOG game's unlocked achievements in the shared recent-unlocks
+    shape, newest first. Returns (recent_unlocks, last_achievement_at)."""
+    rows = [
+        {
+            "name": a.get("name"),
+            "description": a.get("description"),
+            "unlocked_at": a.get("unlocked_at"),
+            "icon_url": a.get("icon_url"),
+        }
+        for a in achievements or []
+        if a.get("unlocked")
+    ]
+    rows.sort(key=lambda r: r["unlocked_at"] or "", reverse=True)
+    last = rows[0]["unlocked_at"] if rows else None
+    return rows[:limit], last
+
+
+def _remember_gog_game(game_name, game_id):
+    key = _normalize_game_name(game_name)
+    if not key or not game_id:
+        return
+    GOG_GAME_ID_CACHE[key] = str(game_id)
+    GOG_GAME_ID_CACHE.move_to_end(key)
+    if len(GOG_GAME_ID_CACHE) > MAX_ENRICHMENT_CACHE_SIZE:
+        GOG_GAME_ID_CACHE.popitem(last=False)
+
+
+async def fetch_gog_achievements(hass, username, game_name, game_id=None):
+    """Earned/total counts plus a newest-first recent-unlocks list for the
+    GOG game currently being played. Never raises -- returns None when the
+    profile/game can't be resolved, the game has no GOG achievements, or
+    anything fails.
+
+    The game is identified by, in order: an explicit game_id (from the
+    Agent), a previously learned title -> id mapping, or an exact title
+    match against the player's games list (every owned game, so this works
+    before the first unlock too)."""
+    from .const import GOG_LIBRARY_CACHE_SECONDS
+
+    if not username or not game_name:
+        return None
+    try:
+        client = _get_gog_client(hass)
+        key = _normalize_game_name(game_name)
+        if not game_id and key in GOG_GAME_ID_CACHE:
+            game_id = GOG_GAME_ID_CACHE[key]
+            GOG_GAME_ID_CACHE.move_to_end(key)
+
+        if not game_id:
+            library = await client.async_get_library(
+                username, max_age=GOG_LIBRARY_CACHE_SECONDS
+            )
+            # Same exact-title matcher as Epic (no fuzzy matching, so
+            # sequels can't cross-match).
+            match = match_epic_profile_game(game_name, library["games"])
+            if match is None:
+                return None
+            if not match.get("achievement_support"):
+                _remember_gog_game(game_name, match["id"])
+                return None
+            game_id = match["id"]
+
+        result = await client.async_get_game_achievements(username, game_id)
+        _remember_gog_game(game_name, game_id)
+        if not result["total"]:
+            return None
+        recent, last = build_gog_recent_unlocks(result["achievements"])
+        return {
+            "earned": result["earned"],
+            "total": result["total"],
+            "recent_unlocks": recent,
+            "last_achievement_at": last,
+        }
+    except Exception as e:
+        _LOGGER.debug(
+            "[Gaming Status] GOG achievement fetch failed for %s: %s",
+            game_name,
+            redact_account_ids(str(e)),
+        )
+        return None
+
+
+async def fetch_gog_library(hass, username):
+    """Full-library-scan source for GOG -- every game on the public
+    profile. Never raises; returns (library, error), where library is
+    {"owned_count", "games"} or None -- see fetch_steam_owned_games for why
+    error matters."""
+    if not username:
+        return None, None
+    try:
+        return await _get_gog_client(hass).async_get_library(username), None
+    except ApiError as e:
+        _LOGGER.debug("[Gaming Status] GOG games list fetch failed: %s", e)
+        return None, str(e)
+    except Exception as e:
+        _LOGGER.debug("[Gaming Status] GOG games list fetch failed: %s", e)
+        return None, f"{type(e).__name__}: {e}"
+
+
+async def fetch_gog_game_achievements(hass, username, game_id):
+    """One GOG game's achievements (library-scan counts and history
+    backfill). Never raises; returns {"earned", "total", "recent_unlocks"}
+    or None on failure."""
+    if not username or not game_id:
+        return None
+    try:
+        result = await _get_gog_client(hass).async_get_game_achievements(
+            username, game_id
+        )
+    except Exception as e:
+        _LOGGER.debug(
+            "[Gaming Status] GOG achievement fetch failed for game %s: %s",
+            game_id,
+            redact_account_ids(str(e)),
+        )
+        return None
+    recent, _last = build_gog_recent_unlocks(result["achievements"])
+    return {
+        "earned": result["earned"],
+        "total": result["total"],
+        "recent_unlocks": recent,
+    }
 
 
 async def fetch_and_cache_image(hass, remote_url, file_name):

@@ -13,8 +13,8 @@ Common settings can also be changed from each player's device page (**Configurat
 | Weekday curfew, Weekend curfew | Time | Immediately |
 | Curfew reminder interval | Once per day, or every 15, 30 or 60 minutes | Immediately |
 | Rating limit, Maximum age rating | On/off, and Everyone through Adults Only. Only while **Native Content Ratings** is on | Immediately |
-| Steam / Xbox / Epic / Ubisoft achievement tracking, PlayStation trophy tracking | On/off, one per platform the player has (Epic once the player has an Epic account set, Ubisoft once they have a Gaming Status Agent sensor). Only while **Achievement/Trophy Tracking** is on | Reloads Gaming Status |
-| Steam / Xbox / PlayStation / Epic / Ubisoft library scan | On/off, one per platform. Only while **Full Game Library Scan** is on | Reloads Gaming Status |
+| Steam / Xbox / Epic / GOG / Ubisoft achievement tracking, PlayStation trophy tracking | On/off, one per platform the player has (Epic once the player has an Epic account set, GOG once they have a GOG profile set, Ubisoft once they have a Gaming Status Agent sensor). Only while **Achievement/Trophy Tracking** is on | Reloads Gaming Status |
+| Steam / Xbox / PlayStation / Epic / GOG / Ubisoft library scan | On/off, one per platform. Only while **Full Game Library Scan** is on | Reloads Gaming Status |
 | Show on public page | On/off | Immediately |
 
 **On the Gaming Status hub device:** Public page, Notifications, Parental controls and Weekly report on/off, all applied immediately.

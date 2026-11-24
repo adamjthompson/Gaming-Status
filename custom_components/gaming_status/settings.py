@@ -44,6 +44,7 @@ from .const import (
     OPT_RESTRICT_HISTORY_EDITS,
     OPT_WEEKLY_REPORT,
     PLAYER_EPIC_ACCOUNT_ID,
+    PLAYER_GOG_USERNAME,
 )
 from .device import safe_owner_slug
 
@@ -65,23 +66,33 @@ PARENTAL_DEFAULTS: dict[str, dict[str, Any]] = {
 }
 
 # Platforms with per-player achievement tracking / library scan settings.
-# Epic has no status sensor; its "source" is the player's Epic account ID.
-# Ubisoft's source is the player's Gaming Status Agent sensor.
-LIBRARY_PLATFORMS = ("steam", "xbox", "playstation", "epic", "ubisoft")
+# Epic has no status sensor; its "source" is the player's Epic account ID,
+# and GOG's is their GOG username. Ubisoft's source is the player's Gaming
+# Status Agent sensor.
+LIBRARY_PLATFORMS = ("steam", "xbox", "playstation", "epic", "ubisoft", "gog")
+
+# Each library platform's source key in a player's data.
+LIBRARY_PLATFORM_SOURCE_KEYS = {
+    "epic": PLAYER_EPIC_ACCOUNT_ID,
+    "ubisoft": "gsa",
+    "gog": PLAYER_GOG_USERNAME,
+}
 
 
 def player_has_platform_source(
     player_data: dict, platform: str, enabled_platforms
 ) -> bool:
     """Whether a player has what a platform's achievements/library need:
-    its sensor for Steam/Xbox/PlayStation, an Epic account ID for Epic, a
-    Gaming Status Agent sensor for Ubisoft -- Epic and Ubisoft only while
-    checked under Platforms to Track (a saved Epic ID is kept, unused, while
-    Epic is off)."""
+    its sensor for Steam/Xbox/PlayStation, an Epic account ID for Epic, a GOG
+    username for GOG, a Gaming Status Agent sensor for Ubisoft -- Epic, GOG
+    and Ubisoft only while checked under Platforms to Track (a saved Epic ID
+    or GOG username is kept, unused, while its platform is off)."""
     if platform == "epic":
         return "epic" in enabled_platforms and bool(
             player_data.get(PLAYER_EPIC_ACCOUNT_ID)
         )
+    if platform == "gog":
+        return "gog" in enabled_platforms and bool(player_data.get(PLAYER_GOG_USERNAME))
     if platform == "ubisoft":
         return (
             "ubisoft" in enabled_platforms

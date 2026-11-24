@@ -33,11 +33,14 @@ from .const import (
     OPT_ENABLED_PLATFORMS,
     OPT_PLAYERS,
     OPT_WEEKLY_REPORT,
-    PLAYER_EPIC_ACCOUNT_ID,
 )
 from .device import hub_device_info, player_device_info, safe_owner_slug
 from .sensor import _load_opt_json
-from .settings import async_check_admin
+from .settings import (
+    LIBRARY_PLATFORM_SOURCE_KEYS,
+    LIBRARY_PLATFORMS,
+    async_check_admin,
+)
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -67,13 +70,11 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                         opts.get(OPT_ENABLE_LIBRARY_SCAN, DEFAULT_ENABLE_LIBRARY_SCAN),
                     ),
                 )
-                for p in ("steam", "xbox", "playstation", "epic", "ubisoft")
-                # Epic's "source" is the player's Epic account ID; Ubisoft's
-                # is their Gaming Status Agent sensor.
+                for p in LIBRARY_PLATFORMS
+                # Epic's "source" is the player's Epic account ID, GOG's their
+                # GOG username; Ubisoft's is their Gaming Status Agent sensor.
                 if p in enabled_platforms
-                and player_data.get(
-                    {"epic": PLAYER_EPIC_ACCOUNT_ID, "ubisoft": "gsa"}.get(p, p)
-                )
+                and player_data.get(LIBRARY_PLATFORM_SOURCE_KEYS.get(p, p))
             )
             if not has_any_enabled:
                 continue
